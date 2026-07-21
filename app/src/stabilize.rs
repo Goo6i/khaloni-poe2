@@ -206,7 +206,7 @@ impl Slot {
 /// Applies one matched read to a slot. A miss (no read at all this scan) is
 /// handled by the caller and never reaches this function, so "no
 /// information" naturally never touches confirm/pending/displayed/snap.
-fn apply_read(slot: &mut Slot, row: Priced) {
+fn apply_read(slot: &mut Slot, row: Priced, immediate_switch: bool) {
     slot.misses = 0;
     slot.touch_position(&row);
 
@@ -243,7 +243,14 @@ fn apply_read(slot: &mut Slot, row: Priced) {
     }
 
     // Already displaying something real: needs PENDING_SWITCH consecutive
-    // reads of the SAME candidate item before switching away from it.
+    // reads of the SAME candidate item before switching away from it,
+    // UNLESS a scroll just proved the content moved (the guard would only
+    // prolong showing the previous row's price at a reused position).
+    if immediate_switch {
+        slot.pending = None;
+        slot.commit_switch(&row);
+        return;
+    }
     match &mut slot.pending {
         Some(p) if p.item_key == row.item_key => {
             p.count += 1;
@@ -276,6 +283,15 @@ pub struct Stabilizer {
     /// probably gone" signal than a Rows scan that ran OCR and matched
     /// nothing.
     nobands_streak: u32,
+    /// Nonzero right after Scrolled events, decremented per Rows scan.
+    /// While set: (a) a different item read at a slot's position replaces
+    /// it IMMEDIATELY instead of waiting PENDING_SWITCH reads - the
+    /// scroll already proved content moved, so the anti-flicker rule
+    /// would only prolong showing the previous row's price at a reused
+    /// position (live symptom: "scrolling made prices mangle"); (b) new
+    /// "?" rows are not created (the first post-burst frame can carry
+    /// motion blur that fakes count tokens).
+    scroll_recent: u8,
 }
 
 impl Stabilizer {
@@ -306,6 +322,7 @@ impl Stabilizer {
                 }
             }
             ScanResult::Scrolled(dy) => {
+                self.scroll_recent = 2;
                 // Instant translation; slots scrolled above the region top
                 // are dropped (they re-enter via OCR if scrolled back).
                 self.slots.retain_mut(|slot| {
@@ -328,15 +345,21 @@ impl Stabilizer {
                 if self.empty_streak >= STALE_CLEAR_AFTER {
                     self.slots.clear();
                 } else {
-                    self.update(rows);
+                    let post_scroll = self.scroll_recent > 0;
+                    self.scroll_recent = self.scroll_recent.saturating_sub(1);
+                    self.update(rows, post_scroll);
                 }
             }
         }
     }
 
-    fn update(&mut self, rows: Vec<Priced>) {
+    fn update(&mut self, rows: Vec<Priced>, post_scroll: bool) {
         let mut matched = vec![false; self.slots.len()];
         for row in rows {
+            // Post-scroll frames can carry motion blur that fakes count
+            // tokens; do not mint NEW "?" slots from them (existing slots
+            // still update normally).
+            let is_unknown = row.item_key.starts_with("unpriceable") || row.denom == crate::pricing::Denom::None && row.amount == poe2_lens_core::value::UNKNOWN;
             let existing = self
                 .slots
                 .iter()
@@ -348,8 +371,9 @@ impl Stabilizer {
             match existing {
                 Some(i) => {
                     matched[i] = true;
-                    apply_read(&mut self.slots[i], row);
+                    apply_read(&mut self.slots[i], row, post_scroll);
                 }
+                None if post_scroll && is_unknown => {}
                 None => {
                     self.slots.push(Slot::new(row));
                     matched.push(true);

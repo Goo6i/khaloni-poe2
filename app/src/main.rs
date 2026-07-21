@@ -212,6 +212,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             return;
         };
         let mut last_profile: Option<Vec<u16>> = None;
+        let mut post_scroll_fast = false;
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -251,6 +252,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         // skip OCR (mid-scroll frames are motion blur);
                         // the next stable frame rescans normally.
                         let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
+                        post_scroll_fast = true;
                         let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
                         if dbg {
                             eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
@@ -273,7 +275,14 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
                 continue;
             }
-            let lines = ocr::ocr_scan(&mut engine, &frame.gray);
+            // First scan after a scroll burst: bands only, no whole-panel
+            // union pass, so newly revealed rows appear ~3x sooner; the
+            // union tops up on the following scan.
+            let lines = if std::mem::take(&mut post_scroll_fast) {
+                ocr::ocr_bands(&mut engine, &frame.gray, &bands)
+            } else {
+                ocr::ocr_scan(&mut engine, &frame.gray)
+            };
             if dbg {
                 let d = std::path::Path::new("/tmp/poe2lens-frames");
                 let _ = std::fs::create_dir_all(d);
