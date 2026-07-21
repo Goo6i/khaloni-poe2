@@ -4,6 +4,6 @@
 set -euo pipefail
 for f in "$@"; do
   out="${f%.png}.pre.png"
-  magick "$f" -colorspace Gray -resize 300% -negate -normalize "$out"
+  magick "$f" -colorspace Gray -resize 300% -normalize "$out"
   echo "wrote $out"
 done

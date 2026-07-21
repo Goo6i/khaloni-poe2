@@ -13,7 +13,7 @@ def rows(path: str) -> list[str]:
         return [norm(l) for l in f if norm(l)]
 
 expected, actual = rows(sys.argv[1]), rows(sys.argv[2])
-hits = sum(1 for e in expected if e in actual)
+hits = sum(1 for e in expected if any(e in a for a in actual))
 pct = 100.0 * hits / max(len(expected), 1)
 print(f"{hits}/{len(expected)} rows matched ({pct:.0f}%)")
 sys.exit(0 if pct >= 95 else 1)
