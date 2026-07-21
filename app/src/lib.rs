@@ -12,3 +12,4 @@ pub mod pricing;
 pub mod prices;
 pub mod render;
 pub mod stabilize;
+pub mod template;
