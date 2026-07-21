@@ -211,7 +211,6 @@ fn overlay_mode() -> anyhow::Result<()> {
             eprintln!("tesseract init failed; OCR disabled");
             return;
         };
-        let mut whole_gate = ocr::WholePanelGate::new(std::time::Duration::from_secs(1));
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -247,7 +246,17 @@ fn overlay_mode() -> anyhow::Result<()> {
             if dbg {
                 eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
-            let lines = ocr::ocr_scan_gated(&mut engine, &frame.gray, &mut whole_gate);
+            // Fast-close: a band-less frame IS the close signal; skip all
+            // OCR (band detection costs ~2 ms) so the hide confirmation
+            // arrives at capture cadence, not OCR cadence. Live-verified:
+            // 114/116 panel scans banded (no under-threshold panel seen);
+            // if a panel style ever defeats band detection, this is the
+            // line to revisit.
+            if bands.is_empty() {
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
+                continue;
+            }
+            let lines = ocr::ocr_scan(&mut engine, &frame.gray);
             if dbg {
                 let d = std::path::Path::new("/tmp/poe2lens-frames");
                 let _ = std::fs::create_dir_all(d);
@@ -260,16 +269,10 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
             let snap = svc_ocr.snapshot();
             let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
-            // Fast-close invariant (regressed once, never again; see
-            // stabilize tests): the panel's structural signal is the bright
-            // reward bars. No bars AND no priced rows means the panel is
-            // gone even when the region stays bright (terrain) and the
-            // whole-panel pass reads scenery junk. Priced rows without
-            // bars (band detector glitch) still count as a panel.
-            if bands.is_empty() && out.0.is_empty() {
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
-                continue;
-            }
+            // Bands were present but nothing priced (tooltip occlusion,
+            // mid-transition frame): plain empty Rows, which the
+            // stabilizer rides out with its occlusion tolerance. The
+            // band-less case already exited above.
             if dbg {
                 eprintln!(
                     "TRACE {:>8.2}s ocr_done in {:?}: {} lines -> {} rows [{}]",
