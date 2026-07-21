@@ -626,3 +626,25 @@ impl TradeClient {
         parse_fetch(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
     }
 }
+
+/// Fetches the live stats catalog (no session needed; requires a
+/// browser-like User-Agent past Cloudflare). Callers cache the returned
+/// JSON on disk.
+pub fn fetch_stats_json() -> Result<String, TradeError> {
+    let http = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+             Chrome/126.0 Safari/537.36 poe2-lens/0.1",
+        )
+        .build()
+        .map_err(|e| TradeError::Http(e.to_string()))?;
+    let resp = http
+        .get("https://www.pathofexile.com/api/trade2/data/stats")
+        .send()
+        .map_err(|e| TradeError::Http(e.to_string()))?;
+    if !resp.status().is_success() {
+        return Err(TradeError::Http(format!("stats status {}", resp.status())));
+    }
+    resp.text().map_err(|e| TradeError::Http(e.to_string()))
+}

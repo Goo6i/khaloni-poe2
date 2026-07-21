@@ -186,6 +186,61 @@ fn overlay_mode() -> anyhow::Result<()> {
     // F7 press over some other window is silently dropped.
     let price_check_in_flight = Arc::new(AtomicBool::new(false));
     let (clip_tx, clip_rx) = mpsc::channel::<anyhow::Result<String>>();
+    // Trade appraisal worker: rare items parsed from the clipboard get a
+    // background search+fetch against the official trade API (strictly
+    // rate limited inside TradeClient); results return on this channel.
+    let (appraise_tx, appraise_rx) = mpsc::channel::<(String, Result<Vec<poe2_lens_core::trade::Listing>, String>)>();
+    let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<poe2_lens_core::item::Item>();
+    {
+        let tx = appraise_tx.clone();
+        let league = cfg.league.clone();
+        std::thread::spawn(move || {
+            let stats_path = directories::ProjectDirs::from("", "", "poe2-lens")
+                .map(|d| d.cache_dir().join("trade_stats.json"));
+            let mut client = match poe2_lens_core::trade::TradeClient::new("https://www.pathofexile.com", &league) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("trade client unavailable: {e}");
+                    return;
+                }
+            };
+            // Stats index: disk cache first, else fetched once, cached.
+            let stats_json: Option<String> = stats_path
+                .as_deref()
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .or_else(|| {
+                    let got = poe2_lens_core::trade::fetch_stats_json().ok()?;
+                    if let Some(p) = stats_path.as_deref() {
+                        if let Some(dir) = p.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let _ = std::fs::write(p, &got);
+                    }
+                    Some(got)
+                });
+            let stats = stats_json.and_then(|j| poe2_lens_core::trade::StatIndex::from_json(&j).ok());
+            let Some(stats) = stats else {
+                eprintln!("trade stats index unavailable; rare appraisal disabled");
+                return;
+            };
+            for item in appraise_req_rx {
+                let title = if item.name.is_empty() {
+                    item.base_type.clone().unwrap_or_default()
+                } else {
+                    item.name.clone()
+                };
+                let q = poe2_lens_core::trade::build_query(&item, &stats);
+                let outcome = client
+                    .search(&q)
+                    .and_then(|s| {
+                        let take = s.hashes.len().min(10);
+                        client.fetch(&s.id, &s.hashes[..take])
+                    })
+                    .map_err(|e| e.to_string());
+                let _ = tx.send((title, outcome));
+            }
+        });
+    }
 
     let map = CoordMap::new(game, (3840, 2160), cal);
     // Capacity 1: only the latest frame is ever wanted; see capture::consume.
@@ -505,9 +560,15 @@ fn overlay_mode() -> anyhow::Result<()> {
                 Ok(text) => {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, cfg.divine_threshold);
+                    if let Some(item) = hover.pending_appraisal.take() {
+                        let _ = appraise_req_tx.send(item);
+                    }
                 }
                 Err(e) => eprintln!("price check: {e}"),
             }
+        }
+        while let Ok((title, outcome)) = appraise_rx.try_recv() {
+            hover.appraisal_done(&title, outcome);
         }
         hover.tick();
 

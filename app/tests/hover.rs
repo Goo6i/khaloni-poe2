@@ -25,16 +25,35 @@ fn currency_fixture_prices_with_stack_count() {
 }
 
 #[test]
-fn rare_item_gets_stage_b_placeholder() {
+fn rare_item_queues_an_appraisal() {
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item1-inventory-rare-bow.txt");
     hs.trigger(clipboard, &t, 1.0);
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.title, "Horror Bane");
-    assert_eq!(popup.lines.len(), 1);
-    assert_eq!(popup.lines[0].text, "rare appraisal in Stage B");
-    assert_eq!(popup.lines[0].denom, Denom::None);
+    assert_eq!(popup.lines[0].text, "searching trade...");
+    let queued = hs.pending_appraisal.take().expect("rare queues an appraisal request");
+    assert_eq!(queued.name, "Horror Bane");
+
+    // The worker reporting back replaces the popup with listings.
+    hs.appraisal_done(
+        "Horror Bane",
+        Ok(vec![poe2_lens_core::trade::Listing {
+            price_amount: 2.5,
+            price_currency: "exalted".into(),
+            account: "Someone#1234".into(),
+            indexed: String::new(),
+            item_name: "Storm Call".into(),
+        }]),
+    );
+    let popup = hs.current.as_ref().expect("appraisal popup");
+    assert!(popup.lines[0].text.contains("2.5 exalted"));
+    assert!(popup.lines[0].text.contains("Someone#1234"));
+
+    // And an error outcome shows the message instead of vanishing.
+    hs.appraisal_done("Horror Bane", Err("rate limited; retry in 60s".into()));
+    assert!(hs.current.as_ref().unwrap().lines[0].text.contains("rate limited"));
 }
 
 #[test]
