@@ -1748,6 +1748,7 @@ dependencies = [
  "anyhow",
  "ashpd",
  "directories",
+ "evdev",
  "fontdue",
  "futures-util",
  "image",
