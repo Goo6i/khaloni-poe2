@@ -1,3 +1,4 @@
+use poe2_lens::hover::{Popup, PopupLine};
 use poe2_lens::pricing::{Denom, Tier};
 use poe2_lens::render::{Placed, Renderer};
 
@@ -80,4 +81,40 @@ fn jackpot_divine_row_composites_icon_pixels_beyond_the_text() {
         "expected the divine icon's detailed artwork to produce many distinct colors beyond the amount text, got {}",
         colors.len()
     );
+}
+
+#[test]
+fn draw_popup_paints_nonzero_pixels_at_the_anchor() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(500, 300).unwrap();
+    let popup = Popup {
+        title: "Exalted Orb".into(),
+        lines: vec![PopupLine { text: "12 ex".into(), denom: Denom::Exalted }],
+        expires: std::time::Instant::now() + std::time::Duration::from_secs(6),
+    };
+    r.draw_popup(&mut pm, &popup, (20, 20));
+
+    let mut painted = 0;
+    for yy in 20..120u32 {
+        for xx in 20..340u32 {
+            if pm.pixel(xx, yy).map(|p| p.alpha()).unwrap_or(0) != 0 {
+                painted += 1;
+            }
+        }
+    }
+    assert!(painted > 500, "expected painted popup pixels near the anchor, got {painted}");
+
+    // Nothing painted well above/left of the anchor: the popup's top-left
+    // corner is the anchor itself, not its center. A few rows of slack
+    // account for the pill border stroke straddling the path (half its
+    // 1.5px width sits outside the nominal rect).
+    let mut outside_painted = 0;
+    for yy in 0..17u32 {
+        for xx in 0..500u32 {
+            if pm.pixel(xx, yy).map(|p| p.alpha()).unwrap_or(0) != 0 {
+                outside_painted += 1;
+            }
+        }
+    }
+    assert_eq!(outside_painted, 0, "popup bled well above its anchor");
 }

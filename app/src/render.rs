@@ -5,6 +5,7 @@ use fontdue::{Font, FontSettings, Metrics};
 use image::RgbaImage;
 use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect as SkRect, Stroke, Transform};
 
+use crate::hover::Popup;
 use crate::pricing::{Denom, Tier};
 
 #[derive(Clone, PartialEq)]
@@ -60,6 +61,13 @@ const ICON_GAP: f32 = 4.0;
 const PILL_PAD_X: f32 = 8.0;
 const PILL_CORNER: f32 = 4.0;
 const PILL_BORDER_WIDTH: f32 = 1.5;
+
+// Hover price-check popup (Stage A: display-only, no interactivity).
+const POPUP_WIDTH: f32 = 320.0;
+const POPUP_TITLE_PX: f32 = 22.0;
+const POPUP_LINE_PX: f32 = 18.0;
+const POPUP_PAD: f32 = 12.0;
+const POPUP_ROW_GAP: f32 = 6.0;
 
 // Runeshape-panel parchment.
 const PILL_FILL: (u8, u8, u8, u8) = (0xEA, 0xDF, 0xC6, 235);
@@ -283,6 +291,42 @@ impl Renderer {
                 let total_style = TextStyle { kind: FontKind::Annotation, px: TOTAL_PX, color };
                 self.draw_text(pm, first.x as f32, y as f32 + TOTAL_PX * 0.35, &text, &total_style);
             }
+        }
+    }
+
+    /// Draws the hover price-check popup: same parchment pill language as
+    /// the row labels, but a single fixed-width block with a title line
+    /// (item name) followed by one priced line per `popup.lines`, each with
+    /// its currency icon composited the same way as `draw_frame`'s rows.
+    /// `anchor` is the popup's top-left corner in surface-local pixels.
+    pub fn draw_popup(&self, pm: &mut Pixmap, popup: &Popup, anchor: (i32, i32)) {
+        let (ax, ay) = anchor;
+        let title_h = POPUP_TITLE_PX + POPUP_ROW_GAP;
+        let line_h = POPUP_LINE_PX + POPUP_ROW_GAP;
+        let content_h = title_h + popup.lines.len() as f32 * line_h;
+        let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
+        let pill_x = ax as f32;
+        let pill_y = ay as f32;
+        self.pill(pm, pill_x, pill_y, POPUP_WIDTH, pill_h, border_color(Tier::Decent));
+
+        let title_color = Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF);
+        let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: title_color };
+        let title_baseline = pill_y + POPUP_PAD + POPUP_TITLE_PX * 0.8;
+        self.draw_text(pm, pill_x + POPUP_PAD, title_baseline, &popup.title, &title_style);
+
+        let mut row_top = pill_y + POPUP_PAD + title_h;
+        for line in &popup.lines {
+            let icon = self.icon_for(line.denom);
+            let line_style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: title_color };
+            let baseline = row_top + POPUP_LINE_PX * 0.8;
+            let mut pen_x = pill_x + POPUP_PAD;
+            self.draw_text(pm, pen_x, baseline, &line.text, &line_style);
+            if let Some(icon_img) = icon {
+                pen_x += self.text_width(FontKind::Annotation, &line.text, POPUP_LINE_PX) + ICON_GAP;
+                let icon_y = (row_top + POPUP_LINE_PX / 2.0 - ICON_SIZE as f32 / 2.0) as i32;
+                self.composite_icon(pm, icon_img, pen_x.round() as i32, icon_y);
+            }
+            row_top += line_h;
         }
     }
 }

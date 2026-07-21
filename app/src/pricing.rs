@@ -56,8 +56,10 @@ pub struct Priced {
 
 /// Mirrors `display_price`'s divine-vs-exalted choice and formatting, but
 /// returns the amount without a trailing "div"/"ex" word since the renderer
-/// shows that as an icon instead.
-fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> (Denom, String) {
+/// shows that as an icon instead. `pub(crate)` so `hover.rs` can reuse it
+/// for the price-check popup instead of duplicating the divine/exalted
+/// choice.
+pub(crate) fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> (Denom, String) {
     let count = count.max(1);
     let total_divine = price.divine * f64::from(count);
     let total_exalted = price.exalted * f64::from(count);

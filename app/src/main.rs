@@ -1,10 +1,11 @@
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 use poe2_lens::{
     capture,
     config::{Config, Rect},
     coord::CoordMap,
-    ocr, pricing, prices,
+    hover, inject, ocr, pricing, prices,
 };
 use poe2_lens_core::ninja::NinjaClient;
 
@@ -112,6 +113,10 @@ fn headless() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// What one tick draws+presents: the row labels, whether their prices are
+/// stale, and the hover popup (with its anchor) if one is currently up.
+type FrameState = (Vec<poe2_lens::render::Placed>, bool, Option<(hover::Popup, (i32, i32))>);
+
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg
@@ -153,6 +158,25 @@ fn overlay_mode() -> anyhow::Result<()> {
             eprintln!("hotkeys unavailable: {e}");
         }
     });
+
+    // Hover price check: the Injector owns a persistent uinput virtual
+    // keyboard, created once here since registering it with the compositor
+    // is slow. A missing /dev/uinput permission (see inject.rs's doc
+    // comment) is not fatal to the rest of the overlay: F7 just does
+    // nothing and this is logged once at startup.
+    let injector: Option<Arc<Mutex<inject::Injector>>> = match inject::Injector::new() {
+        Ok(i) => Some(Arc::new(Mutex::new(i))),
+        Err(e) => {
+            eprintln!("price check unavailable: {e}");
+            None
+        }
+    };
+    // Guards against F7 firing again while an injection (Ctrl+C + the ~300ms
+    // settle sleep in copy_hovered_item) is still in flight on its own
+    // thread; also never touched while the game isn't focused, so a stray
+    // F7 press over some other window is silently dropped.
+    let price_check_in_flight = Arc::new(AtomicBool::new(false));
+    let (clip_tx, clip_rx) = mpsc::channel::<anyhow::Result<String>>();
 
     let map = CoordMap::new(game, (3840, 2160), cal);
     // Capacity 1: only the latest frame is ever wanted; see capture::consume.
@@ -263,14 +287,18 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut game_focused = true;
     let mut game_present = true;
     let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
+    let mut hover = hover::HoverState::default();
     let mut game_pos = (game.x, game.y);
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
-    // What was actually drawn+presented last tick: `Some((placed, stale))`
-    // while visible, `None` while hidden/blank. Compared each tick so an
-    // unchanged stabilized row set (the common case at 10 ticks/sec, since
-    // OCR scans land far less often) skips both the redraw and the Wayland
-    // present entirely instead of repainting identical content every 100ms.
-    let mut last_frame: Option<(Vec<poe2_lens::render::Placed>, bool)> = None;
+    // What was actually drawn+presented last tick: `Some((placed, stale,
+    // popup))` while visible, `None` while hidden/blank. Compared each tick
+    // so an unchanged stabilized row set (the common case at 10 ticks/sec,
+    // since OCR scans land far less often) skips both the redraw and the
+    // Wayland present entirely instead of repainting identical content
+    // every 100ms. The popup slot is part of the same equality so its 6s
+    // expiry (which changes nothing else about the frame) still forces the
+    // repaint that clears it.
+    let mut last_frame: Option<FrameState> = None;
     let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
 
     loop {
@@ -305,8 +333,46 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // one within one tick on its own.
                 }
                 poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
+                poe2_lens::hotkeys::Hotkey::PriceCheck => {
+                    if let Some(inj) = &injector {
+                        // game_focused-gated so a press over some other
+                        // window never sends Ctrl+C into it; the swap is
+                        // the concurrency guard (see price_check_in_flight's
+                        // doc comment above), only reached at all when the
+                        // game has focus.
+                        if game_focused && !price_check_in_flight.swap(true, Ordering::AcqRel) {
+                            let inj = inj.clone();
+                            let tx = clip_tx.clone();
+                            let in_flight = price_check_in_flight.clone();
+                            std::thread::spawn(move || {
+                                // The ~300ms Ctrl+C + settle sleep lives in
+                                // copy_hovered_item; running it here keeps
+                                // it off the tick loop entirely.
+                                let result = inj
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .copy_hovered_item();
+                                let _ = tx.send(result);
+                                in_flight.store(false, Ordering::Release);
+                            });
+                        }
+                    }
+                }
             }
         }
+
+        // Drain injected clipboard text: reprice against whatever the price
+        // table looks like right now (not at the moment F7 was pressed).
+        while let Ok(result) = clip_rx.try_recv() {
+            match result {
+                Ok(text) => {
+                    let snap = svc.snapshot();
+                    hover.trigger(&text, &snap.table, cfg.divine_threshold);
+                }
+                Err(e) => eprintln!("price check: {e}"),
+            }
+        }
+        hover.tick();
 
         let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
@@ -365,14 +431,15 @@ fn overlay_mode() -> anyhow::Result<()> {
             let frame_state = if show {
                 let rows = stabilizer.rows();
                 let out_pos = overlay.output_pos();
+                // Global logical -> surface-local (output-relative); the
+                // game may have moved, so re-anchor on its live pos. Shared
+                // by the row labels and the popup anchor below.
+                let dx = game_pos.0 - map.window_logical.x;
+                let dy = game_pos.1 - map.window_logical.y;
                 let placed: Vec<_> = rows
                     .iter()
                     .map(|r| {
                         let (lx, ly) = map.label_pos_centered(r.y_top, r.height);
-                        // Global logical -> surface-local (output-relative);
-                        // the game may have moved, so re-anchor on its live pos.
-                        let dx = game_pos.0 - map.window_logical.x;
-                        let dy = game_pos.1 - map.window_logical.y;
                         poe2_lens::render::Placed {
                             x: lx + dx - out_pos.0,
                             y: ly + dy - out_pos.1,
@@ -382,18 +449,37 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     })
                     .collect();
-                Some((placed, stabilizer.stale()))
+                // Popup anchor (Stage A fallback: no cursor coordinates are
+                // available from the app side on Wayland): fixed margin off
+                // the calibration rect's top-right, same coordinate route
+                // as the row labels above rather than the live cursor.
+                let popup = hover.current.as_ref().map(|p| {
+                    let anchor_x = map.calibration.x + map.calibration.w as i32 + 24;
+                    let anchor_y = map.calibration.y;
+                    let ax = anchor_x + dx - out_pos.0;
+                    let ay = anchor_y + dy - out_pos.1;
+                    (p.clone(), (ax, ay))
+                });
+                Some((placed, stabilizer.stale(), popup))
             } else {
                 None
             };
 
             // A fresh/resized buffer always needs a real draw regardless of
             // content equality; otherwise only repaint+present when the
-            // stabilized row set (or its stale flag, or visibility) actually
-            // changed since the last tick.
+            // stabilized row set (or its stale flag, or the popup, or
+            // visibility) actually changed since the last tick. Including
+            // the popup here is what makes its 6s expiry repaint the frame
+            // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, stale)) => renderer.draw_frame(pm, placed, "", *stale),
+                    Some((placed, stale, popup)) => {
+                        renderer.draw_frame(pm, placed, "", *stale);
+                        // Popup drawn after the rows so it sits on top.
+                        if let Some((p, anchor)) = popup {
+                            renderer.draw_popup(pm, p, *anchor);
+                        }
+                    }
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),
                 }
                 overlay.present(pm)?;

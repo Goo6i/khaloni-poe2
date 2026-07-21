@@ -4,15 +4,17 @@
 
 use std::time::{Duration, Instant};
 
-use poe2_lens_core::{item, ninja::Price, ninja::PriceTable, value};
+use poe2_lens_core::{item, ninja::PriceTable, value};
 
 use crate::pricing::Denom;
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PopupLine {
     pub text: String,
     pub denom: Denom,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Popup {
     pub title: String,
     pub lines: Vec<PopupLine>,
@@ -54,7 +56,7 @@ impl HoverState {
             }],
             _ => match table.lookup(&title) {
                 Some(price) => {
-                    let (amount, denom) = amount_and_denom(price, count, divine_threshold);
+                    let (denom, amount) = crate::pricing::denom_amount(price, count, divine_threshold);
                     vec![PopupLine { text: amount, denom }]
                 }
                 None => vec![PopupLine {
@@ -76,39 +78,5 @@ impl HoverState {
                 self.current = None;
             }
         }
-    }
-}
-
-/// Same divine-vs-exalted choice and formatting as `pricing::denom_amount`
-/// (that function is private to its module, so this mirrors it against the
-/// public `Price` fields and `value::format_amount` rather than reaching
-/// into `pricing` directly); kept in sync by the shared behavior the two
-/// are tested against, not by a shared implementation.
-fn amount_and_denom(price: &Price, count: u32, divine_threshold: f64) -> (String, Denom) {
-    let count = count.max(1);
-    let total_divine = price.divine * f64::from(count);
-    let total_exalted = price.exalted * f64::from(count);
-    if total_divine >= divine_threshold {
-        let amount = if count == 1 {
-            value::format_amount(total_divine)
-        } else {
-            format!(
-                "{} ({} each)",
-                value::format_amount(total_divine),
-                value::format_amount(price.divine)
-            )
-        };
-        (amount, Denom::Divine)
-    } else {
-        let amount = if count == 1 {
-            value::format_amount(total_exalted)
-        } else {
-            format!(
-                "{} ({} each)",
-                value::format_amount(total_exalted),
-                value::format_amount(price.exalted)
-            )
-        };
-        (amount, Denom::Exalted)
     }
 }
