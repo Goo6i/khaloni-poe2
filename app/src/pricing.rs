@@ -42,6 +42,9 @@ pub struct Priced {
     pub item_key: String,
     /// Stack count this row was priced at (1 when uncounted).
     pub count: u32,
+    /// Total row value in exalted (0.0 for "?" rows); drives tiering and
+    /// the best-pick comparison.
+    pub value_ex: f64,
     /// True when this pass's OCR line carried an explicit "Nx" count token;
     /// false when the count was implied (defaulted to 1) or this row has no
     /// count concept at all (gem rows, "?" rows). Drives the stabilizer's
@@ -192,6 +195,7 @@ pub fn price_resolved(
         tier: tier_for(price.exalted * f64::from(count.max(1)), cfg),
         item_key: item_key.to_string(),
         count,
+        value_ex: price.exalted * f64::from(count.max(1)),
         count_explicit,
         locks_in_one: true,
     })
@@ -208,7 +212,7 @@ pub fn price_lines(
     for line in lines {
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
         if let Some(g) = gem_row(&line.unfiltered) {
-            let (label, tier, denom, amount, item_key) = match g {
+            let (label, tier, denom, amount, item_key, value_ex) = match g {
                 GemRow::Skill(level) => {
                     let name = format!("Uncut Skill Gem (Level {level})");
                     let item_key = format!("gem-skill-{level}");
@@ -221,9 +225,10 @@ pub fn price_lines(
                                 denom,
                                 amount,
                                 item_key,
+                                p.exalted,
                             )
                         }
-                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string(), item_key),
+                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string(), item_key, 0.0),
                     }
                 }
                 GemRow::Unleveled => (
@@ -232,6 +237,7 @@ pub fn price_lines(
                     Denom::None,
                     UNKNOWN.to_string(),
                     "gem-unleveled".to_string(),
+                    0.0,
                 ),
             };
             rows.push(Priced {
@@ -242,6 +248,7 @@ pub fn price_lines(
                 denom,
                 tier,
                 item_key,
+                value_ex,
                 // Skill/support/spirit rows never carry a count on the panel.
                 count: 1,
                 count_explicit: false,
@@ -268,6 +275,7 @@ pub fn price_lines(
                     denom: Denom::None,
                     tier: Tier::Unknown,
                     item_key: "unpriceable".to_string(),
+                    value_ex: 0.0,
                     count: 1,
                     count_explicit: false,
                     locks_in_one: true,
@@ -287,6 +295,7 @@ pub fn price_lines(
                 denom: Denom::None,
                 tier: Tier::Unknown,
                 item_key: "ambiguous".to_string(),
+                value_ex: 0.0,
                 count: 1,
                 count_explicit: false,
                 locks_in_one: true,
@@ -307,6 +316,7 @@ pub fn price_lines(
             denom,
             tier: tier_for(price.exalted * f64::from(count), cfg),
             item_key: normalize(name),
+            value_ex: price.exalted * f64::from(hit.count.unwrap_or(1)),
             count: hit.count.unwrap_or(1),
             count_explicit: hit.count.is_some(),
             locks_in_one: hit.tier.locks_in_one(),

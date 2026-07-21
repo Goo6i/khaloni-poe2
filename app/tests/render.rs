@@ -8,7 +8,7 @@ fn draws_nonempty_label_pixels_inside_bounds() {
     let mut pm = tiny_skia::Pixmap::new(600, 200).unwrap();
     r.draw_frame(
         &mut pm,
-        &[Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent }],
+        &[Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent, best: false }],
         "",
         false,
     );
@@ -34,8 +34,8 @@ fn repeated_draw_frame_is_deterministic_with_glyph_cache() {
     // first call, proving the cached path draws the same as the cold path.
     let r = Renderer::new().unwrap();
     let labels = [
-        Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent },
-        Placed { x: 20, y: 140, amount: "3".into(), denom: Denom::Chaos, tier: Tier::Jackpot },
+        Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent, best: false },
+        Placed { x: 20, y: 140, amount: "3".into(), denom: Denom::Chaos, tier: Tier::Jackpot, best: false },
     ];
 
     let mut first = tiny_skia::Pixmap::new(600, 200).unwrap();
@@ -61,7 +61,7 @@ fn jackpot_divine_row_composites_icon_pixels_beyond_the_text() {
     let mut pm = tiny_skia::Pixmap::new(300, 200).unwrap();
     r.draw_frame(
         &mut pm,
-        &[Placed { x: 20, y: 100, amount: "9".into(), denom: Denom::Divine, tier: Tier::Jackpot }],
+        &[Placed { x: 20, y: 100, amount: "9".into(), denom: Denom::Divine, tier: Tier::Jackpot, best: false }],
         "",
         false,
     );

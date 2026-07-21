@@ -576,6 +576,23 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // by the row labels and the popup anchor below.
                 let dx = game_pos.0 - map.window_logical.x;
                 let dy = game_pos.1 - map.window_logical.y;
+                // Best-pick: the single highest-value priced row (in
+                // exalted terms) gets the gold marker; only meaningful
+                // when at least two rows are priced (a pick-one panel).
+                let best_key: Option<u32> = {
+                    let priced: Vec<_> = rows
+                        .iter()
+                        .filter(|r| r.denom != pricing::Denom::None)
+                        .collect();
+                    if priced.len() >= 2 {
+                        priced
+                            .iter()
+                            .max_by(|a, b| a.value_ex.total_cmp(&b.value_ex))
+                            .map(|r| r.y_top)
+                    } else {
+                        None
+                    }
+                };
                 let placed: Vec<_> = rows
                     .iter()
                     .map(|r| {
@@ -586,6 +603,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                             amount: r.amount.clone(),
                             denom: r.denom,
                             tier: r.tier,
+                            best: Some(r.y_top) == best_key,
                         }
                     })
                     .collect();

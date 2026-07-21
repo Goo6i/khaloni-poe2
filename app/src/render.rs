@@ -15,6 +15,9 @@ pub struct Placed {
     pub amount: String,
     pub denom: Denom,
     pub tier: Tier,
+    /// Highest-value row of a pick-one panel: drawn with a gold border
+    /// and a small crown mark so the best choice reads at a glance.
+    pub best: bool,
 }
 
 // Which embedded Fontin face a glyph came from; part of the cache key so the
@@ -90,6 +93,10 @@ fn border_color(t: Tier) -> Color {
 
 fn stale_color() -> Color {
     Color::from_rgba8(STALE_COLOR.0, STALE_COLOR.1, STALE_COLOR.2, 0xFF)
+}
+
+fn best_border_color() -> Color {
+    Color::from_rgba8(0xC9, 0xA2, 0x27, 0xFF)
 }
 
 fn pill_fill_color() -> Color {
@@ -251,7 +258,8 @@ impl Renderer {
             let content_w = amount_w + icon_w + old_w;
             let pill_x = p.x as f32 - PILL_PAD_X;
             let pill_y = p.y as f32 - pill_h / 2.0;
-            self.pill(pm, pill_x, pill_y, content_w + PILL_PAD_X * 2.0, pill_h, border_color(p.tier));
+            let border = if p.best { best_border_color() } else { border_color(p.tier) };
+            self.pill(pm, pill_x, pill_y, content_w + PILL_PAD_X * 2.0, pill_h, border);
 
             let baseline_y = p.y as f32 + AMOUNT_PX * 0.35;
             let mut pen_x = p.x as f32;
@@ -270,6 +278,15 @@ impl Renderer {
                 pen_x += ICON_GAP;
                 let old_style = TextStyle { kind: FontKind::Annotation, px: OLD_PX, color: stale_color() };
                 self.draw_text(pm, pen_x, p.y as f32 + OLD_PX * 0.35, "(old)", &old_style);
+            }
+            if p.best {
+                pen_x += ICON_GAP;
+                let best_style = TextStyle {
+                    kind: FontKind::Annotation,
+                    px: OLD_PX,
+                    color: best_border_color(),
+                };
+                self.draw_text(pm, pen_x, p.y as f32 + OLD_PX * 0.35, "BEST", &best_style);
             }
         }
         if !total.is_empty() {

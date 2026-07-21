@@ -73,6 +73,7 @@ struct Snapshot {
     denom: Denom,
     tier: Tier,
     count: u32,
+    value_ex: f64,
 }
 
 impl Snapshot {
@@ -83,6 +84,7 @@ impl Snapshot {
             denom: row.denom,
             tier: row.tier,
             count: row.count,
+            value_ex: row.value_ex,
         }
     }
 }
@@ -414,6 +416,7 @@ impl Stabilizer {
             .filter(|s| s.displayed)
             .map(|s| Priced {
                 count: s.snap.count,
+                value_ex: s.snap.value_ex,
                 y_top: s.y,
                 height: s.height,
                 label: s.snap.label.clone(),
@@ -456,6 +459,7 @@ mod tests {
             tier: Tier::Decent,
             item_key: item_key.to_string(),
             count: 1,
+            value_ex: 1.0,
             count_explicit,
             locks_in_one,
         }
