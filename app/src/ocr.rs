@@ -134,7 +134,11 @@ pub struct OcrLine {
 /// 16-18 px, so BAND_MERGE_GAP = 13 separates the populations), and only
 /// then is BAND_MIN_H applied. Returns (y0, y1) pairs in capture-pixel
 /// space, top to bottom.
-pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
+/// Per-row mean brightness over the band-detection x-window, in
+/// capture-pixel rows. Shared by band detection and optical scroll
+/// estimation (the profile of a scrolled frame is the previous frame's
+/// profile shifted vertically).
+pub fn row_profile(gray: &GrayImage) -> Vec<u16> {
     let (w, h) = (gray.width() as usize, gray.height() as usize);
     if w == 0 || h == 0 {
         return Vec::new();
@@ -142,13 +146,79 @@ pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
     let x0 = ((w as f32) * ICON_CUT) as usize;
     let x1 = (((w as f32) * (1.0 - RIGHT_TRIM)) as usize).clamp(x0 + 1, w);
     let raw = gray.as_raw();
+    (0..h)
+        .map(|y| {
+            let row = &raw[y * w + x0..y * w + x1];
+            (row.iter().map(|&p| u64::from(p)).sum::<u64>() / row.len() as u64) as u16
+        })
+        .collect()
+}
 
+/// Estimates the vertical scroll between two frames' row profiles:
+/// minimizes normalized SAD over dy candidates, requiring at least 30%
+/// overlap. Returns None when the profiles do not clearly correlate at a
+/// nonzero shift (flat/noise frames, panel change) so the caller falls
+/// back to a normal OCR pass. Sub-millisecond for ~1000-row profiles.
+pub fn estimate_scroll(prev: &[u16], cur: &[u16]) -> Option<i32> {
+    const MAX_DY: i32 = 240;
+    if prev.len() != cur.len() || prev.len() < 100 {
+        return None;
+    }
+    let n = prev.len() as i32;
+    // Flat profiles (no structure) match at every shift; refuse.
+    let (min, max) = cur.iter().fold((u16::MAX, 0u16), |(a, b), &v| (a.min(v), b.max(v)));
+    if max - min < 20 {
+        return None;
+    }
+    // Convention: positive dy = content moved DOWN by dy rows (cur[i]
+    // matches prev[i - dy]), which is the direction slot y values shift.
+    let sad_at = |dy: i32| -> Option<u64> {
+        let (p0, c0) = if dy >= 0 { (0usize, dy as usize) } else { ((-dy) as usize, 0usize) };
+        let overlap = (n - dy.abs()) as usize;
+        if overlap * 10 < prev.len() * 3 {
+            return None;
+        }
+        let mut sum = 0u64;
+        for i in 0..overlap {
+            sum += u64::from(prev[p0 + i].abs_diff(cur[c0 + i]));
+        }
+        // Scaled normalization: plain integer division floors away
+        // the one-pixel edge signal that disambiguates neighboring
+        // offsets (measured: a 1 px misalignment scores 0.68/row, which
+        // floored to 0 and tied three offsets at zero).
+        Some(sum * 1024 / overlap as u64)
+    };
+    let base = sad_at(0)?;
+    let mut best = (0i32, base);
+    for dy in (-MAX_DY..=MAX_DY).filter(|&d| d != 0) {
+        if let Some(s) = sad_at(dy) {
+            // Ties (uniform background regions) resolve toward the
+            // smallest displacement.
+            if s < best.1 || (s == best.1 && dy.abs() < best.0.abs()) {
+                best = (dy, s);
+            }
+        }
+    }
+    // Require the winning shift to beat "no movement" decisively AND be
+    // a near-exact overlay of the previous frame (a true scroll is the
+    // same pixels displaced; unrelated content merely resembles it).
+    if best.0 != 0 && best.1 * 3 < base && best.1 <= 12 * 1024 {
+        Some(best.0)
+    } else {
+        None
+    }
+}
+
+pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
+    let profile = row_profile(gray);
+    detect_bands_from_profile(&profile)
+}
+
+pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
     let mut bands = Vec::new();
     let mut band_start: Option<u32> = None;
-    for y in 0..h {
-        let row = &raw[y * w + x0..y * w + x1];
-        let mean = row.iter().map(|&p| u64::from(p)).sum::<u64>() / row.len() as u64;
-        let bright = mean >= u64::from(BAND_BRIGHTNESS);
+    for (y, &mean) in profile.iter().enumerate() {
+        let bright = mean >= u16::from(BAND_BRIGHTNESS);
         match (bright, band_start) {
             (true, None) => band_start = Some(y as u32),
             (false, Some(y0)) => {
@@ -159,7 +229,7 @@ pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
         }
     }
     if let Some(y0) = band_start {
-        bands.push((y0, h as u32));
+        bands.push((y0, profile.len() as u32));
     }
 
     let mut merged: Vec<(u32, u32)> = Vec::new();

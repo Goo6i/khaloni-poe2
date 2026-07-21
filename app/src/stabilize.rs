@@ -12,6 +12,12 @@ pub enum ScanResult {
     Rows(Vec<Priced>, bool),
     NoBands,
     GateEmpty,
+    /// The panel content shifted vertically by this many PREPROCESSED
+    /// pixels (optical scroll estimate between consecutive frames; the
+    /// caller converts capture-space dy through UPSCALE). Slots move
+    /// instantly; no confirmation/miss bookkeeping is touched, so a scan
+    /// landing after the scroll matches the shifted slots in place.
+    Scrolled(i64),
 }
 
 // --- Slot-model constants, ported from the reference overlay's MergeReads
@@ -298,6 +304,18 @@ impl Stabilizer {
                 if self.nobands_streak >= NOBANDS_CLEAR_AFTER {
                     self.slots.clear();
                 }
+            }
+            ScanResult::Scrolled(dy) => {
+                // Instant translation; slots scrolled above the region top
+                // are dropped (they re-enter via OCR if scrolled back).
+                self.slots.retain_mut(|slot| {
+                    let ny = i64::from(slot.y) + dy;
+                    if ny < -i64::from(slot.height) {
+                        return false;
+                    }
+                    slot.y = ny.max(0) as u32;
+                    true
+                });
             }
             ScanResult::Rows(rows, stale) => {
                 self.nobands_streak = 0;
@@ -669,5 +687,38 @@ mod tests {
         assert!(s.stale());
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert!(!s.stale());
+    }
+
+    #[test]
+    fn scrolled_shifts_rows_instantly_and_preserves_state() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 300), exact("b", "1 ex", 900)], false));
+        assert_eq!(s.rows().len(), 2);
+
+        s.apply(ScanResult::Scrolled(-120));
+        let ys: Vec<u32> = s.rows().iter().map(|r| r.y_top).collect();
+        assert_eq!(ys, vec![180, 780], "labels must move by the scroll delta immediately");
+
+        // Scroll must not count as a miss: a following matching read keeps
+        // both slots displayed with no re-confirmation.
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 180), exact("b", "1 ex", 780)], false));
+        assert_eq!(s.rows().len(), 2);
+
+        // Accumulation.
+        s.apply(ScanResult::Scrolled(50));
+        s.apply(ScanResult::Scrolled(50));
+        let ys: Vec<u32> = s.rows().iter().map(|r| r.y_top).collect();
+        assert_eq!(ys, vec![280, 880]);
+    }
+
+    #[test]
+    fn scrolled_drops_rows_pushed_above_the_region() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100), exact("b", "1 ex", 900)], false));
+        s.apply(ScanResult::Scrolled(-600));
+        let rows = s.rows();
+        assert_eq!(rows.len(), 1, "the slot scrolled far above the top is dropped");
+        assert_eq!(rows[0].item_key, "b");
+        assert_eq!(rows[0].y_top, 300);
     }
 }

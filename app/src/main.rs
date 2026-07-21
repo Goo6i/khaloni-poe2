@@ -211,6 +211,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             eprintln!("tesseract init failed; OCR disabled");
             return;
         };
+        let mut last_profile: Option<Vec<u16>> = None;
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -242,7 +243,23 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::GateEmpty);
                 continue;
             }
-            let bands = ocr::detect_bands(&frame.gray);
+            let profile = ocr::row_profile(&frame.gray);
+            if let Some(prev) = last_profile.replace(profile.clone()) {
+                if let Some(dy) = ocr::estimate_scroll(&prev, &profile) {
+                    if dy.abs() > 2 {
+                        // Content is scrolling: move labels instantly and
+                        // skip OCR (mid-scroll frames are motion blur);
+                        // the next stable frame rescans normally.
+                        let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
+                        let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
+                        if dbg {
+                            eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
+                        }
+                        continue;
+                    }
+                }
+            }
+            let bands = ocr::detect_bands_from_profile(&profile);
             if dbg {
                 eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
@@ -397,6 +414,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     poe2_lens::stabilize::ScanResult::Rows(rows, stale) => {
                         eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
+                    }
+                    poe2_lens::stabilize::ScanResult::Scrolled(dy) => {
+                        eprintln!("DBG rows_rx: scrolled {dy}");
                     }
                 }
             }

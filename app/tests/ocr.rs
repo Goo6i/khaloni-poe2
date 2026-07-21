@@ -209,3 +209,57 @@ fn union_consumes_every_overlapping_whole_line_not_just_the_biggest_overlap() {
     assert_eq!(merged[0].filtered, "skill level 20 animus exchange");
     assert_eq!(merged[0].y_top, 1300, "the winning candidate's own position, not the band's");
 }
+
+// --- optical scroll estimation ---
+
+fn synthetic_profile(len: usize, bars: &[(usize, usize)]) -> Vec<u16> {
+    let mut p = vec![130u16; len];
+    for &(a, b) in bars {
+        for v in p.iter_mut().take(b.min(len)).skip(a) {
+            *v = 200;
+        }
+    }
+    p
+}
+
+fn shifted(profile: &[u16], dy: i32) -> Vec<u16> {
+    let n = profile.len() as i32;
+    (0..n)
+        .map(|i| {
+            let src = i - dy;
+            if src >= 0 && src < n {
+                profile[src as usize]
+            } else {
+                130
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn scroll_estimate_recovers_known_shifts() {
+    let base = synthetic_profile(1000, &[(100, 170), (250, 320), (400, 470), (700, 770)]);
+    for dy in [-180i32, -60, -7, 7, 60, 180] {
+        let cur = shifted(&base, dy);
+        assert_eq!(
+            poe2_lens::ocr::estimate_scroll(&base, &cur),
+            Some(dy),
+            "shift {dy} must be recovered exactly"
+        );
+    }
+}
+
+#[test]
+fn scroll_estimate_refuses_flat_and_static_frames() {
+    let flat = vec![150u16; 1000];
+    assert_eq!(poe2_lens::ocr::estimate_scroll(&flat, &flat), None, "flat profiles carry no signal");
+    let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
+    assert_eq!(poe2_lens::ocr::estimate_scroll(&base, &base), None, "identical frames are not a scroll");
+}
+
+#[test]
+fn scroll_estimate_refuses_uncorrelated_content() {
+    let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
+    let b = synthetic_profile(1000, &[(37, 61), (533, 601), (804, 851)]);
+    assert_eq!(poe2_lens::ocr::estimate_scroll(&a, &b), None, "a panel change is not a scroll");
+}
