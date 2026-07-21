@@ -1,0 +1,19 @@
+sr 
+l
+2x orb of annulment 1 
+ m 
+srs 
+1x orb of annulment
+el skill level 20 conductive runes
+ 
+ skill level 20 repulsion
+j skill level 20 frostflame no a
+ln vv j s
+ 7 1
+ g gf skill level 20 fragments of the past
+ 1 1
+ skill level 20 eternal march
+ level 20 detonate living
+ r 
+ pile 
+support concussive

@@ -1,0 +1,5 @@
+l 1x greater chaos orb
+i f 1x greater exalted orb 
+ y
+ii 1x greater regal orb
+ore time
