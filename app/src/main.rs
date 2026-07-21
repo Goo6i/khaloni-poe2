@@ -13,10 +13,7 @@ fn main() -> anyhow::Result<()> {
     match args.get(1).map(String::as_str).unwrap_or("") {
         "--calibrate" => calibrate(),
         "--headless" => headless(),
-        other => {
-            eprintln!("overlay mode arrives in Stage B; got {other:?}. Use --headless or --calibrate.");
-            Ok(())
-        }
+        _ => overlay_mode(),
     }
 }
 
@@ -115,4 +112,143 @@ fn headless() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn overlay_mode() -> anyhow::Result<()> {
+    let mut cfg = Config::load()?;
+    let cal = cfg
+        .calibration
+        .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
+
+    let cache = directories::ProjectDirs::from("", "", "poe2-lens").unwrap().cache_dir().to_path_buf();
+    let svc = prices::PriceService::start(NinjaClient::new(cache), cfg.league.clone())?;
+
+    let kwin = poe2_lens::kwin::GeometryFeed::start()?;
+    // First geometry fixes the output; 0,0,0,0 means no game yet.
+    let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
+    if let Ok(poe2_lens::kwin::KwinEvent::Geometry(g)) =
+        kwin.rx.recv_timeout(std::time::Duration::from_secs(5))
+    {
+        game = g;
+    }
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let start = rt.block_on(capture::portal_session(cfg.restore_token.as_deref()))?;
+    if let Some(tok) = &start.new_token {
+        cfg.restore_token = Some(tok.clone());
+        cfg.save()?;
+    }
+    let (hk_tx, hk_rx) = mpsc::channel();
+    rt.spawn(async move {
+        if let Err(e) = poe2_lens::hotkeys::listen(hk_tx).await {
+            eprintln!("hotkeys unavailable: {e}");
+        }
+    });
+
+    let map = CoordMap::new(game, (3840, 2160), cal);
+    let (ftx, frx) = mpsc::channel();
+    let (region_tx, region_rx) = mpsc::channel::<Rect>();
+    let region = map.region_px();
+    std::thread::spawn(move || {
+        let _ = capture::consume(start, region_rx, region, ftx);
+    });
+
+    // OCR worker: frames in, priced rows out.
+    let (rows_tx, rows_rx) = mpsc::channel();
+    let svc_ocr = svc.clone();
+    let ocr_cfg = cfg.clone();
+    std::thread::spawn(move || {
+        for frame in frx {
+            let pre = ocr::preprocess(&frame.gray);
+            let Ok(lines) = ocr::run_tesseract(&ocr_cfg.tesseract_cmd, &pre) else { continue };
+            let snap = svc_ocr.snapshot();
+            let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
+            let _ = rows_tx.send((out, snap.stale));
+        }
+    });
+
+    let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
+    let mut overlay = poe2_lens::overlay::Overlay::new(center)?;
+    let font = std::fs::read(&cfg.font_path)?;
+    let renderer = poe2_lens::render::Renderer::new(&font)?;
+
+    let mut scanning = true;
+    let mut hidden = false;
+    let mut game_focused = true;
+    let mut last: Option<(Vec<pricing::Priced>, String, bool)> = None;
+    let mut game_pos = (game.x, game.y);
+    let mut pixmap: Option<tiny_skia::Pixmap> = None;
+
+    loop {
+        overlay.pump()?;
+
+        while let Ok(ev) = kwin.rx.try_recv() {
+            match ev {
+                poe2_lens::kwin::KwinEvent::Geometry(g) => {
+                    game_pos = (g.x, g.y);
+                    let m = CoordMap::new(g, (3840, 2160), cal);
+                    let _ = region_tx.send(m.region_px());
+                }
+                poe2_lens::kwin::KwinEvent::Active(is_game) => game_focused = is_game,
+                poe2_lens::kwin::KwinEvent::GameGone => {
+                    last = None;
+                }
+            }
+        }
+        while let Ok(hk) = hk_rx.try_recv() {
+            match hk {
+                poe2_lens::hotkeys::Hotkey::ScanToggle => {
+                    scanning = !scanning;
+                    if !scanning {
+                        last = None;
+                    }
+                }
+                poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
+            }
+        }
+        while let Ok((out, stale)) = rows_rx.try_recv() {
+            if scanning {
+                last = Some((out.0, out.1, stale));
+            }
+        }
+
+        let show = !hidden && scanning && (game_focused || !cfg.pause_when_unfocused);
+        let size = overlay.size();
+        if size.0 > 0 {
+            let pm = pixmap.get_or_insert_with(|| {
+                tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap")
+            });
+            if (pm.width(), pm.height()) != size {
+                *pm = tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap");
+            }
+            if show {
+                if let Some((rows, total, stale)) = &last {
+                    let out_pos = overlay.output_pos();
+                    let placed: Vec<_> = rows
+                        .iter()
+                        .map(|r| {
+                            let (lx, ly) = map.label_pos_logical(r.y_top);
+                            // Global logical -> surface-local (output-relative);
+                            // the game may have moved, so re-anchor on its live pos.
+                            let dx = game_pos.0 - map.window_logical.x;
+                            let dy = game_pos.1 - map.window_logical.y;
+                            poe2_lens::render::Placed {
+                                x: lx + dx - out_pos.0,
+                                y: ly + dy - out_pos.1,
+                                label: r.label.clone(),
+                                tier: r.tier,
+                            }
+                        })
+                        .collect();
+                    renderer.draw_frame(pm, &placed, total, *stale);
+                } else {
+                    pm.fill(tiny_skia::Color::TRANSPARENT);
+                }
+            } else {
+                pm.fill(tiny_skia::Color::TRANSPARENT);
+            }
+            overlay.present(pm)?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }

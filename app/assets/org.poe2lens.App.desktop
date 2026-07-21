@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=poe2-lens
+Exec=/home/mohammed/poe2-lens/target/release/poe2-lens
+NoDisplay=true

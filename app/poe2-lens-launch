@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# The shortcuts portal needs an app id; host apps get one from an
+# app-<id>-<n>.scope systemd unit plus a matching desktop entry.
+set -euo pipefail
+install -Dm644 "$(dirname "$0")/assets/org.poe2lens.App.desktop" \
+  "$HOME/.local/share/applications/org.poe2lens.App.desktop"
+exec systemd-run --user --scope --unit="app-org.poe2lens.App-$RANDOM.scope" \
+  "$(dirname "$0")/../target/release/poe2-lens" "$@"
