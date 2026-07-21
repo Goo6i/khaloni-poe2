@@ -47,6 +47,57 @@ fn empty_lines_is_an_error() {
 }
 
 #[test]
+fn missing_exalted_rate_is_rejected_and_not_cached() {
+    // nonempty lines, but rates is empty so exalted is missing entirely
+    let malformed = CURRENCY_JSON.replacen(
+        r#""rates": {"exalted": 410.0, "chaos": 7.29}"#,
+        r#""rates": {}"#,
+        1,
+    );
+    assert_ne!(malformed, CURRENCY_JSON, "string patch must have matched");
+    let ov: ExchangeOverview = serde_json::from_str(&malformed).unwrap();
+    assert!(!ov.lines.is_empty());
+    assert!(NinjaClient::validate(&ov, "Currency").is_err());
+
+    let dir = std::env::temp_dir().join("poe2-lens-test-cache-malformed-rates");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let client = NinjaClient::with_base(serve_once(&malformed), dir.clone());
+    let result = client.exchange_overview("Runes of Aldur", "Currency");
+    assert!(result.is_err());
+
+    let cache_file = dir.join("Runes of Aldur-Currency.json");
+    assert!(
+        !cache_file.exists(),
+        "malformed response must not be written to cache"
+    );
+}
+
+#[test]
+fn non_divine_primary_is_rejected_and_not_cached() {
+    let malformed = CURRENCY_JSON.replacen(r#""primary": "divine""#, r#""primary": "chaos""#, 1);
+    assert_ne!(malformed, CURRENCY_JSON, "string patch must have matched");
+    let ov: ExchangeOverview = serde_json::from_str(&malformed).unwrap();
+    assert!(!ov.lines.is_empty());
+    assert!(NinjaClient::validate(&ov, "Currency").is_err());
+
+    let dir = std::env::temp_dir().join("poe2-lens-test-cache-malformed-primary");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let client = NinjaClient::with_base(serve_once(&malformed), dir.clone());
+    let result = client.exchange_overview("Runes of Aldur", "Currency");
+    assert!(result.is_err());
+
+    let cache_file = dir.join("Runes of Aldur-Currency.json");
+    assert!(
+        !cache_file.exists(),
+        "malformed response must not be written to cache"
+    );
+}
+
+#[test]
 fn stale_cache_fallback_when_network_unreachable() {
     let dir = std::env::temp_dir().join("poe2-lens-test-cache");
     let _ = std::fs::remove_dir_all(&dir);
@@ -70,6 +121,32 @@ fn stale_cache_fallback_when_network_unreachable() {
     std::fs::create_dir_all(&empty_dir).unwrap();
     let client2 = NinjaClient::with_base("http://127.0.0.1:9".to_string(), empty_dir);
     assert!(client2.exchange_overview("Runes of Aldur", "Currency").is_err());
+}
+
+/// Spawns a one-shot raw HTTP server on a random local port that replies with
+/// a 200 response carrying the given body, then returns its base URL. Used to
+/// exercise NinjaClient::exchange_overview without a real network dependency.
+fn serve_once(body: &str) -> String {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let port = listener.local_addr().unwrap().port();
+    let body = body.to_string();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    format!("http://127.0.0.1:{port}")
 }
 
 #[test]

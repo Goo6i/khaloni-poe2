@@ -84,6 +84,7 @@ fn extract_count(line_norm: &str) -> (Option<u32>, String) {
 /// 1. Substring: a vocabulary entry contained verbatim in the UNFILTERED line.
 /// 2. Fuzzy: normalized Levenshtein >= 0.75 between the count-stripped
 ///    FILTERED line and a vocabulary entry.
+///
 /// The count always comes from the same line that produced the name match.
 pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> Vec<RowHit> {
     let mut hits = Vec::new();

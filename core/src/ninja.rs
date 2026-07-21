@@ -27,6 +27,8 @@ pub enum NinjaError {
     Json(#[from] serde_json::Error),
     #[error("empty response for type {0} (unknown type or no data)")]
     EmptyResponse(String),
+    #[error("malformed response for type {0}: {1}")]
+    MalformedResponse(String, &'static str),
     #[error("network failed and no cache available: {0}")]
     NoData(String),
 }
@@ -119,6 +121,25 @@ impl NinjaClient {
     pub fn validate(ov: &ExchangeOverview, typ: &str) -> Result<(), NinjaError> {
         if ov.lines.is_empty() {
             return Err(NinjaError::EmptyResponse(typ.to_string()));
+        }
+        // PriceTable::build assumes primary values are denominated in divine;
+        // any other primary would silently mis-scale every price.
+        if ov.core.primary != "divine" {
+            return Err(NinjaError::MalformedResponse(
+                typ.to_string(),
+                "core.primary is not \"divine\"",
+            ));
+        }
+        // a missing or non-positive exalted rate makes every Price.exalted 0.0
+        // and renders as "0.00 ex" instead of surfacing the "?" fallback.
+        match ov.core.rates.get("exalted") {
+            Some(rate) if *rate > 0.0 => {}
+            _ => {
+                return Err(NinjaError::MalformedResponse(
+                    typ.to_string(),
+                    "core.rates[\"exalted\"] is missing or not positive",
+                ));
+            }
         }
         Ok(())
     }
