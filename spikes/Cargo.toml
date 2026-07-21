@@ -1,0 +1,15 @@
+[package]
+name = "spikes"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ashpd = { version = "0.11", features = ["tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+pipewire = "0.10"
+image = "0.25"
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+evdev = "0.12"
+futures-util = "0.3"
