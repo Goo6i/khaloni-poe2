@@ -8,6 +8,7 @@ install -Dm644 "$(dirname "$0")/assets/org.poe2lens.App.desktop" \
   "$HOME/.local/share/applications/org.poe2lens.App.desktop"
 LOG_DIR="$HOME/.cache/poe2-lens"
 mkdir -p "$LOG_DIR"
+[ -f "$LOG_DIR/last-run.log" ] && mv -f "$LOG_DIR/last-run.log" "$LOG_DIR/prev-run.log"
 export POE2LENS_DEBUG=1
 exec systemd-run --user --scope --unit="app-org.poe2lens.App-$RANDOM.scope" \
   "$(dirname "$0")/../target/release/poe2-lens" "$@" \
