@@ -261,6 +261,11 @@ impl PriceTable {
         self.by_name.get(&normalize(name))
     }
 
+    /// Normalized display names of every priced entry, for building a matcher Vocab.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.by_name.keys().map(String::as_str)
+    }
+
     pub fn len(&self) -> usize {
         self.by_name.len()
     }

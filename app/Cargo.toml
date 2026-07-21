@@ -1,0 +1,30 @@
+[package]
+name = "poe2-lens"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+poe2-lens-core = { path = "../core" }
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+pipewire = "0.10"
+ashpd = { version = "0.11", features = ["tokio"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+zbus = "5"
+image = "0.25"
+tiny-skia = "0.11"
+fontdue = "0.9"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+directories = "6"
+anyhow = "1"
+futures-util = "0.3"
+
+[lib]
+name = "poe2_lens"
+path = "src/lib.rs"
+
+[[bin]]
+name = "poe2-lens"
+path = "src/main.rs"
