@@ -57,7 +57,7 @@ pub async fn portal_session(restore_token: Option<&str>) -> anyhow::Result<Captu
 
 /// The pipewire half, blocking; call on a dedicated thread. It sends a grayscale
 /// crop of `region` (capture pixels) whenever its content hash changes, at most
-/// every 500 ms; region updates arrive on `region_rx`.
+/// every 300 ms; region updates arrive on `region_rx`.
 pub fn consume(
     start: CaptureStart,
     region_rx: std::sync::mpsc::Receiver<Rect>,
@@ -101,15 +101,22 @@ pub fn consume(
         .process(move |stream, state| {
             while let Ok(r) = region_rx.try_recv() {
                 region = r;
+                // A region update means the caller wants a fresh read (resume
+                // from pause, geometry change): force the next frame through
+                // the hash gate even if the pixels look identical to before.
+                state.last_hash = 0;
             }
-            if let Some(t) = state.last_sent {
-                if t.elapsed() < Duration::from_millis(500) {
-                    return;
-                }
-            }
+            // Always dequeue: an un-dequeued buffer never returns to the pool,
+            // and a starved pool stalls the stream permanently. Throttling
+            // drops the dequeued frame instead of skipping the dequeue.
             let Some(mut buffer) = stream.dequeue_buffer() else {
                 return;
             };
+            if let Some(t) = state.last_sent {
+                if t.elapsed() < Duration::from_millis(300) {
+                    return;
+                }
+            }
             let datas = buffer.datas_mut();
             let Some(data) = datas.first_mut() else {
                 return;

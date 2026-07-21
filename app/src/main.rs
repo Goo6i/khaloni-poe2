@@ -173,16 +173,28 @@ fn overlay_mode() -> anyhow::Result<()> {
     let ocr_cfg = cfg.clone();
     let paused_ocr = pipeline_paused.clone();
     std::thread::spawn(move || {
+        let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
         for frame in frx {
+            let mean = mean_gray_brightness(&frame.gray);
+            if dbg {
+                eprintln!("DBG ocr-worker: frame {}x{} mean_brightness={mean}", frame.gray.width(), frame.gray.height());
+            }
             if paused_ocr.load(std::sync::atomic::Ordering::Relaxed) {
                 // Drop the frame cheaply; no OCR/pricing work while paused.
+                continue;
+            }
+            if mean < u64::from(ocr_cfg.panel_min_brightness) {
+                // Too dark to be the parchment panel (game world, not the
+                // list): skip tesseract entirely and report gated-empty so
+                // the overlay can drop stale rows instead of holding them.
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::GateEmpty);
                 continue;
             }
             let pre = ocr::preprocess(&frame.gray);
             let Ok(lines) = ocr::run_tesseract(&ocr_cfg.tesseract_cmd, &pre) else { continue };
             let snap = svc_ocr.snapshot();
             let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
-            let _ = rows_tx.send((out, snap.stale));
+            let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(out.0, snap.stale));
         }
     });
 
@@ -195,9 +207,13 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut hidden = false;
     let mut game_focused = true;
     let mut game_present = true;
-    let mut last: Option<(Vec<pricing::Priced>, String, bool)> = None;
+    let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
     let mut game_pos = (game.x, game.y);
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
+    // Tracks the pause state from the previous tick so a resume (pause ->
+    // running) can force a rescan even if the panel pixels never changed
+    // while we were paused.
+    let mut prev_paused = false;
 
     loop {
         overlay.pump()?;
@@ -212,7 +228,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
                 poe2_lens::kwin::KwinEvent::Active(is_game) => game_focused = is_game,
                 poe2_lens::kwin::KwinEvent::GameGone => {
-                    last = None;
+                    stabilizer.clear();
                     game_present = false;
                     overlay.hide()?;
                 }
@@ -222,8 +238,12 @@ fn overlay_mode() -> anyhow::Result<()> {
             match hk {
                 poe2_lens::hotkeys::Hotkey::ScanToggle => {
                     scanning = !scanning;
-                    if !scanning {
-                        last = None;
+                    if scanning {
+                        // Scanning just turned back on: force a rescan even
+                        // if the panel looks pixel-identical to before.
+                        let _ = region_tx.send(map.region_px());
+                    } else {
+                        stabilizer.clear();
                     }
                 }
                 poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
@@ -231,11 +251,36 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
 
         let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
+        if prev_paused && !paused {
+            // Resuming from pause: the capture thread's hash gate may have
+            // been sitting on a stale frame the whole time, so force one.
+            let _ = region_tx.send(map.region_px());
+        }
+        prev_paused = paused;
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
 
-        while let Ok((out, stale)) = rows_rx.try_recv() {
+        while let Ok(msg) = rows_rx.try_recv() {
+            match &msg {
+                poe2_lens::stabilize::ScanResult::GateEmpty => {
+                    eprintln!("DBG rows_rx: gate-empty");
+                }
+                poe2_lens::stabilize::ScanResult::Rows(rows, stale) => {
+                    eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
+                }
+            }
             if scanning {
-                last = Some((out.0, out.1, stale));
+                stabilizer.apply(msg);
+            }
+        }
+        if std::env::var("POE2LENS_DEBUG").is_ok() {
+            static TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if t.is_multiple_of(10) {
+                eprintln!(
+                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} hidden={hidden} rows={} surface={:?} game_pos={game_pos:?}",
+                    stabilizer.rows().len(),
+                    overlay.size()
+                );
             }
         }
 
@@ -250,28 +295,25 @@ fn overlay_mode() -> anyhow::Result<()> {
                 *pm = tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap");
             }
             if show {
-                if let Some((rows, total, stale)) = &last {
-                    let out_pos = overlay.output_pos();
-                    let placed: Vec<_> = rows
-                        .iter()
-                        .map(|r| {
-                            let (lx, ly) = map.label_pos_logical(r.y_top);
-                            // Global logical -> surface-local (output-relative);
-                            // the game may have moved, so re-anchor on its live pos.
-                            let dx = game_pos.0 - map.window_logical.x;
-                            let dy = game_pos.1 - map.window_logical.y;
-                            poe2_lens::render::Placed {
-                                x: lx + dx - out_pos.0,
-                                y: ly + dy - out_pos.1,
-                                label: r.label.clone(),
-                                tier: r.tier,
-                            }
-                        })
-                        .collect();
-                    renderer.draw_frame(pm, &placed, total, *stale);
-                } else {
-                    pm.fill(tiny_skia::Color::TRANSPARENT);
-                }
+                let rows = stabilizer.rows();
+                let out_pos = overlay.output_pos();
+                let placed: Vec<_> = rows
+                    .iter()
+                    .map(|r| {
+                        let (lx, ly) = map.label_pos_logical(r.y_top);
+                        // Global logical -> surface-local (output-relative);
+                        // the game may have moved, so re-anchor on its live pos.
+                        let dx = game_pos.0 - map.window_logical.x;
+                        let dy = game_pos.1 - map.window_logical.y;
+                        poe2_lens::render::Placed {
+                            x: lx + dx - out_pos.0,
+                            y: ly + dy - out_pos.1,
+                            label: r.label.clone(),
+                            tier: r.tier,
+                        }
+                    })
+                    .collect();
+                renderer.draw_frame(pm, &placed, "", stabilizer.stale());
             } else {
                 pm.fill(tiny_skia::Color::TRANSPARENT);
             }
@@ -279,4 +321,12 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+}
+
+fn mean_gray_brightness(img: &image::GrayImage) -> u64 {
+    let raw = img.as_raw();
+    if raw.is_empty() {
+        return 0;
+    }
+    raw.iter().map(|&p| p as u64).sum::<u64>() / raw.len() as u64
 }

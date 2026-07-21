@@ -6,7 +6,10 @@ use crate::config::Rect;
 pub const KWIN_SCRIPT: &str = r#"
 function isGame(w) {
     if (!w) return false;
-    return (w.caption + " " + w.resourceClass).toLowerCase().includes("path of exile");
+    var cap = (w.caption || "").toLowerCase();
+    var cls = (w.resourceClass || "").toLowerCase();
+    if (cap === "path of exile 2") return true;
+    return (cls === "gamescope" || cls.indexOf("steam_app") === 0) && cap.indexOf("path of exile") !== -1;
 }
 function reportGeometry(w) {
     callDBus("org.poe2lens.App", "/org/poe2lens/App", "org.poe2lens.App", "Geometry",
@@ -54,9 +57,12 @@ impl Service {
         let _ = self.tx.send(ev);
     }
     fn active(&self, caption: String) {
-        let _ = self
-            .tx
-            .send(KwinEvent::Active(caption.to_lowercase().contains("path of exile")));
+        let cap = caption.to_lowercase();
+        let is_game = cap.starts_with("path of exile 2 ")
+            || cap == "path of exile 2"
+            || cap.contains(" gamescope")
+            || cap.contains(" steam_app");
+        let _ = self.tx.send(KwinEvent::Active(is_game));
     }
 }
 

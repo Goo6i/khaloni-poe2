@@ -43,7 +43,8 @@ fn prices_currency_rows_with_counts() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].label.contains("each") || rows[0].label.contains("ex"));
     assert_ne!(rows[0].label, poe2_lens_core::value::UNKNOWN);
-    assert!(!total.is_empty());
+    // The panel is a pick-one choice: no summed total is ever rendered.
+    assert!(total.is_empty());
 }
 
 #[test]
@@ -75,4 +76,28 @@ fn unmatched_rows_are_dropped_not_guessed() {
     let cfg = Config::default();
     let (rows, _) = price_lines(&t, &v, &[line("runeshape combinations", 0)], &cfg);
     assert!(rows.is_empty());
+}
+
+#[test]
+fn unmatched_counted_stack_shows_question_mark_instead_of_dropping() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    // Leading count token but the item name itself doesn't match anything
+    // in the vocab (mangled OCR): still worth a row, not a silent drop.
+    let (rows, _) = price_lines(&t, &v, &[line("3x mystery orb", 10)], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].tier, Tier::Unknown);
+}
+
+#[test]
+fn unmatched_unique_line_shows_question_mark_instead_of_dropping() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (rows, _) = price_lines(&t, &v, &[line("saqawals unique rune", 10)], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].tier, Tier::Unknown);
 }
