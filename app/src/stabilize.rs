@@ -51,9 +51,9 @@ const STALE_CLEAR_AFTER: u32 = 12;
 /// detection ran and found no reward bars at all) rather than a transient
 /// OCR/matching miss on a panel that's still there; ~1.2s at the 120ms
 /// panel-open capture throttle.
-const NOBANDS_HIDE_AFTER: u32 = 3;
+const NOBANDS_HIDE_AFTER: u32 = 2;
 /// Consecutive NoBands scans before slots are dropped for good.
-const NOBANDS_CLEAR_AFTER: u32 = 6;
+const NOBANDS_CLEAR_AFTER: u32 = 4;
 /// How long a slot remembers its last explicit "Nx" reading for stack-count
 /// stickiness.
 const STACK_STICKY: Duration = Duration::from_millis(1500);
@@ -559,7 +559,12 @@ mod tests {
     }
 
     #[test]
-    fn nobands_hides_after_three_and_clears_after_six() {
+    fn nobands_hides_after_two_and_clears_after_four() {
+        // FAST-CLOSE INVARIANT (user requirement, regressed once, guarded
+        // forever): closing the panel must hide labels within
+        // NOBANDS_HIDE_AFTER = 2 scans (~0.8-1.0 s at live cadence), in
+        // ANY scene brightness. Do not raise this constant without an
+        // explicit user decision.
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
@@ -567,18 +572,16 @@ mod tests {
         s.apply(ScanResult::NoBands);
         assert_eq!(s.rows().len(), 1, "1st consecutive NoBands must not hide yet");
         s.apply(ScanResult::NoBands);
-        assert_eq!(s.rows().len(), 1, "2nd consecutive NoBands must not hide yet");
-        s.apply(ScanResult::NoBands);
-        assert!(s.rows().is_empty(), "the 3rd consecutive NoBands must hide the display");
+        assert!(s.rows().is_empty(), "the 2nd consecutive NoBands must hide the display");
 
         // Slot kept alive underneath: a read of the SAME item displays
         // immediately (fast recovery), no re-confirmation needed.
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "the slot must have survived the NoBands hide, showing again immediately");
 
-        // Drive it back into a NoBands streak all the way to 6 to force a
+        // Drive it back into a NoBands streak all the way to 4 to force a
         // real clear.
-        for _ in 0..6 {
+        for _ in 0..4 {
             s.apply(ScanResult::NoBands);
         }
 
@@ -588,7 +591,7 @@ mod tests {
         assert_eq!(
             s.rows().first().map(|r| r.item_key.as_str()),
             Some("b"),
-            "6 consecutive NoBands scans must have cleared the old slot"
+            "4 consecutive NoBands scans must have cleared the old slot"
         );
     }
 
@@ -597,12 +600,10 @@ mod tests {
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         s.apply(ScanResult::NoBands);
-        s.apply(ScanResult::NoBands);
-        assert_eq!(s.rows().len(), 1, "2 consecutive NoBands must not hide yet");
+        assert_eq!(s.rows().len(), 1, "1 NoBands must not hide yet");
 
         // A real Rows pass in between must reset the NoBands streak.
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
-        s.apply(ScanResult::NoBands);
         s.apply(ScanResult::NoBands);
         assert_eq!(
             s.rows().len(),

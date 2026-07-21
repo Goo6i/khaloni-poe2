@@ -218,17 +218,6 @@ fn overlay_mode() -> anyhow::Result<()> {
                 eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
             let lines = ocr::ocr_scan(&ocr_cfg.tesseract_cmd, &frame.gray);
-            if bands.is_empty() && lines.is_empty() {
-                // Band detection found no reward bars this pass AND the
-                // whole-panel pass found no lines with a real word in
-                // them either - both OCR sources agree there's nothing
-                // here, not just one. Distinct from GateEmpty (physically
-                // not the panel) and from Rows([]) (either source did see
-                // something but OCR/matching came up empty) - see
-                // stabilize::ScanResult.
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
-                continue;
-            }
             if dbg {
                 let d = std::path::Path::new("/tmp/poe2lens-frames");
                 let _ = std::fs::create_dir_all(d);
@@ -241,6 +230,16 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
             let snap = svc_ocr.snapshot();
             let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
+            // Fast-close invariant (regressed once, never again; see
+            // stabilize tests): the panel's structural signal is the bright
+            // reward bars. No bars AND no priced rows means the panel is
+            // gone even when the region stays bright (terrain) and the
+            // whole-panel pass reads scenery junk. Priced rows without
+            // bars (band detector glitch) still count as a panel.
+            if bands.is_empty() && out.0.is_empty() {
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
+                continue;
+            }
             if dbg {
                 eprintln!(
                     "TRACE {:>8.2}s ocr_done in {:?}: {} lines -> {} rows [{}]",
