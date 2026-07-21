@@ -3,6 +3,7 @@ pub mod config;
 pub mod coord;
 pub mod kwin;
 pub mod ocr;
+pub mod overlay;
 pub mod pricing;
 pub mod prices;
 pub mod render;
