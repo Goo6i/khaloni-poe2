@@ -2,12 +2,15 @@ use std::time::{Duration, Instant};
 
 use crate::pricing::{Denom, Priced, Tier};
 
-/// What one OCR pass produced: either priced rows, with the price service's
-/// staleness flag, or a signal that the frame was gated before tesseract
-/// ever ran (too dark to be the panel; see the brightness hysteresis in
-/// main.rs).
+/// What one OCR pass produced: priced rows (with the price service's
+/// staleness flag); a signal that the brightness gate was closed, so
+/// tesseract never even ran (too dark to be the panel; see the brightness
+/// hysteresis in main.rs); or a signal that the gate was open (bright
+/// enough to plausibly be the panel) but band detection found no reward
+/// bars, so tesseract wasn't run against nothing (see ocr::detect_bands).
 pub enum ScanResult {
     Rows(Vec<Priced>, bool),
+    NoBands,
     GateEmpty,
 }
 
@@ -36,12 +39,21 @@ const CONFIRM_FUZZY: u8 = 2;
 /// currently showing.
 const PENDING_SWITCH: u8 = 2;
 /// Consecutive scans with no matching read at all before a slot is evicted.
-const EVICT_AFTER: u8 = 3;
+const EVICT_AFTER: u8 = 8;
 /// Consecutive zero-row Rows scans before the stabilized display is hidden;
 /// slots are kept alive underneath for fast recovery (see STALE_CLEAR_AFTER).
-const STALE_HIDE_AFTER: u32 = 2;
+const STALE_HIDE_AFTER: u32 = 8;
 /// Consecutive zero-row Rows scans before slots are dropped for good.
-const STALE_CLEAR_AFTER: u32 = 10;
+const STALE_CLEAR_AFTER: u32 = 12;
+/// Consecutive NoBands scans (gate open, but band detection found nothing)
+/// before the stabilized display hides. Shorter than STALE_HIDE_AFTER since
+/// NoBands is a stronger signal that the panel itself is gone (band
+/// detection ran and found no reward bars at all) rather than a transient
+/// OCR/matching miss on a panel that's still there; ~1.2s at the 120ms
+/// panel-open capture throttle.
+const NOBANDS_HIDE_AFTER: u32 = 3;
+/// Consecutive NoBands scans before slots are dropped for good.
+const NOBANDS_CLEAR_AFTER: u32 = 6;
 /// How long a slot remembers its last explicit "Nx" reading for stack-count
 /// stickiness.
 const STACK_STICKY: Duration = Duration::from_millis(1500);
@@ -252,6 +264,12 @@ pub struct Stabilizer {
     /// Consecutive Rows(_, _) scans in a row whose row list was empty (the
     /// two-stage stale mechanism; see STALE_HIDE_AFTER / STALE_CLEAR_AFTER).
     empty_streak: u32,
+    /// Consecutive NoBands scans in a row (see NOBANDS_HIDE_AFTER /
+    /// NOBANDS_CLEAR_AFTER), tracked separately from empty_streak: NoBands
+    /// means band detection itself found nothing, a stronger "the panel is
+    /// probably gone" signal than a Rows scan that ran OCR and matched
+    /// nothing.
+    nobands_streak: u32,
 }
 
 impl Stabilizer {
@@ -261,18 +279,28 @@ impl Stabilizer {
 
     /// Applies one scan result. GateEmpty (the brightness gate closed, so
     /// tesseract never even ran) hides and clears immediately, since it
-    /// means the panel is physically not on screen. A Rows result with 0
-    /// rows only hides after STALE_HIDE_AFTER consecutive empties (slots
-    /// are kept alive for fast recovery) and only clears after
-    /// STALE_CLEAR_AFTER.
+    /// means the panel is physically not on screen. NoBands (gate open, but
+    /// no reward bars found) hides after NOBANDS_HIDE_AFTER consecutive
+    /// occurrences and clears after NOBANDS_CLEAR_AFTER. A Rows result with
+    /// 0 rows (bands existed, but OCR or matching yielded nothing) only
+    /// hides after STALE_HIDE_AFTER consecutive empties (slots are kept
+    /// alive for fast recovery) and only clears after STALE_CLEAR_AFTER.
     pub fn apply(&mut self, result: ScanResult) {
         match result {
             ScanResult::GateEmpty => {
                 self.slots.clear();
                 self.stale = false;
                 self.empty_streak = 0;
+                self.nobands_streak = 0;
+            }
+            ScanResult::NoBands => {
+                self.nobands_streak = self.nobands_streak.saturating_add(1);
+                if self.nobands_streak >= NOBANDS_CLEAR_AFTER {
+                    self.slots.clear();
+                }
             }
             ScanResult::Rows(rows, stale) => {
+                self.nobands_streak = 0;
                 self.stale = stale;
                 if rows.is_empty() {
                     self.empty_streak = self.empty_streak.saturating_add(1);
@@ -333,7 +361,7 @@ impl Stabilizer {
     /// rendered snapshot and are stubbed since nothing downstream reads
     /// them.
     pub fn rows(&self) -> Vec<Priced> {
-        if self.empty_streak >= STALE_HIDE_AFTER {
+        if self.empty_streak >= STALE_HIDE_AFTER || self.nobands_streak >= NOBANDS_HIDE_AFTER {
             return Vec::new();
         }
         let mut out: Vec<Priced> = self
@@ -365,6 +393,7 @@ impl Stabilizer {
         self.slots.clear();
         self.stale = false;
         self.empty_streak = 0;
+        self.nobands_streak = 0;
     }
 }
 
@@ -455,12 +484,12 @@ mod tests {
     }
 
     #[test]
-    fn evict_after_three_consecutive_misses() {
+    fn evict_after_eight_consecutive_misses() {
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert!(s.rows().iter().any(|r| r.item_key == "a"));
 
-        for _ in 0..2 {
+        for _ in 0..7 {
             s.apply(ScanResult::Rows(vec![exact("other", "1 ex", 500)], false));
         }
         assert!(
@@ -468,33 +497,35 @@ mod tests {
             "a slot must survive fewer than EVICT_AFTER consecutive misses"
         );
 
-        // 3rd consecutive miss for the y=100 slot: evicted.
+        // 8th consecutive miss for the y=100 slot: evicted.
         s.apply(ScanResult::Rows(vec![exact("other", "1 ex", 500)], false));
         assert!(
             !s.rows().iter().any(|r| r.item_key == "a"),
-            "the 3rd consecutive miss must evict the slot"
+            "the 8th consecutive miss must evict the slot"
         );
     }
 
     #[test]
-    fn two_stage_stale_hides_at_two_and_clears_at_ten() {
+    fn two_stage_stale_hides_at_eight_and_clears_at_twelve() {
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
 
+        for i in 1..8 {
+            s.apply(ScanResult::Rows(vec![], false));
+            assert_eq!(s.rows().len(), 1, "empty scan {i} of 7 must not hide yet");
+        }
         s.apply(ScanResult::Rows(vec![], false));
-        assert_eq!(s.rows().len(), 1, "a single empty scan must not hide yet");
-        s.apply(ScanResult::Rows(vec![], false));
-        assert!(s.rows().is_empty(), "the 2nd consecutive empty scan must hide the display");
+        assert!(s.rows().is_empty(), "the 8th consecutive empty scan must hide the display");
 
         // Slot is kept alive underneath: a read of the SAME item displays
         // immediately (fast recovery), no re-confirmation needed.
         s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "the slot must have survived the hide, showing again immediately");
 
-        // Drive it back into an empty streak and all the way to 10 to
+        // Drive it back into an empty streak and all the way to 12 to
         // force a real clear.
-        for _ in 0..10 {
+        for _ in 0..12 {
             s.apply(ScanResult::Rows(vec![], false));
         }
 
@@ -507,7 +538,7 @@ mod tests {
         assert_eq!(
             s.rows().first().map(|r| r.item_key.as_str()),
             Some("b"),
-            "10 consecutive empty scans must have cleared the old slot"
+            "12 consecutive empty scans must have cleared the old slot"
         );
     }
 
@@ -525,6 +556,59 @@ mod tests {
         // 2-read pending switch.
         s.apply(ScanResult::Rows(vec![exact("c", "5 ex", 100)], false));
         assert_eq!(s.rows().first().map(|r| r.item_key.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn nobands_hides_after_three_and_clears_after_six() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        assert_eq!(s.rows().len(), 1);
+
+        s.apply(ScanResult::NoBands);
+        assert_eq!(s.rows().len(), 1, "1st consecutive NoBands must not hide yet");
+        s.apply(ScanResult::NoBands);
+        assert_eq!(s.rows().len(), 1, "2nd consecutive NoBands must not hide yet");
+        s.apply(ScanResult::NoBands);
+        assert!(s.rows().is_empty(), "the 3rd consecutive NoBands must hide the display");
+
+        // Slot kept alive underneath: a read of the SAME item displays
+        // immediately (fast recovery), no re-confirmation needed.
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        assert_eq!(s.rows().len(), 1, "the slot must have survived the NoBands hide, showing again immediately");
+
+        // Drive it back into a NoBands streak all the way to 6 to force a
+        // real clear.
+        for _ in 0..6 {
+            s.apply(ScanResult::NoBands);
+        }
+
+        // A different item at the same position: if the old slot had truly
+        // been cleared, this is a brand new slot and displays immediately.
+        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        assert_eq!(
+            s.rows().first().map(|r| r.item_key.as_str()),
+            Some("b"),
+            "6 consecutive NoBands scans must have cleared the old slot"
+        );
+    }
+
+    #[test]
+    fn nobands_recovery_resets_the_streak() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::NoBands);
+        s.apply(ScanResult::NoBands);
+        assert_eq!(s.rows().len(), 1, "2 consecutive NoBands must not hide yet");
+
+        // A real Rows pass in between must reset the NoBands streak.
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::NoBands);
+        s.apply(ScanResult::NoBands);
+        assert_eq!(
+            s.rows().len(),
+            1,
+            "the streak must have reset: 2 more NoBands after a recovery still isn't 3 consecutive"
+        );
     }
 
     #[test]

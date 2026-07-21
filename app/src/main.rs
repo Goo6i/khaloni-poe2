@@ -92,14 +92,8 @@ fn headless() -> anyhow::Result<()> {
 
     eprintln!("headless pipeline running; open a Runeshape panel. Ctrl+C to quit.");
     for frame in frx {
-        let pre = ocr::preprocess(&frame.gray);
-        let lines = match ocr::run_tesseract(&cfg.tesseract_cmd, &pre) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("ocr error: {e}");
-                continue;
-            }
-        };
+        let bands = ocr::detect_bands(&frame.gray);
+        let lines = ocr::ocr_bands(&cfg.tesseract_cmd, &frame.gray, &bands);
         let snap = svc.snapshot();
         let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
         println!(
@@ -188,6 +182,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     let paused_ocr = pipeline_paused.clone();
     std::thread::spawn(move || {
         let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+        let t0 = std::time::Instant::now();
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -205,8 +200,12 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // Drop the frame cheaply; no OCR/pricing work while paused.
                 continue;
             }
+            let t_frame = std::time::Instant::now();
             let open = gate.observe(mean);
             panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
+            if dbg {
+                eprintln!("TRACE {:>8.2}s mean={mean} gate_open={open}", t0.elapsed().as_secs_f32());
+            }
             if !open {
                 // Gate closed: too dark to be the parchment panel (game
                 // world, not the list). Skip tesseract entirely (this check
@@ -215,10 +214,42 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::GateEmpty);
                 continue;
             }
-            let pre = ocr::preprocess(&frame.gray);
-            let Ok(lines) = ocr::run_tesseract(&ocr_cfg.tesseract_cmd, &pre) else { continue };
+            let bands = ocr::detect_bands(&frame.gray);
+            if dbg {
+                eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
+            }
+            if bands.is_empty() {
+                // Gate is open (bright enough to be the panel area) but no
+                // reward bars were found this pass: don't bother running
+                // tesseract on nothing. Distinct from GateEmpty (physically
+                // not the panel) and from Rows([]) (bands existed but OCR
+                // or matching came up empty) - see stabilize::ScanResult.
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
+                continue;
+            }
+            let lines = ocr::ocr_bands(&ocr_cfg.tesseract_cmd, &frame.gray, &bands);
+            if dbg {
+                let d = std::path::Path::new("/tmp/poe2lens-frames");
+                let _ = std::fs::create_dir_all(d);
+                let _ = frame.gray.save(d.join(format!(
+                    "t{:06.2}_bands{}_lines{}.png",
+                    t0.elapsed().as_secs_f32(),
+                    bands.len(),
+                    lines.len()
+                )));
+            }
             let snap = svc_ocr.snapshot();
             let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
+            if dbg {
+                eprintln!(
+                    "TRACE {:>8.2}s ocr_done in {:?}: {} lines -> {} rows [{}]",
+                    t0.elapsed().as_secs_f32(),
+                    t_frame.elapsed(),
+                    lines.len(),
+                    out.0.len(),
+                    out.0.iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>().join(", ")
+                );
+            }
             let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(out.0, snap.stale));
         }
     });
@@ -240,6 +271,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // OCR scans land far less often) skips both the redraw and the Wayland
     // present entirely instead of repainting identical content every 100ms.
     let mut last_frame: Option<(Vec<poe2_lens::render::Placed>, bool)> = None;
+    let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
 
     loop {
         overlay.pump()?;
@@ -280,19 +312,31 @@ fn overlay_mode() -> anyhow::Result<()> {
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
 
         while let Ok(msg) = rows_rx.try_recv() {
-            match &msg {
-                poe2_lens::stabilize::ScanResult::GateEmpty => {
-                    eprintln!("DBG rows_rx: gate-empty");
-                }
-                poe2_lens::stabilize::ScanResult::Rows(rows, stale) => {
-                    eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
+            if dbg {
+                match &msg {
+                    poe2_lens::stabilize::ScanResult::GateEmpty => {
+                        eprintln!("DBG rows_rx: gate-empty");
+                    }
+                    poe2_lens::stabilize::ScanResult::NoBands => {
+                        eprintln!("DBG rows_rx: no-bands");
+                    }
+                    poe2_lens::stabilize::ScanResult::Rows(rows, stale) => {
+                        eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
+                    }
                 }
             }
             if scanning {
+                let before = dbg.then(|| stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>());
                 stabilizer.apply(msg);
+                if let Some(before) = before {
+                    let after: Vec<String> = stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect();
+                    if before != after {
+                        eprintln!("TRACE stab: [{}] -> [{}]", before.join(", "), after.join(", "));
+                    }
+                }
             }
         }
-        if std::env::var("POE2LENS_DEBUG").is_ok() {
+        if dbg {
             static TICK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if t.is_multiple_of(10) {

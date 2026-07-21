@@ -17,7 +17,7 @@ use crate::config::Rect;
 const THROTTLE_OPEN_MS: u64 = 120;
 /// Capture throttle while the brightness gate is closed: no point spending
 /// CPU on frequent frames nothing will OCR.
-const THROTTLE_CLOSED_MS: u64 = 300;
+const THROTTLE_CLOSED_MS: u64 = 120;
 
 pub struct RegionFrame {
     pub gray: GrayImage,

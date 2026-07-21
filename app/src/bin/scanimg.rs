@@ -10,10 +10,11 @@ fn main() -> anyhow::Result<()> {
         .to_path_buf();
     let svc = prices::PriceService::start(NinjaClient::new(cache), cfg.league.clone())?;
     let img = image::open(&path)?.to_luma8();
-    let pre = ocr::preprocess(&img);
-    let lines = ocr::run_tesseract(&cfg.tesseract_cmd, &pre)?;
+    let bands = ocr::detect_bands(&img);
+    eprintln!("{} band(s) detected", bands.len());
+    let lines = ocr::ocr_bands(&cfg.tesseract_cmd, &img, &bands);
     for l in &lines {
-        eprintln!("line y={:>4}: filtered={:?}", l.y_top, l.filtered);
+        eprintln!("line y={:>4}: filtered={:?} unfiltered={:?}", l.y_top, l.filtered, l.unfiltered);
     }
     let snap = svc.snapshot();
     let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
