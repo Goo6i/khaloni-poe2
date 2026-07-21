@@ -12,6 +12,10 @@ use thiserror::Error;
 pub enum TradeError {
     #[error("bad json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("http: {0}")]
+    Http(String),
+    #[error("rate limited; retry in {0:?}")]
+    Cooldown(std::time::Duration),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,4 +440,189 @@ pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
         });
     }
     Query { category: category_for(&item.item_class), filters }
+}
+
+// --- HTTP client (endpoints and shapes verified live 2026-07-21) ---
+
+#[derive(Debug, Deserialize)]
+pub struct SearchResult {
+    pub id: String,
+    #[serde(rename = "result")]
+    pub hashes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Listing {
+    pub price_amount: f64,
+    pub price_currency: String,
+    pub account: String,
+    pub indexed: String,
+    pub item_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FetchResponse {
+    result: Vec<FetchEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FetchEntry {
+    listing: RawListing,
+    item: Option<RawItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawListing {
+    price: Option<RawPrice>,
+    indexed: Option<String>,
+    account: Option<RawAccount>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawPrice {
+    amount: f64,
+    currency: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawAccount {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawItem {
+    name: Option<String>,
+    #[serde(rename = "baseType")]
+    base_type: Option<String>,
+}
+
+pub fn parse_search(json: &str) -> Result<SearchResult, TradeError> {
+    Ok(serde_json::from_str(json)?)
+}
+
+pub fn parse_fetch(json: &str) -> Result<Vec<Listing>, TradeError> {
+    let r: FetchResponse = serde_json::from_str(json)?;
+    Ok(r.result
+        .into_iter()
+        .filter_map(|e| {
+            let price = e.listing.price?;
+            Some(Listing {
+                price_amount: price.amount,
+                price_currency: price.currency,
+                account: e.listing.account.map(|a| a.name).unwrap_or_default(),
+                indexed: e.listing.indexed.unwrap_or_default(),
+                item_name: e
+                    .item
+                    .and_then(|i| i.name.or(i.base_type))
+                    .unwrap_or_default(),
+            })
+        })
+        .collect())
+}
+
+/// Trade-site search client. All calls flow through per-endpoint rate
+/// limiters seeded with the live-verified default rules and continuously
+/// corrected by every response's state headers; an active ban surfaces as
+/// `TradeError::Cooldown` and no request leaves while one is pending.
+pub struct TradeClient {
+    base: String,
+    league: String,
+    http: reqwest::blocking::Client,
+    pub search_limiter: RateLimiter,
+    pub fetch_limiter: RateLimiter,
+}
+
+impl TradeClient {
+    pub fn new(base: &str, league: &str) -> Result<TradeClient, TradeError> {
+        let http = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .user_agent(
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
+                 Chrome/126.0 Safari/537.36 poe2-lens/0.1",
+            )
+            .build()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Ok(TradeClient {
+            base: base.trim_end_matches('/').to_string(),
+            league: league.to_string(),
+            http,
+            search_limiter: RateLimiter::from_header("5:10:60,15:60:300,30:300:1800"),
+            fetch_limiter: RateLimiter::from_header("12:4:10,16:12:300"),
+        })
+    }
+
+    pub fn site_url(&self, search_id: &str) -> String {
+        format!(
+            "{}/trade2/search/poe2/{}/{}",
+            self.base.replace("/api", ""),
+            self.league,
+            search_id
+        )
+    }
+
+    fn absorb_headers(limiter: &mut RateLimiter, resp: &reqwest::blocking::Response) {
+        if let Some(rules) = resp
+            .headers()
+            .get("x-rate-limit-ip")
+            .and_then(|v| v.to_str().ok())
+        {
+            *limiter = RateLimiter::from_header(rules);
+        }
+        if let Some(state) = resp
+            .headers()
+            .get("x-rate-limit-ip-state")
+            .and_then(|v| v.to_str().ok())
+        {
+            limiter.apply_state(state);
+        }
+    }
+
+    pub fn search(&mut self, query: &Query) -> Result<SearchResult, TradeError> {
+        if let RateDecision::Wait(d) = self.search_limiter.check() {
+            return Err(TradeError::Cooldown(d));
+        }
+        self.search_limiter.record();
+        let url = format!("{}/api/trade2/search/poe2/{}", self.base, self.league);
+        let resp = self
+            .http
+            .post(&url)
+            .json(&query.to_body())
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Self::absorb_headers(&mut self.search_limiter, &resp);
+        if resp.status().as_u16() == 429 {
+            return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
+        }
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("search status {}", resp.status())));
+        }
+        parse_search(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
+    }
+
+    pub fn fetch(&mut self, search_id: &str, hashes: &[String]) -> Result<Vec<Listing>, TradeError> {
+        if let RateDecision::Wait(d) = self.fetch_limiter.check() {
+            return Err(TradeError::Cooldown(d));
+        }
+        self.fetch_limiter.record();
+        let ids: Vec<&str> = hashes.iter().take(10).map(String::as_str).collect();
+        let url = format!(
+            "{}/api/trade2/fetch/{}?query={}",
+            self.base,
+            ids.join(","),
+            search_id
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Self::absorb_headers(&mut self.fetch_limiter, &resp);
+        if resp.status().as_u16() == 429 {
+            return Err(TradeError::Cooldown(std::time::Duration::from_secs(10)));
+        }
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("fetch status {}", resp.status())));
+        }
+        parse_fetch(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
+    }
 }

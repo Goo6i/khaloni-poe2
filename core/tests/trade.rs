@@ -104,3 +104,66 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
     assert_eq!(phys["value"]["min"], 141);
     assert_eq!(phys["disabled"], false, "damage mods preselect");
 }
+
+use poe2_lens_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};
+
+#[test]
+fn parses_recorded_search_and_fetch_payloads() {
+    let s = parse_search(include_str!("fixtures/trade_search.json")).expect("search fixture");
+    assert_eq!(s.id, "D6OM49MVf5");
+    assert_eq!(s.hashes.len(), 2);
+
+    let listings = parse_fetch(include_str!("fixtures/trade_fetch.json")).expect("fetch fixture");
+    assert_eq!(listings.len(), 2);
+    assert_eq!(listings[0].price_currency, "transmute");
+    assert_eq!(listings[0].account, "Zubmission101#7022");
+    assert_eq!(listings[1].price_amount, 2.5);
+    assert_eq!(listings[1].item_name, "Storm Call");
+}
+
+#[test]
+fn unreachable_host_is_an_http_error_not_a_panic() {
+    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    let q = build_query(
+        &poe2_lens_core::item::parse_item(BOW).unwrap(),
+        &StatIndex::from_json(STATS_JSON).unwrap(),
+    );
+    match c.search(&q) {
+        Err(TradeError::Http(_)) => {}
+        other => panic!("expected Http error, got {other:?}"),
+    }
+}
+
+#[test]
+fn cooldown_blocks_before_any_request_leaves() {
+    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    c.search_limiter.apply_state("1:10:60");
+    let q = build_query(
+        &poe2_lens_core::item::parse_item(BOW).unwrap(),
+        &StatIndex::from_json(STATS_JSON).unwrap(),
+    );
+    match c.search(&q) {
+        Err(TradeError::Cooldown(d)) => assert!(d.as_secs() >= 59),
+        other => panic!("expected Cooldown, got {other:?}"),
+    }
+}
+
+#[test]
+#[ignore]
+fn live_trade_smoke() {
+    let mut c = TradeClient::new("https://www.pathofexile.com", "Runes of Aldur").expect("client");
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    let item = poe2_lens_core::item::parse_item(BOW).unwrap();
+    let mut q = build_query(&item, &stats);
+    // Keep only the two filters of the verified live probe: a full
+    // 5-filter exact rare can legitimately have zero online matches.
+    for f in q.filters.iter_mut() {
+        f.disabled = !(f.id == "explicit.stat_1509134228" || f.id == "explicit.stat_3261801346");
+    }
+    q.filters.retain(|f| !f.disabled);
+    let s = c.search(&q).expect("live search");
+    assert!(!s.hashes.is_empty());
+    let l = c.fetch(&s.id, &s.hashes[..s.hashes.len().min(5)]).expect("live fetch");
+    assert!(!l.is_empty());
+    println!("live: {} listings, cheapest {} {}", l.len(), l[0].price_amount, l[0].price_currency);
+}
