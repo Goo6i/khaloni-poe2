@@ -76,11 +76,16 @@ fn headless() -> anyhow::Result<()> {
 
     // Capture geometry is negotiated at 3840x2160 on the reference machine.
     let map = CoordMap::new(game_window_logical(), (3840, 2160), cal);
-    let (ftx, frx) = mpsc::channel();
+    // Capacity 1: only the latest frame is ever wanted; see capture::consume.
+    let (ftx, frx) = mpsc::sync_channel(1);
     let (_rtx, rrx) = mpsc::channel::<Rect>();
     let region = map.region_px();
+    // headless has no brightness gate of its own (it OCRs every frame
+    // unconditionally below), so this never flips true: capture always
+    // throttles at the closed (300ms) rate here.
+    let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     std::thread::spawn(move || {
-        if let Err(e) = capture::consume(start, rrx, region, ftx) {
+        if let Err(e) = capture::consume(start, rrx, region, ftx, panel_open) {
             eprintln!("capture thread died: {e}");
         }
     });
@@ -157,16 +162,25 @@ fn overlay_mode() -> anyhow::Result<()> {
     });
 
     let map = CoordMap::new(game, (3840, 2160), cal);
-    let (ftx, frx) = mpsc::channel();
+    // Capacity 1: only the latest frame is ever wanted; see capture::consume.
+    let (ftx, frx) = mpsc::sync_channel(1);
     let (region_tx, region_rx) = mpsc::channel::<Rect>();
     let region = map.region_px();
+    // Shared with the OCR worker below: it owns the BrightnessGate and
+    // stores whether it's currently open here every pass; the capture
+    // thread only reads it, to pick its 120ms/300ms throttle. An atomic is
+    // the simplest correct way to move this one bit across the thread
+    // boundary without a second channel (see capture::consume's doc comment).
+    let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let panel_open_capture = panel_open.clone();
     std::thread::spawn(move || {
-        let _ = capture::consume(start, region_rx, region, ftx);
+        let _ = capture::consume(start, region_rx, region, ftx, panel_open_capture);
     });
 
     // OCR worker: frames in, priced rows out. `pipeline_paused` is toggled by the
     // main loop on focus loss / scan toggle, so we stop feeding tesseract without
-    // touching the capture thread (its frame-hash short-circuit keeps it cheap).
+    // touching the capture thread (which keeps running regardless, now that it
+    // emits every throttle tick rather than only on pixel change).
     let pipeline_paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (rows_tx, rows_rx) = mpsc::channel();
     let svc_ocr = svc.clone();
@@ -174,6 +188,14 @@ fn overlay_mode() -> anyhow::Result<()> {
     let paused_ocr = pipeline_paused.clone();
     std::thread::spawn(move || {
         let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+        let mut gate = poe2_lens::brightness::BrightnessGate::new(
+            ocr_cfg.panel_open_brightness,
+            ocr_cfg.panel_close_brightness,
+        );
+        // The frame channel is capacity-1 with try_send-and-drop on the
+        // capture side (see capture::consume), so a backlog here is
+        // structurally impossible: this is always the latest frame, and a
+        // plain blocking recv (via the Receiver iterator) is enough.
         for frame in frx {
             let mean = mean_gray_brightness(&frame.gray);
             if dbg {
@@ -183,10 +205,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // Drop the frame cheaply; no OCR/pricing work while paused.
                 continue;
             }
-            if mean < u64::from(ocr_cfg.panel_min_brightness) {
-                // Too dark to be the parchment panel (game world, not the
-                // list): skip tesseract entirely and report gated-empty so
-                // the overlay can drop stale rows instead of holding them.
+            let open = gate.observe(mean);
+            panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
+            if !open {
+                // Gate closed: too dark to be the parchment panel (game
+                // world, not the list). Skip tesseract entirely (this check
+                // costs microseconds) and report gated-empty so the overlay
+                // can drop stale rows instead of holding them.
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::GateEmpty);
                 continue;
             }
@@ -209,10 +234,12 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
     let mut game_pos = (game.x, game.y);
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
-    // Tracks the pause state from the previous tick so a resume (pause ->
-    // running) can force a rescan even if the panel pixels never changed
-    // while we were paused.
-    let mut prev_paused = false;
+    // What was actually drawn+presented last tick: `Some((placed, stale))`
+    // while visible, `None` while hidden/blank. Compared each tick so an
+    // unchanged stabilized row set (the common case at 10 ticks/sec, since
+    // OCR scans land far less often) skips both the redraw and the Wayland
+    // present entirely instead of repainting identical content every 100ms.
+    let mut last_frame: Option<(Vec<poe2_lens::render::Placed>, bool)> = None;
 
     loop {
         overlay.pump()?;
@@ -237,25 +264,19 @@ fn overlay_mode() -> anyhow::Result<()> {
             match hk {
                 poe2_lens::hotkeys::Hotkey::ScanToggle => {
                     scanning = !scanning;
-                    if scanning {
-                        // Scanning just turned back on: force a rescan even
-                        // if the panel looks pixel-identical to before.
-                        let _ = region_tx.send(map.region_px());
-                    } else {
+                    if !scanning {
                         stabilizer.clear();
                     }
+                    // No forced rescan needed either way: capture emits a
+                    // frame on every throttle tick regardless of pause
+                    // state, so scanning turning back on picks up the next
+                    // one within one tick on its own.
                 }
                 poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
             }
         }
 
         let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
-        if prev_paused && !paused {
-            // Resuming from pause: the capture thread's hash gate may have
-            // been sitting on a stale frame the whole time, so force one.
-            let _ = region_tx.send(map.region_px());
-        }
-        prev_paused = paused;
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
 
         while let Ok(msg) = rows_rx.try_recv() {
@@ -287,13 +308,17 @@ fn overlay_mode() -> anyhow::Result<()> {
             !hidden && scanning && game_present && (game_focused || !cfg.pause_when_unfocused);
         let size = overlay.size();
         if size.0 > 0 && size.1 > 0 {
+            let mut resized = false;
             let pm = pixmap.get_or_insert_with(|| {
+                resized = true;
                 tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap")
             });
             if (pm.width(), pm.height()) != size {
                 *pm = tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap");
+                resized = true;
             }
-            if show {
+
+            let frame_state = if show {
                 let rows = stabilizer.rows();
                 let out_pos = overlay.output_pos();
                 let placed: Vec<_> = rows
@@ -313,11 +338,23 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     })
                     .collect();
-                renderer.draw_frame(pm, &placed, "", stabilizer.stale());
+                Some((placed, stabilizer.stale()))
             } else {
-                pm.fill(tiny_skia::Color::TRANSPARENT);
+                None
+            };
+
+            // A fresh/resized buffer always needs a real draw regardless of
+            // content equality; otherwise only repaint+present when the
+            // stabilized row set (or its stale flag, or visibility) actually
+            // changed since the last tick.
+            if resized || frame_state != last_frame {
+                match &frame_state {
+                    Some((placed, stale)) => renderer.draw_frame(pm, placed, "", *stale),
+                    None => pm.fill(tiny_skia::Color::TRANSPARENT),
+                }
+                overlay.present(pm)?;
+                last_frame = frame_state;
             }
-            overlay.present(pm)?;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }

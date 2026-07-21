@@ -1,3 +1,4 @@
+pub mod brightness;
 pub mod capture;
 pub mod config;
 pub mod coord;

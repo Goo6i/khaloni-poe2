@@ -5,6 +5,30 @@ use image::{imageops, GrayImage};
 pub const UPSCALE: u32 = 3;
 pub const ICON_CUT: f32 = 0.25;
 const MIN_CONF: f32 = 40.0;
+/// A line's unfiltered text must contain a run of at least this many
+/// consecutive alphabetic characters to be kept as a row. Guards against
+/// 1-3 character OCR noise fragments (icon artifacts, stray glyphs,
+/// misread punctuation) that would otherwise surface as spurious rows
+/// downstream; every real panel line (an item name, "Support:", "Skill
+/// Level N:") comfortably clears this bar.
+pub const MIN_WORD_RUN: usize = 4;
+
+/// True when `text` contains a run of at least `min_run` consecutive ASCII
+/// alphabetic characters.
+fn has_alpha_run(text: &str, min_run: usize) -> bool {
+    let mut run = 0usize;
+    for c in text.chars() {
+        if c.is_ascii_alphabetic() {
+            run += 1;
+            if run >= min_run {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OcrLine {
@@ -104,7 +128,7 @@ pub fn parse_tsv(tsv: &str) -> Vec<OcrLine> {
         .into_values()
         .filter_map(|(fw, uw, top, bottom)| {
             let unfiltered = poe2_lens_core::matcher::normalize(&uw.join(" "));
-            if unfiltered.is_empty() {
+            if unfiltered.trim().is_empty() || !has_alpha_run(&unfiltered, MIN_WORD_RUN) {
                 return None;
             }
             Some(OcrLine {

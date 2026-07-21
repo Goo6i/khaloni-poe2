@@ -1,4 +1,4 @@
-use poe2_lens_core::matcher::{match_rows, MatchTier, Vocab};
+use poe2_lens_core::matcher::{match_rows, normalize, MatchTier, Vocab};
 use poe2_lens_core::ninja::{Price, PriceTable};
 use poe2_lens_core::value::{display_price, format_amount, UNKNOWN};
 
@@ -34,6 +34,24 @@ pub struct Priced {
     pub amount: String,
     pub denom: Denom,
     pub tier: Tier,
+    /// Stable identity for "is this the same catalog item as last pass",
+    /// independent of count/amount: the normalized vocab entry name for a
+    /// matched row, a gem-type tag for skill/support rows, or a fixed tag
+    /// for the "?" cases. Used by `stabilize::Stabilizer`'s slot model to
+    /// decide a same-item bump vs a different-item pending switch.
+    pub item_key: String,
+    /// True when this pass's OCR line carried an explicit "Nx" count token;
+    /// false when the count was implied (defaulted to 1) or this row has no
+    /// count concept at all (gem rows, "?" rows). Drives the stabilizer's
+    /// stack-count stickiness.
+    pub count_explicit: bool,
+    /// True when the match tier that produced this row is confident enough
+    /// to lock a display slot after a single read (Exact/Substring/Prefix/
+    /// HighConfidence vocab matches, or any of the deterministic gem/
+    /// ambiguous/unpriceable classifications, none of which are a per-frame
+    /// guess). False only for a plain Fuzzy vocab match, which the
+    /// stabilizer must see twice in a row, identically, before displaying.
+    pub locks_in_one: bool,
 }
 
 /// Mirrors `display_price`'s divine-vs-exalted choice and formatting, but
@@ -128,9 +146,10 @@ pub fn price_lines(
     for line in lines {
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
         if let Some(g) = gem_row(&line.unfiltered) {
-            let (label, tier, denom, amount) = match g {
+            let (label, tier, denom, amount, item_key) = match g {
                 GemRow::Skill(level) => {
                     let name = format!("Uncut Skill Gem (Level {level})");
+                    let item_key = format!("gem-skill-{level}");
                     match table.lookup(&name) {
                         Some(p) => {
                             let (denom, amount) = denom_amount(p, 1, cfg.divine_threshold);
@@ -139,12 +158,19 @@ pub fn price_lines(
                                 tier_for(p.exalted, cfg),
                                 denom,
                                 amount,
+                                item_key,
                             )
                         }
-                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string()),
+                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string(), item_key),
                     }
                 }
-                GemRow::Unleveled => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string()),
+                GemRow::Unleveled => (
+                    UNKNOWN.to_string(),
+                    Tier::Unknown,
+                    Denom::None,
+                    UNKNOWN.to_string(),
+                    "gem-unleveled".to_string(),
+                ),
             };
             rows.push(Priced {
                 y_top: line.y_top,
@@ -153,6 +179,12 @@ pub fn price_lines(
                 amount,
                 denom,
                 tier,
+                item_key,
+                // Skill/support/spirit rows never carry a count on the panel.
+                count_explicit: false,
+                // A deterministic type+level (or unleveled) pin, never a
+                // per-frame fuzzy guess: locks a display slot on read 1.
+                locks_in_one: true,
             });
             continue;
         }
@@ -172,6 +204,9 @@ pub fn price_lines(
                     amount: UNKNOWN.to_string(),
                     denom: Denom::None,
                     tier: Tier::Unknown,
+                    item_key: "unpriceable".to_string(),
+                    count_explicit: false,
+                    locks_in_one: true,
                 });
             }
             continue;
@@ -187,6 +222,9 @@ pub fn price_lines(
                 amount: UNKNOWN.to_string(),
                 denom: Denom::None,
                 tier: Tier::Unknown,
+                item_key: "ambiguous".to_string(),
+                count_explicit: false,
+                locks_in_one: true,
             });
             continue;
         }
@@ -203,6 +241,9 @@ pub fn price_lines(
             amount,
             denom,
             tier: tier_for(price.exalted * f64::from(count), cfg),
+            item_key: normalize(name),
+            count_explicit: hit.count.is_some(),
+            locks_in_one: hit.tier.locks_in_one(),
         });
     }
 

@@ -7,6 +7,7 @@ use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect as SkRect, Stroke, Trans
 
 use crate::pricing::{Denom, Tier};
 
+#[derive(Clone, PartialEq)]
 pub struct Placed {
     pub x: i32,
     pub y: i32,

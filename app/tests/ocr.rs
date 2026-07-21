@@ -35,6 +35,32 @@ fn filtered_tier_drops_low_confidence_words() {
 }
 
 #[test]
+fn rejects_lines_without_a_four_letter_alpha_run() {
+    // Line 1: pure 1-3 char OCR noise fragments (icon artifacts, digits).
+    // Line 2: a real word ("Orb", 3 letters) plus a short fragment - still
+    // under MIN_WORD_RUN=4 everywhere in the line.
+    // Line 3: a real 4+ letter word, must survive.
+    let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+               5\t1\t1\t1\t1\t1\t0\t10\t20\t20\t90.0\tl\n\
+               5\t1\t1\t1\t1\t2\t30\t10\t20\t20\t90.0\t88\n\
+               5\t1\t1\t2\t2\t1\t0\t50\t20\t20\t90.0\tOrb\n\
+               5\t1\t1\t2\t2\t2\t30\t50\t20\t20\t90.0\tf\n\
+               5\t1\t1\t3\t3\t1\t0\t90\t60\t20\t90.0\tExalted\n";
+    let lines = parse_tsv(tsv);
+    assert_eq!(lines.len(), 1, "only the line with a real 4+ letter run must survive: {lines:?}");
+    assert_eq!(lines[0].unfiltered, "exalted");
+}
+
+#[test]
+fn rejects_empty_and_whitespace_only_lines() {
+    let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+               5\t1\t1\t1\t1\t1\t0\t10\t20\t20\t90.0\t...\n\
+               5\t1\t1\t1\t1\t2\t30\t10\t20\t20\t90.0\t!!!\n";
+    let lines = parse_tsv(tsv);
+    assert!(lines.is_empty(), "punctuation-only lines normalize to empty and must be dropped");
+}
+
+#[test]
 fn preprocess_shapes_the_image_as_specified() {
     let img = image::GrayImage::from_pixel(400, 100, image::Luma([120u8]));
     let out = preprocess(&img);

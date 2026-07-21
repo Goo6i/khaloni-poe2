@@ -1,14 +1,23 @@
 use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
     os::fd::OwnedFd,
-    sync::mpsc::Sender,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::SyncSender,
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 use image::GrayImage;
 
 use crate::config::Rect;
+
+/// Capture throttle while the brightness gate is open (the panel is
+/// probably on screen): scan more often for responsiveness.
+const THROTTLE_OPEN_MS: u64 = 120;
+/// Capture throttle while the brightness gate is closed: no point spending
+/// CPU on frequent frames nothing will OCR.
+const THROTTLE_CLOSED_MS: u64 = 300;
 
 pub struct RegionFrame {
     pub gray: GrayImage,
@@ -55,14 +64,33 @@ pub async fn portal_session(restore_token: Option<&str>) -> anyhow::Result<Captu
     })
 }
 
-/// The pipewire half, blocking; call on a dedicated thread. It sends a grayscale
-/// crop of `region` (capture pixels) whenever its content hash changes, at most
-/// every 300 ms; region updates arrive on `region_rx`.
+/// The pipewire half, blocking; call on a dedicated thread. It sends a
+/// grayscale crop of `region` (capture pixels) on every throttle tick, no
+/// matter whether the pixels changed: the downstream state machines
+/// (BrightnessGate's consecutive-frame hysteresis, the stabilizer's
+/// confirm-2/switch-2 slot logic) need a steady stream of frames to
+/// accumulate consecutive reads even while the panel is static, and a
+/// content-hash short-circuit that only emits on change starves them of
+/// exactly that (a static panel would produce one frame, then silence, and
+/// the gate/confirm counters would never advance). The throttle is dynamic:
+/// 120ms while `panel_open` reads true (the OCR worker's brightness gate is
+/// open, so scans matter for responsiveness), 300ms while it reads false.
+/// `panel_open` is the simplest correct way to hand that one bit of state
+/// across the capture/OCR thread boundary without adding a second channel:
+/// the OCR worker owns the `BrightnessGate` and stores its state here every
+/// pass; this thread only ever reads it. Region updates arrive on
+/// `region_rx` and just update where the crop is taken from; there is no
+/// forced-rescan mechanism to trigger anymore, since frames always flow.
+/// `tx` is a bounded (capacity-1) sender: the OCR worker only ever wants
+/// the latest frame, so this thread `try_send`s and drops on `Full` rather
+/// than blocking or queuing, making a backlog structurally impossible
+/// instead of relying on the receiver to drain one.
 pub fn consume(
     start: CaptureStart,
     region_rx: std::sync::mpsc::Receiver<Rect>,
     mut region: Rect,
-    tx: Sender<RegionFrame>,
+    tx: SyncSender<RegionFrame>,
+    panel_open: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     use pipewire as pw;
     use pw::{properties::properties, spa};
@@ -72,7 +100,6 @@ pub fn consume(
     struct State {
         format: spa::param::video::VideoInfoRaw,
         last_sent: Option<Instant>,
-        last_hash: u64,
     }
 
     pw::init();
@@ -101,10 +128,6 @@ pub fn consume(
         .process(move |stream, state| {
             while let Ok(r) = region_rx.try_recv() {
                 region = r;
-                // A region update means the caller wants a fresh read (resume
-                // from pause, geometry change): force the next frame through
-                // the hash gate even if the pixels look identical to before.
-                state.last_hash = 0;
             }
             // Always dequeue: an un-dequeued buffer never returns to the pool,
             // and a starved pool stalls the stream permanently. Throttling
@@ -113,7 +136,12 @@ pub fn consume(
                 return;
             };
             if let Some(t) = state.last_sent {
-                if t.elapsed() < Duration::from_millis(300) {
+                let throttle_ms = if panel_open.load(Ordering::Relaxed) {
+                    THROTTLE_OPEN_MS
+                } else {
+                    THROTTLE_CLOSED_MS
+                };
+                if t.elapsed() < Duration::from_millis(throttle_ms) {
                     return;
                 }
             }
@@ -134,26 +162,27 @@ pub fn consume(
             if w == 0 || h == 0 {
                 return;
             }
-            let mut gray = GrayImage::new(w as u32, h as u32);
+            // Direct writes into a raw buffer via chunks_exact, rather than
+            // GrayImage::put_pixel per pixel: put_pixel's per-call bounds
+            // check and coordinate math are a real constant factor over a
+            // ~1M-pixel crop running every throttle tick.
+            let mut raw = vec![0u8; w * h];
             for row in 0..h {
                 let base = (y0 + row) * stride + x0 * 4;
-                for col in 0..w {
-                    let px = &bytes[base + col * 4..base + col * 4 + 4];
+                let src_row = &bytes[base..base + w * 4];
+                let dst_row = &mut raw[row * w..(row + 1) * w];
+                for (dst, px) in dst_row.iter_mut().zip(src_row.chunks_exact(4)) {
                     // BGRx
-                    let y8 = (0.114 * px[0] as f32 + 0.587 * px[1] as f32 + 0.299 * px[2] as f32)
-                        as u8;
-                    gray.put_pixel(col as u32, row as u32, image::Luma([y8]));
+                    *dst = (0.114 * px[0] as f32 + 0.587 * px[1] as f32 + 0.299 * px[2] as f32) as u8;
                 }
             }
-            let mut hasher = DefaultHasher::new();
-            gray.as_raw().hash(&mut hasher);
-            let hash = hasher.finish();
-            state.last_sent = Some(Instant::now());
-            if hash == state.last_hash {
+            let Some(gray) = GrayImage::from_raw(w as u32, h as u32, raw) else {
                 return;
-            }
-            state.last_hash = hash;
-            let _ = tx.send(RegionFrame { gray });
+            };
+            state.last_sent = Some(Instant::now());
+            // The OCR worker only ever wants the latest frame: drop this
+            // one on a full channel instead of blocking or queuing.
+            let _ = tx.try_send(RegionFrame { gray });
         })
         .register()?;
 
