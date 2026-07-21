@@ -1,0 +1,20 @@
+{
+  "core": {
+    "items": [
+      {"id": "divine", "name": "Divine Orb", "image": "/gen/image/divine.png", "category": "Currency", "detailsId": "divine-orb"},
+      {"id": "exalted", "name": "Exalted Orb", "image": "/gen/image/exalted.png", "category": "Currency", "detailsId": "exalted-orb"},
+      {"id": "chaos", "name": "Chaos Orb", "image": "/gen/image/chaos.png", "category": "Currency", "detailsId": "chaos-orb"}
+    ],
+    "rates": {"exalted": 410.0, "chaos": 7.29},
+    "primary": "divine",
+    "secondary": "chaos"
+  },
+  "lines": [
+    {"id": "chaos", "primaryValue": 0.1372, "volumePrimaryValue": 68309, "maxVolumeCurrency": "divine", "maxVolumeRate": 7.29, "sparkline": {"totalChange": 4.70, "data": [3.06, 5.23, 6.20, 7.77, 1.78, 3.36, 4.70]}},
+    {"id": "exalted", "primaryValue": 0.002439, "volumePrimaryValue": 11.17, "maxVolumeCurrency": "exalted", "maxVolumeRate": 0.4318, "sparkline": {"totalChange": 1.2, "data": [0.5, 1.2]}},
+    {"id": "annul", "primaryValue": 0.0325, "volumePrimaryValue": 120.0, "maxVolumeCurrency": "exalted", "maxVolumeRate": 13.3, "sparkline": {"totalChange": 0.0, "data": [0.0]}}
+  ],
+  "items": [
+    {"id": "annul", "name": "Orb of Annulment", "image": "/gen/image/annul.png", "category": "Currency"}
+  ]
+}
