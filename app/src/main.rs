@@ -126,10 +126,21 @@ fn overlay_mode() -> anyhow::Result<()> {
     let kwin = poe2_lens::kwin::GeometryFeed::start()?;
     // First geometry fixes the output; 0,0,0,0 means no game yet.
     let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
-    if let Ok(poe2_lens::kwin::KwinEvent::Geometry(g)) =
-        kwin.rx.recv_timeout(std::time::Duration::from_secs(5))
-    {
-        game = g;
+    let geometry_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let remaining = geometry_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            // Deadline expired with no Geometry event seen; keep the fallback rect.
+            break;
+        }
+        match kwin.rx.recv_timeout(remaining) {
+            Ok(poe2_lens::kwin::KwinEvent::Geometry(g)) => {
+                game = g;
+                break;
+            }
+            Ok(_) => continue, // ignore Active/GameGone while waiting for the real geometry
+            Err(_) => break,   // channel closed or timed out
+        }
     }
 
     let rt = tokio::runtime::Runtime::new()?;
@@ -153,12 +164,20 @@ fn overlay_mode() -> anyhow::Result<()> {
         let _ = capture::consume(start, region_rx, region, ftx);
     });
 
-    // OCR worker: frames in, priced rows out.
+    // OCR worker: frames in, priced rows out. `pipeline_paused` is toggled by the
+    // main loop on focus loss / scan toggle, so we stop feeding tesseract without
+    // touching the capture thread (its frame-hash short-circuit keeps it cheap).
+    let pipeline_paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (rows_tx, rows_rx) = mpsc::channel();
     let svc_ocr = svc.clone();
     let ocr_cfg = cfg.clone();
+    let paused_ocr = pipeline_paused.clone();
     std::thread::spawn(move || {
         for frame in frx {
+            if paused_ocr.load(std::sync::atomic::Ordering::Relaxed) {
+                // Drop the frame cheaply; no OCR/pricing work while paused.
+                continue;
+            }
             let pre = ocr::preprocess(&frame.gray);
             let Ok(lines) = ocr::run_tesseract(&ocr_cfg.tesseract_cmd, &pre) else { continue };
             let snap = svc_ocr.snapshot();
@@ -175,6 +194,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut scanning = true;
     let mut hidden = false;
     let mut game_focused = true;
+    let mut game_present = true;
     let mut last: Option<(Vec<pricing::Priced>, String, bool)> = None;
     let mut game_pos = (game.x, game.y);
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
@@ -186,12 +206,15 @@ fn overlay_mode() -> anyhow::Result<()> {
             match ev {
                 poe2_lens::kwin::KwinEvent::Geometry(g) => {
                     game_pos = (g.x, g.y);
+                    game_present = true;
                     let m = CoordMap::new(g, (3840, 2160), cal);
                     let _ = region_tx.send(m.region_px());
                 }
                 poe2_lens::kwin::KwinEvent::Active(is_game) => game_focused = is_game,
                 poe2_lens::kwin::KwinEvent::GameGone => {
                     last = None;
+                    game_present = false;
+                    overlay.hide()?;
                 }
             }
         }
@@ -206,15 +229,20 @@ fn overlay_mode() -> anyhow::Result<()> {
                 poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
             }
         }
+
+        let paused = !scanning || (!game_focused && cfg.pause_when_unfocused);
+        pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+
         while let Ok((out, stale)) = rows_rx.try_recv() {
             if scanning {
                 last = Some((out.0, out.1, stale));
             }
         }
 
-        let show = !hidden && scanning && (game_focused || !cfg.pause_when_unfocused);
+        let show =
+            !hidden && scanning && game_present && (game_focused || !cfg.pause_when_unfocused);
         let size = overlay.size();
-        if size.0 > 0 {
+        if size.0 > 0 && size.1 > 0 {
             let pm = pixmap.get_or_insert_with(|| {
                 tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap")
             });
