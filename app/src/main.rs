@@ -92,8 +92,7 @@ fn headless() -> anyhow::Result<()> {
 
     eprintln!("headless pipeline running; open a Runeshape panel. Ctrl+C to quit.");
     for frame in frx {
-        let bands = ocr::detect_bands(&frame.gray);
-        let lines = ocr::ocr_bands(&cfg.tesseract_cmd, &frame.gray, &bands);
+        let lines = ocr::ocr_scan(&cfg.tesseract_cmd, &frame.gray);
         let snap = svc.snapshot();
         let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
         println!(
@@ -218,16 +217,18 @@ fn overlay_mode() -> anyhow::Result<()> {
             if dbg {
                 eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
-            if bands.is_empty() {
-                // Gate is open (bright enough to be the panel area) but no
-                // reward bars were found this pass: don't bother running
-                // tesseract on nothing. Distinct from GateEmpty (physically
-                // not the panel) and from Rows([]) (bands existed but OCR
-                // or matching came up empty) - see stabilize::ScanResult.
+            let lines = ocr::ocr_scan(&ocr_cfg.tesseract_cmd, &frame.gray);
+            if bands.is_empty() && lines.is_empty() {
+                // Band detection found no reward bars this pass AND the
+                // whole-panel pass found no lines with a real word in
+                // them either - both OCR sources agree there's nothing
+                // here, not just one. Distinct from GateEmpty (physically
+                // not the panel) and from Rows([]) (either source did see
+                // something but OCR/matching came up empty) - see
+                // stabilize::ScanResult.
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
                 continue;
             }
-            let lines = ocr::ocr_bands(&ocr_cfg.tesseract_cmd, &frame.gray, &bands);
             if dbg {
                 let d = std::path::Path::new("/tmp/poe2lens-frames");
                 let _ = std::fs::create_dir_all(d);

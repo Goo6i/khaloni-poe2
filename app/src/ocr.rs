@@ -1,4 +1,4 @@
-use std::{process::Command, sync::atomic::AtomicU64};
+use std::{collections::BTreeMap, process::Command, sync::atomic::AtomicU64};
 
 use image::{imageops, GrayImage};
 
@@ -52,6 +52,12 @@ pub const BAND_BRIGHTNESS: u8 = 175;
 /// A run of bright rows shorter than this (capture px) is discarded as
 /// noise rather than a real reward bar.
 pub const BAND_MIN_H: u32 = 12;
+
+/// Merge bright runs separated by gaps at or below this into one entry
+/// band. Measured on real captures: intra-entry gaps (icon/text/descender
+/// strips of tall skill entries) are 2-11 px; gaps between entries are
+/// 16-18 px in both tall and choice panel styles.
+pub const BAND_MERGE_GAP: u32 = 13;
 /// Extra capture-px padding added above/below a detected band before
 /// cropping, so a row's text isn't clipped right at the brightness edge.
 pub const BAND_PAD: u32 = 4;
@@ -78,7 +84,7 @@ pub const UPSCALE: u32 = 3;
 /// ambiguous ("1x" read as "Ix"); 4x resolves it. Kept separate from
 /// UPSCALE so this can be tuned for OCR accuracy without touching the
 /// coordinate contract the rest of the pipeline depends on.
-const BAND_OCR_SCALE: u32 = 4;
+const BAND_OCR_SCALE: u32 = 3;
 const MIN_CONF: f32 = 40.0;
 /// A line's unfiltered text must contain a run of at least this many
 /// consecutive alphabetic characters to be kept as a row. Guards against
@@ -127,9 +133,13 @@ pub struct OcrLine {
 /// Scans a captured gray region (capture-pixel space) for bright reward
 /// rows: for each row, the mean brightness over x in
 /// [ICON_CUT, 1-RIGHT_TRIM] of the width (skipping the icon column and the
-/// right edge); a band is a contiguous run of rows at or above
-/// BAND_BRIGHTNESS, at least BAND_MIN_H tall. Returns (y0, y1) pairs in
-/// capture-pixel space, top to bottom.
+/// right edge). Raw bright runs are collected without a height filter,
+/// then runs separated by small gaps are merged into one entry band
+/// (tall skill entries render as icon strip + text strip + descender
+/// strip: measured intra-entry gaps are 2-11 px, gaps between entries
+/// 16-18 px, so BAND_MERGE_GAP = 13 separates the populations), and only
+/// then is BAND_MIN_H applied. Returns (y0, y1) pairs in capture-pixel
+/// space, top to bottom.
 pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
     let (w, h) = (gray.width() as usize, gray.height() as usize);
     if w == 0 || h == 0 {
@@ -148,22 +158,25 @@ pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
         match (bright, band_start) {
             (true, None) => band_start = Some(y as u32),
             (false, Some(y0)) => {
-                let y1 = y as u32;
-                if y1 - y0 >= BAND_MIN_H {
-                    bands.push((y0, y1));
-                }
+                bands.push((y0, y as u32));
                 band_start = None;
             }
             _ => {}
         }
     }
     if let Some(y0) = band_start {
-        let y1 = h as u32;
-        if y1 - y0 >= BAND_MIN_H {
-            bands.push((y0, y1));
+        bands.push((y0, h as u32));
+    }
+
+    let mut merged: Vec<(u32, u32)> = Vec::new();
+    for (y0, y1) in bands {
+        match merged.last_mut() {
+            Some((_, last_y1)) if y0 - *last_y1 <= BAND_MERGE_GAP => *last_y1 = y1,
+            _ => merged.push((y0, y1)),
         }
     }
-    bands
+    merged.retain(|(y0, y1)| y1 - y0 >= BAND_MIN_H);
+    merged
 }
 
 /// Runs one band's crop/upscale/tesseract pass; `None` on any failure
@@ -215,9 +228,7 @@ fn run_band_tesseract(cmd: &str, img: &GrayImage) -> anyhow::Result<String> {
             tmp.to_str().unwrap(),
             "-",
             "--psm",
-            "4",
-            "-c",
-            &format!("tessedit_char_whitelist={BAND_WHITELIST}"),
+            "6",
             "-l",
             "eng",
             "tsv",
@@ -248,11 +259,12 @@ fn tempfile_path() -> std::path::PathBuf {
 /// so the parsing logic (confidence split, MIN_WORD_RUN guard, normalize)
 /// is directly unit-testable without invoking a real tesseract process. A
 /// band crop is, by construction, one reward row's worth of text - even
-/// though `--psm 4` (unlike `--psm 7`) doesn't strictly guarantee tesseract
-/// reports it all as a single TSV line/paragraph, every real word (TSV
-/// level 5) in the crop belongs to the same logical row, so this collects
-/// all of them regardless of block/par/line grouping - no multi-row
-/// grouping needed, unlike the old whole-panel parser this replaces.
+/// though `--psm 6` doesn't strictly guarantee tesseract reports it all as
+/// a single TSV line/paragraph, every real word (TSV level 5) in the crop
+/// belongs to the same logical row, so this collects all of them
+/// regardless of block/par/line grouping - no multi-row grouping needed,
+/// unlike `parse_whole_tsv` below (which OCRs the whole multi-row panel in
+/// one pass and so must group words back into rows by block/par/line).
 /// `y0`/`y1` are the band's bounds in ORIGINAL capture-pixel space (not the
 /// crop's own local coordinates); `y_top`/`height` are set from them
 /// (`* UPSCALE`) rather than from anything tesseract itself reports, so the
@@ -287,4 +299,290 @@ pub fn parse_band_tsv(tsv: &str, y0: u32, y1: u32) -> Option<OcrLine> {
         y_top: y0 * UPSCALE,
         height: (y1 - y0) * UPSCALE,
     })
+}
+
+// --- Whole-panel OCR: the milestone-0 recipe, restored ---
+//
+// Per-band strip OCR (above) was built to fix the "choice" panel style,
+// where a single whole-panel Otsu binarization drowns the small bright
+// reward-row area inside a much larger mid-gray map background and
+// tesseract returns 0 lines. It does fix that. But live sweeps across
+// other real captures (tall Runeshape panels: support/spirit rows, one
+// oddly-short entry, in spikes/ocr/samples/s1.png..s5.png) show the
+// reverse failure: a handful of odd-height bands come back garbled from
+// their own small, low-context crop, while the OLD whole-panel psm-6 TSV
+// pass - deleted when band OCR replaced it - read those exact panels at
+// the proven 39/40 level, because tesseract gets a full paragraph of
+// context instead of one isolated strip. The two pipelines fail on
+// disjoint panel styles (measured, not assumed): band OCR wins on
+// "choice" panels, whole-panel OCR wins on tall panels. `ocr_scan` below
+// runs both and unions the results instead of picking one.
+//
+// Everything from here down is that whole-panel pipeline, restored
+// verbatim from before the band-OCR switch (commit 13cd4fc): crop the
+// icon column at WHOLE_ICON_CUT, upscale by UPSCALE, min-max normalize,
+// run tesseract psm 6 over the whole region, and group words back into
+// per-(block,par,line) rows. Same coordinate convention as band OCR: no y
+// crop, so a word's TSV `top` is already capture-y * UPSCALE, the same
+// preprocessed-pixel space OcrLine::y_top uses everywhere else.
+
+/// Left crop fraction for the whole-panel pass. Kept separate from the
+/// band pipeline's ICON_CUT (0.30): band detection's per-row brightness
+/// average is more sensitive to a partial icon still being inside the
+/// sampled strip than a single whole-panel OCR pass ever was, so the two
+/// were split when band OCR was introduced. 0.25 is the original
+/// milestone-0 value this restores.
+const WHOLE_ICON_CUT: f32 = 0.25;
+
+/// Crops the icon column, upscales by UPSCALE, and min-max normalizes.
+/// Input must already be grayscale; caller converts from the capture
+/// format. Mirrors `ocr_one_band`'s crop/upscale, but over the whole
+/// region (no y crop) and with an extra contrast-normalize step the band
+/// pipeline doesn't need (a single band crop is already a tight, mostly
+/// on-brightness strip; the whole panel's much wider brightness range
+/// benefits from being stretched to full contrast before tesseract sees
+/// it).
+fn whole_preprocess(region: &GrayImage) -> GrayImage {
+    let cut = (region.width() as f32 * WHOLE_ICON_CUT) as u32;
+    let text = imageops::crop_imm(region, cut, 0, region.width() - cut, region.height()).to_image();
+    let up = imageops::resize(
+        &text,
+        text.width() * UPSCALE,
+        text.height() * UPSCALE,
+        imageops::FilterType::Lanczos3,
+    );
+    whole_normalize(up)
+}
+
+fn whole_normalize(mut img: GrayImage) -> GrayImage {
+    let (mut lo, mut hi) = (255u8, 0u8);
+    for p in img.pixels() {
+        lo = lo.min(p.0[0]);
+        hi = hi.max(p.0[0]);
+    }
+    if hi > lo {
+        let span = (hi - lo) as f32;
+        for p in img.pixels_mut() {
+            p.0[0] = (((p.0[0] - lo) as f32 / span) * 255.0) as u8;
+        }
+    }
+    img
+}
+
+/// Runs tesseract psm 6 over a preprocessed whole-panel image and groups
+/// the result into rows. `None` on any tesseract failure (missing binary,
+/// non-zero exit), same "one bad pass never kills the pipeline" contract
+/// as `ocr_one_band`.
+fn run_whole_tesseract(cmd: &str, pre: &GrayImage) -> anyhow::Result<Vec<OcrLine>> {
+    let tmp = tempfile_path();
+    pre.save(&tmp)?;
+    let out = Command::new(cmd)
+        .args([tmp.to_str().unwrap(), "-", "--psm", "6", "-l", "eng", "tsv"])
+        .output();
+    let _ = std::fs::remove_file(&tmp);
+    let out = out?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "tesseract failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(parse_whole_tsv(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Builds OcrLines from a whole-panel tesseract TSV pass. Public so the
+/// grouping logic is directly unit-testable without a real tesseract
+/// process, same as `parse_band_tsv`. Unlike a band crop (one row per
+/// crop, by construction), a whole-panel pass sees every row in one TSV
+/// dump, so words are grouped back into rows by tesseract's own
+/// (block, par, line) key.
+pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
+    // (filtered words, all words, min top, max bottom) accumulated per
+    // tesseract (block, par, line) key.
+    type RowAcc = (Vec<String>, Vec<String>, u32, u32);
+    let mut acc: BTreeMap<(u32, u32, u32), RowAcc> = BTreeMap::new();
+    for row in tsv.lines().skip(1) {
+        let f: Vec<&str> = row.split('\t').collect();
+        if f.len() < 12 || f[0] != "5" {
+            continue;
+        }
+        let (Ok(block), Ok(par), Ok(line)) = (f[2].parse(), f[3].parse(), f[4].parse()) else {
+            continue;
+        };
+        let (Ok(top), Ok(height)) = (f[7].parse::<u32>(), f[9].parse::<u32>()) else {
+            continue;
+        };
+        let conf: f32 = f[10].parse().unwrap_or(-1.0);
+        let word = f[11].trim();
+        if word.is_empty() {
+            continue;
+        }
+        let e = acc
+            .entry((block, par, line))
+            .or_insert_with(|| (Vec::new(), Vec::new(), u32::MAX, 0));
+        if conf >= MIN_CONF {
+            e.0.push(word.to_string());
+        }
+        e.1.push(word.to_string());
+        e.2 = e.2.min(top);
+        e.3 = e.3.max(top + height);
+    }
+    let mut lines: Vec<OcrLine> = acc
+        .into_values()
+        .filter_map(|(fw, uw, top, bottom)| {
+            let unfiltered = poe2_lens_core::matcher::normalize(&uw.join(" "));
+            if unfiltered.trim().is_empty() || !has_alpha_run(&unfiltered, MIN_WORD_RUN) {
+                return None;
+            }
+            Some(OcrLine {
+                filtered: poe2_lens_core::matcher::normalize(&fw.join(" ")),
+                unfiltered,
+                y_top: top,
+                height: bottom.saturating_sub(top),
+            })
+        })
+        .collect();
+    lines.sort_by_key(|l| l.y_top);
+    lines
+}
+
+/// Runs the whole-panel OCR pipeline end to end: preprocess, tesseract,
+/// parse. `Vec::new()` on any tesseract failure rather than propagating an
+/// error, matching `ocr_bands`' "OCR problems degrade to fewer rows, never
+/// a crash" contract.
+pub fn ocr_whole_panel(cmd: &str, gray: &GrayImage) -> Vec<OcrLine> {
+    let pre = whole_preprocess(gray);
+    run_whole_tesseract(cmd, &pre).unwrap_or_default()
+}
+
+/// How much real text a line's `filtered` field recovered: total ASCII
+/// alphabetic characters, ignoring digits/spaces/punctuation. Used by
+/// `union_ocr_lines` to pick the better of two candidates for the same
+/// row.
+///
+/// A plain word count (`split_whitespace().count()`) was tried first,
+/// matching the "longer filtered text... more words recovered" brief
+/// literally. Measured against spikes/ocr/samples/s5.png (a tall panel
+/// with 6 skill-gem rows) it actively picks the WRONG winner: one band's
+/// crop garbled "Skill Level 20: Animus Exchange" into 6 short
+/// space-separated noise tokens ("s s 8 bl vll llbv"), which by raw word
+/// count (6) beat the whole-panel pass's correct "skill level 20 animus
+/// exchange" (5 tokens) - the real row's text lost to noise and the row
+/// silently dropped (gem_row never matched the noise). Counting
+/// alphabetic characters instead scores the noise fragment at 11 and the
+/// real text at 24: short junk fragments no longer outscore genuine
+/// words just by being numerous.
+fn recovered_alpha_chars(line: &OcrLine) -> usize {
+    line.filtered.chars().filter(char::is_ascii_alphabetic).count()
+}
+
+/// Merges the band-OCR and whole-panel-OCR passes into one logical set of
+/// rows. See the evidence block above `ocr_whole_panel`: the two pipelines
+/// fail on disjoint panel styles, so rather than choosing one per panel
+/// (which would need to detect the style first - itself another
+/// error-prone classifier), both always run, and their outputs are
+/// unioned here.
+///
+/// A band line and a whole-panel line are the same logical row when their
+/// y-ranges (`y_top`..`y_top+height`) overlap by more than half the
+/// shorter of the two heights - loose enough to survive the small
+/// per-pass boundary differences (band detection's own y0/y1 vs.
+/// tesseract's own reported line bounds) without conflating two distinct,
+/// merely-adjacent rows.
+///
+/// A band line can satisfy that overlap test against MORE than one
+/// whole-panel line: the odd-height/garbled bands this union exists to
+/// paper over (see `ocr_whole_panel`'s evidence block) are often taller
+/// than a single real text line, so they straddle two of tesseract's own
+/// (block,par,line) groups from the whole-panel pass - one real, one
+/// noise. Measured on s5.png: a 435px-tall band spanning "Skill Level 20:
+/// Runic Reprieve" overlapped both the whole-panel pass's real text line
+/// AND an adjacent noise-only line above it enough to pass the test on
+/// both. An earlier version of this function picked only the
+/// single largest-raw-overlap whole-panel partner per band line; on that
+/// fixture the larger-overlap partner happened to be the noise line, so
+/// the real whole-panel line was left "unmatched" and leaked through as a
+/// spurious duplicate row a few pixels below the correct one. Fixed by
+/// consuming EVERY whole-panel line that clears the overlap test for a
+/// given band (never just the best-overlapping one), so nothing from a
+/// matched region can leak through as a stray duplicate.
+///
+/// Once a band's full set of overlapping whole-panel lines is collected,
+/// exactly one candidate survives to represent the row: the one with the
+/// most `recovered_alpha_chars` among the band line and all of its
+/// matched whole-panel lines (see that function's doc comment for why
+/// alpha-char count, not word count). Ties keep the band line
+/// (deterministic; band OCR is the pass this project has leaned on the
+/// longest). Lines with no overlapping counterpart in the other pass are
+/// kept as-is - most rows only ever come from one pipeline on any given
+/// panel style. The result is sorted by y_top.
+pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> Vec<OcrLine> {
+    let mut whole_used = vec![false; whole_lines.len()];
+    let mut merged: Vec<OcrLine> = Vec::with_capacity(band_lines.len() + whole_lines.len());
+
+    for b in band_lines {
+        let b_y1 = b.y_top + b.height;
+        let matched: Vec<usize> = whole_lines
+            .iter()
+            .enumerate()
+            .filter(|(i, w)| {
+                if whole_used[*i] {
+                    return false;
+                }
+                let w_y1 = w.y_top + w.height;
+                let overlap_start = b.y_top.max(w.y_top);
+                let overlap_end = b_y1.min(w_y1);
+                if overlap_end <= overlap_start {
+                    return false;
+                }
+                let overlap = overlap_end - overlap_start;
+                let min_h = b.height.min(w.height);
+                overlap * 2 > min_h
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if matched.is_empty() {
+            merged.push(b);
+            continue;
+        }
+        let mut winner = b;
+        let mut winner_score = recovered_alpha_chars(&winner);
+        for i in matched {
+            whole_used[i] = true;
+            let score = recovered_alpha_chars(&whole_lines[i]);
+            if score > winner_score {
+                winner_score = score;
+                winner = whole_lines[i].clone();
+            }
+        }
+        merged.push(winner);
+    }
+    for (i, w) in whole_lines.into_iter().enumerate() {
+        if !whole_used[i] {
+            merged.push(w);
+        }
+    }
+
+    merged.sort_by_key(|l| l.y_top);
+    merged
+}
+
+/// Top-level OCR entry point: runs the band pipeline and the whole-panel
+/// pipeline concurrently (they're independent tesseract processes over
+/// the same source image, so there's no reason to serialize them) and
+/// unions the results. See `union_ocr_lines` and the evidence block above
+/// `ocr_whole_panel` for why both passes run unconditionally rather than
+/// picking one.
+pub fn ocr_scan(cmd: &str, gray: &GrayImage) -> Vec<OcrLine> {
+    let bands = detect_bands(gray);
+    let (band_lines, whole_lines) = std::thread::scope(|scope| {
+        let band_handle = scope.spawn(|| ocr_bands(cmd, gray, &bands));
+        let whole_handle = scope.spawn(|| ocr_whole_panel(cmd, gray));
+        (
+            band_handle.join().unwrap_or_default(),
+            whole_handle.join().unwrap_or_default(),
+        )
+    });
+    union_ocr_lines(band_lines, whole_lines)
 }

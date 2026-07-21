@@ -24,11 +24,14 @@ fn detects_all_four_bands_on_the_real_choice_panel_fixture() {
 #[test]
 fn per_strip_ocr_prices_the_choice_panel_fixture_rows() {
     let img = fixture_image();
-    let bands = ocr::detect_bands(&img);
-    assert_eq!(bands.len(), 4);
 
     let cfg = Config::default();
-    let lines = ocr::ocr_bands(&cfg.tesseract_cmd, &img, &bands);
+    // ocr_scan unions band OCR (this panel style's only working pass -
+    // whole-panel OCR returns 0 lines here, see the evidence block in
+    // app/src/ocr.rs) with the whole-panel pass; on this fixture the
+    // union degrades gracefully to "just the band lines" since there's
+    // nothing from the other pass to merge in.
+    let lines = ocr::ocr_scan(&cfg.tesseract_cmd, &img);
     assert_eq!(lines.len(), 4, "all 4 bands must survive per-strip OCR + MIN_WORD_RUN: {lines:?}");
 
     // A small vocab with just the two real currency names visible on this

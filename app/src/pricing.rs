@@ -87,12 +87,19 @@ pub fn build_vocab(table: &PriceTable) -> Vocab {
 /// "Uncut Skill Gem (Level N)"). Support/spirit rows carry no level on the
 /// panel, so they price as UNKNOWN rather than a guess.
 fn gem_row(unfiltered: &str) -> Option<GemRow> {
-    let l = unfiltered.trim();
-    if let Some(rest) = l.strip_prefix("skill level ") {
-        let level: u32 = rest.split_whitespace().next()?.parse().ok()?;
-        return Some(GemRow::Skill(level));
+    // Band crops can carry leading icon-glyph junk inside the same OCR
+    // line ("booa vl skill level 20 skyfall"), so the markers are matched
+    // anywhere in the line, not as prefixes. Word-boundary safety comes
+    // from splitting on whitespace below.
+    let words: Vec<&str> = unfiltered.split_whitespace().collect();
+    for w in words.windows(3) {
+        if w[0] == "skill" && w[1] == "level" {
+            if let Ok(level) = w[2].parse::<u32>() {
+                return Some(GemRow::Skill(level));
+            }
+        }
     }
-    if l.starts_with("support") || l.starts_with("spirit") {
+    if words.iter().any(|&w| w == "support" || w == "spirit") {
         return Some(GemRow::Unleveled);
     }
     None
@@ -113,18 +120,35 @@ fn tier_for(total_ex: f64, cfg: &Config) -> Tier {
     }
 }
 
-/// A row's normalized text carries a leading "Nx " count token, e.g. a
-/// currency stack ("3x chaos orb") that failed to match the vocab because
-/// the item name itself was mangled by OCR.
+/// True when `word` looks like a stack-count token ("Nx"): a short digit
+/// run followed by 'x'. Measured against the real panel_choice fixture
+/// (see gem_row's doc comment for the matching band-crop-junk issue): the
+/// band crop for "1x Cyclonic Alloy" OCRs at BAND_OCR_SCALE=3x/psm 6 as
+/// "e lx cyclonic alloy" - an icon-glyph word ("e") ahead of the count,
+/// and the leading "1" itself misread as lowercase "l" at 24% confidence
+/// (the exact "1"/"I" glyph ambiguity already documented on
+/// BAND_OCR_SCALE, just resurfacing at psm 6/3x instead of psm 4/3x since
+/// the whitelist that used to force it toward a digit is gone). 'l'/'i'
+/// are accepted alongside digits for this reason; the run is also capped
+/// at 3 chars so this can't accidentally match an unrelated word ending
+/// in "x".
+fn is_count_token(word: &str) -> bool {
+    let Some(prefix) = word.strip_suffix('x') else {
+        return false;
+    };
+    !prefix.is_empty()
+        && prefix.len() <= 3
+        && prefix.chars().all(|c| c.is_ascii_digit() || c == 'l' || c == 'i')
+}
+
+/// A row's normalized text carries an "Nx " count token somewhere in the
+/// line, e.g. a currency stack ("3x chaos orb") that failed to match the
+/// vocab because the item name itself was mangled by OCR. Not anchored to
+/// the first word: band crops can carry leading icon-glyph junk ahead of
+/// the count (see `is_count_token`'s doc comment), the same
+/// anywhere-in-line reasoning as `gem_row`'s marker search.
 fn has_leading_count(normalized: &str) -> bool {
-    normalized
-        .split_whitespace()
-        .next()
-        .map(|w| {
-            let digits = w.strip_suffix('x').unwrap_or("");
-            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
-        })
-        .unwrap_or(false)
+    normalized.split_whitespace().any(is_count_token)
 }
 
 /// A line that never matched the vocab is still worth a "?" row, rather
