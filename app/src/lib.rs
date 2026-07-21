@@ -3,6 +3,7 @@ pub mod capture;
 pub mod config;
 pub mod coord;
 pub mod hotkeys;
+pub mod hover;
 pub mod inject;
 pub mod kwin;
 pub mod ocr;
