@@ -1,6 +1,12 @@
 use strsim::normalized_levenshtein;
 
 const FUZZY_THRESHOLD: f64 = 0.75;
+/// If the second-best fuzzy candidate scores within this margin of the best,
+/// the two vocab entries are too close to call and the row is Ambiguous
+/// rather than a guess. Sized for near-identical variant families (e.g. the
+/// Lesser/Greater/Perfect Jeweller's Orb line, whose entries sit ~0.86 apart
+/// from each other) while still letting a clearly-best fuzzy match through.
+const AMBIGUITY_MARGIN: f64 = 0.08;
 
 /// Lowercase, keep only [a-z0-9 ], collapse whitespace.
 pub fn normalize(s: &str) -> String {
@@ -50,6 +56,10 @@ impl Vocab {
 pub enum MatchTier {
     Substring,
     Fuzzy,
+    /// Two or more vocab entries scored within AMBIGUITY_MARGIN of each
+    /// other on the fuzzy tier; entry_index names the top candidate for
+    /// diagnostics only and must not be priced or displayed as a guess.
+    Ambiguous,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,9 +91,13 @@ fn extract_count(line_norm: &str) -> (Option<u32>, String) {
 }
 
 /// Two-tier matching, one hit per input line at most:
-/// 1. Substring: a vocabulary entry contained verbatim in the UNFILTERED line.
+/// 1. Substring: a vocabulary entry contained verbatim in the UNFILTERED
+///    line; the longest matching entry wins.
 /// 2. Fuzzy: normalized Levenshtein >= 0.75 between the count-stripped
-///    FILTERED line and a vocabulary entry.
+///    FILTERED line and a vocabulary entry. When a second entry scores
+///    within AMBIGUITY_MARGIN of the best (and isn't an exact normalized
+///    match), the hit is tagged Ambiguous instead of picking a winner, since
+///    near-identical variant names can otherwise fuzzy-collide.
 ///
 /// The count always comes from the same line that produced the name match.
 pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> Vec<RowHit> {
@@ -95,30 +109,78 @@ pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> 
             return;
         }
         let (count, name_part) = extract_count(&norm);
-        let mut best: Option<(usize, MatchTier, f64)> = None;
+
+        // Substring tier: every vocab entry contained verbatim in the
+        // unfiltered line is a candidate; the longest (most specific) one
+        // wins, e.g. "perfect jewellers orb" over "jewellers orb".
+        let mut substring_best: Option<(usize, usize)> = None;
         for (i, entry) in vocab.normalized.iter().enumerate() {
             if entry.is_empty() {
                 continue;
             }
             if norm.contains(entry.as_str()) {
-                let score = entry.len() as f64;
-                if best.map(|(_, _, s)| score > s).unwrap_or(true) {
-                    best = Some((i, MatchTier::Substring, score));
+                let len = entry.len();
+                if substring_best.map(|(_, l)| len > l).unwrap_or(true) {
+                    substring_best = Some((i, len));
                 }
-            } else if allow_fuzzy {
-                let ratio = normalized_levenshtein(&name_part, entry);
-                if ratio >= FUZZY_THRESHOLD {
-                    let already_substring =
-                        matches!(best, Some((_, MatchTier::Substring, _)));
-                    if !already_substring
-                        && best.map(|(_, _, s)| ratio > s).unwrap_or(true)
-                    {
-                        best = Some((i, MatchTier::Fuzzy, ratio));
+            }
+        }
+        if let Some((entry_index, _)) = substring_best {
+            hits.push(RowHit {
+                entry_index,
+                count,
+                tier: MatchTier::Substring,
+            });
+            return;
+        }
+
+        if !allow_fuzzy {
+            return;
+        }
+
+        // Fuzzy tier: score every vocab entry and keep the best and the
+        // runner-up (a different entry). A runner-up within AMBIGUITY_MARGIN
+        // of the best means two variants are too close to tell apart, so the
+        // row is reported Ambiguous rather than guessed. An exact normalized
+        // match always wins outright, ambiguity or not.
+        let mut best: Option<(usize, f64)> = None;
+        let mut runner_up: Option<(usize, f64)> = None;
+        for (i, entry) in vocab.normalized.iter().enumerate() {
+            if entry.is_empty() {
+                continue;
+            }
+            let ratio = normalized_levenshtein(&name_part, entry);
+            if ratio < FUZZY_THRESHOLD {
+                continue;
+            }
+            match best {
+                None => best = Some((i, ratio)),
+                Some((_, best_score)) if ratio > best_score => {
+                    runner_up = best;
+                    best = Some((i, ratio));
+                }
+                Some(_) => {
+                    if runner_up.map(|(_, r)| ratio > r).unwrap_or(true) {
+                        runner_up = Some((i, ratio));
                     }
                 }
             }
         }
-        if let Some((entry_index, tier, _)) = best {
+
+        if let Some((entry_index, best_score)) = best {
+            let is_exact = name_part == vocab.normalized[entry_index];
+            let ambiguous = !is_exact
+                && match runner_up {
+                    Some((idx, score)) => {
+                        idx != entry_index && best_score - score <= AMBIGUITY_MARGIN
+                    }
+                    None => false,
+                };
+            let tier = if ambiguous {
+                MatchTier::Ambiguous
+            } else {
+                MatchTier::Fuzzy
+            };
             hits.push(RowHit {
                 entry_index,
                 count,
@@ -134,7 +196,8 @@ pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> 
         consider(line, true, &mut hits);
     }
 
-    // dedupe: keep one hit per (entry, count), preferring Substring
+    // dedupe: keep one hit per (entry, count), preferring the most
+    // confident tier (Substring, then Fuzzy, then Ambiguous last)
     hits.sort_by_key(|h| {
         (
             h.entry_index,
@@ -142,6 +205,7 @@ pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> 
             match h.tier {
                 MatchTier::Substring => 0,
                 MatchTier::Fuzzy => 1,
+                MatchTier::Ambiguous => 2,
             },
         )
     });

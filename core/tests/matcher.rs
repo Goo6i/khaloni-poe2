@@ -64,6 +64,64 @@ fn junk_lines_do_not_match() {
     assert!(hits.is_empty());
 }
 
+/// A near-identical variant family: normalized Levenshtein between the three
+/// entries sits around 0.81-0.95 of each other, well above FUZZY_THRESHOLD,
+/// so a single garbled OCR line can plausibly fuzzy-match more than one of
+/// them.
+fn jeweller_variants() -> Vocab {
+    Vocab::new(vec![
+        "Lesser Jewellers Orb".to_string(),
+        "Greater Jewellers Orb".to_string(),
+        "Perfect Jewellers Orb".to_string(),
+    ])
+}
+
+#[test]
+fn clean_variant_line_matches_the_named_variant_exactly() {
+    let vocab = jeweller_variants();
+    let hits = match_rows(
+        &vocab,
+        &["1x greater jewellers orb".to_string()],
+        &["1x greater jewellers orb".to_string()],
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(vocab.entry(hits[0].entry_index), "Greater Jewellers Orb");
+    assert_ne!(hits[0].tier, MatchTier::Ambiguous);
+    assert_eq!(hits[0].count, Some(1));
+}
+
+#[test]
+fn corrupted_variant_line_is_ambiguous_not_a_wrong_guess() {
+    let vocab = jeweller_variants();
+    // "gleaser" fuzzy-scores Greater and Lesser within a hair of each other
+    // (0.86 vs 0.86), both clearing FUZZY_THRESHOLD; picking either would be
+    // a coin flip, so this must come back Ambiguous rather than Lesser or
+    // Greater.
+    let hits = match_rows(
+        &vocab,
+        &["1x gleaser jewellers orb".to_string()],
+        &["1x gleaser jewellers orb".to_string()],
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].tier, MatchTier::Ambiguous);
+}
+
+#[test]
+fn substring_tier_picks_the_longest_most_specific_entry() {
+    let vocab = Vocab::new(vec![
+        "Jewellers Orb".to_string(),
+        "Perfect Jewellers Orb".to_string(),
+    ]);
+    let hits = match_rows(
+        &vocab,
+        &["1x perfect jewellers orb".to_string()],
+        &["1x perfect jewellers orb".to_string()],
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].tier, MatchTier::Substring);
+    assert_eq!(vocab.entry(hits[0].entry_index), "Perfect Jewellers Orb");
+}
+
 #[test]
 fn replays_milestone0_shootout_39_of_40_with_no_wrong_counts() {
     let fixtures = [

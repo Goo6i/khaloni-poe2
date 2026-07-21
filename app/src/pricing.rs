@@ -1,4 +1,4 @@
-use poe2_lens_core::matcher::{match_rows, Vocab};
+use poe2_lens_core::matcher::{match_rows, MatchTier, Vocab};
 use poe2_lens_core::ninja::PriceTable;
 use poe2_lens_core::value::{display_price, UNKNOWN};
 
@@ -128,6 +128,18 @@ pub fn price_lines(
             }
             continue;
         };
+        // Two or more near-identical vocab entries scored too close to call:
+        // showing either name would risk a wrong price, so this renders as
+        // "?" same as an unmatched line, never a guessed variant.
+        if hit.tier == MatchTier::Ambiguous {
+            rows.push(Priced {
+                y_top: line.y_top,
+                height: line.height,
+                label: UNKNOWN.to_string(),
+                tier: Tier::Unknown,
+            });
+            continue;
+        }
         let name = vocab.entry(hit.entry_index);
         let Some(price) = table.lookup(name) else {
             continue;

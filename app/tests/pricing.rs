@@ -92,6 +92,45 @@ fn unmatched_counted_stack_shows_question_mark_instead_of_dropping() {
 }
 
 #[test]
+fn ambiguous_variant_match_shows_question_mark_not_a_guess() {
+    // Three near-identical currency variants, priced differently, shaped
+    // like the real Lesser/Greater/Perfect Jeweller's Orb family that
+    // motivated the matcher's ambiguity rule.
+    let variants: ExchangeOverview = serde_json::from_str(
+        r#"{
+        "core": {"items": [], "rates": {"exalted": 412.0, "chaos": 7.29}, "primary": "divine", "secondary": "chaos"},
+        "lines": [
+            {"id": "lesser-jewellers-orb", "primaryValue": 0.001},
+            {"id": "greater-jewellers-orb", "primaryValue": 0.02},
+            {"id": "perfect-jewellers-orb", "primaryValue": 0.5}
+        ],
+        "items": [
+            {"id": "lesser-jewellers-orb", "name": "Lesser Jewellers Orb", "category": "Currency"},
+            {"id": "greater-jewellers-orb", "name": "Greater Jewellers Orb", "category": "Currency"},
+            {"id": "perfect-jewellers-orb", "name": "Perfect Jewellers Orb", "category": "Currency"}
+        ]
+    }"#,
+    )
+    .unwrap();
+    let t = PriceTable::build(&[variants]);
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+
+    // A clean line still resolves to its exact variant, priced.
+    let (clean_rows, _) = price_lines(&t, &v, &[line("1x greater jewellers orb", 10)], &cfg);
+    assert_eq!(clean_rows.len(), 1);
+    assert_ne!(clean_rows[0].label, poe2_lens_core::value::UNKNOWN);
+
+    // "gleaser" fuzzy-scores Lesser and Greater within a hair of each
+    // other; showing either price would risk being wrong, so this must
+    // render as "?" rather than the row silently pricing as either.
+    let (rows, _) = price_lines(&t, &v, &[line("1x gleaser jewellers orb", 10)], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].tier, Tier::Unknown);
+}
+
+#[test]
 fn unmatched_unique_line_shows_question_mark_instead_of_dropping() {
     let t = table();
     let v = build_vocab(&t);

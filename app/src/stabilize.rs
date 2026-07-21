@@ -8,9 +8,10 @@ pub enum ScanResult {
     GateEmpty,
 }
 
-/// Rows survive one miss so a hover tooltip briefly occluding the panel
-/// doesn't flicker the overlay away; a second consecutive miss drops the row.
-const MAX_MISSES: u8 = 1;
+/// Rows survive up to 4 consecutive misses so a hover tooltip occluding the
+/// panel for several scans doesn't flicker the overlay away; the 5th
+/// consecutive miss drops the row.
+const MAX_MISSES: u8 = 4;
 /// Grouping bucket for row identity: (label, y_top / BUCKET_PX).
 const BUCKET_PX: u32 = 40;
 /// A new y_top within this many preprocessed pixels of the tracked one is
@@ -28,8 +29,9 @@ struct Entry {
 
 /// Smooths a jittery stream of per-frame OCR scans into a stable set of rows.
 /// Rows are identified by (label, y_top bucket); a row absent from a scan
-/// survives one miss before being dropped, and small position wobble is
-/// ignored so labels don't visibly twitch between frames.
+/// survives up to MAX_MISSES consecutive misses before being dropped, and
+/// small position wobble is ignored so labels don't visibly twitch between
+/// frames.
 #[derive(Default)]
 pub struct Stabilizer {
     entries: Vec<Entry>,
@@ -158,14 +160,21 @@ mod tests {
     }
 
     #[test]
-    fn dies_on_second_consecutive_miss() {
+    fn survives_four_consecutive_misses_dies_on_the_fifth() {
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![row("3 ex", 100)], false));
-        s.apply(ScanResult::Rows(vec![], false));
-        assert_eq!(s.rows().len(), 1);
 
-        s.apply(ScanResult::Rows(vec![], false));
-        assert!(s.rows().is_empty(), "two consecutive misses must drop the row");
+        for _ in 0..4 {
+            s.apply(ScanResult::Rows(vec![], false));
+        }
+        assert_eq!(
+            s.rows().len(),
+            1,
+            "a row must ride out 4 consecutive misses (e.g. a hover tooltip occluding the panel)"
+        );
+
+        s.apply(ScanResult::Rows(vec![], false)); // 5th consecutive miss
+        assert!(s.rows().is_empty(), "the 5th consecutive miss must drop the row");
     }
 
     #[test]
@@ -173,8 +182,11 @@ mod tests {
         let mut s = Stabilizer::new();
         s.apply(ScanResult::Rows(vec![row("3 ex", 100)], false));
         s.apply(ScanResult::Rows(vec![], false)); // miss 1
+        s.apply(ScanResult::Rows(vec![], false)); // miss 2
         s.apply(ScanResult::Rows(vec![row("3 ex", 100)], false)); // seen again
-        s.apply(ScanResult::Rows(vec![], false)); // miss 1 again, not a 2nd consecutive
+        for _ in 0..4 {
+            s.apply(ScanResult::Rows(vec![], false)); // 4 misses again, not a 5th consecutive
+        }
         assert_eq!(s.rows().len(), 1, "a hit must reset the consecutive-miss count");
     }
 
