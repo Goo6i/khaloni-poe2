@@ -1,6 +1,6 @@
 use poe2_lens_core::matcher::{match_rows, MatchTier, Vocab};
-use poe2_lens_core::ninja::PriceTable;
-use poe2_lens_core::value::{display_price, UNKNOWN};
+use poe2_lens_core::ninja::{Price, PriceTable};
+use poe2_lens_core::value::{display_price, format_amount, UNKNOWN};
 
 use crate::config::Config;
 use crate::ocr::OcrLine;
@@ -13,12 +13,51 @@ pub enum Tier {
     Unknown,
 }
 
+/// Which currency icon a priced row's amount is denominated in. `None` means
+/// no icon (the "?" unpriced rows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Denom {
+    Divine,
+    Exalted,
+    Chaos,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Priced {
     pub y_top: u32,
     pub height: u32,
+    /// Full "N ex" / "N div (each)" text, kept for headless/debug output.
     pub label: String,
+    /// Same number as `label`, minus the "div"/"ex" suffix; the renderer
+    /// draws this next to the currency icon instead of the suffix.
+    pub amount: String,
+    pub denom: Denom,
     pub tier: Tier,
+}
+
+/// Mirrors `display_price`'s divine-vs-exalted choice and formatting, but
+/// returns the amount without a trailing "div"/"ex" word since the renderer
+/// shows that as an icon instead.
+fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> (Denom, String) {
+    let count = count.max(1);
+    let total_divine = price.divine * f64::from(count);
+    let total_exalted = price.exalted * f64::from(count);
+    if total_divine >= divine_threshold {
+        let amount = if count == 1 {
+            format_amount(total_divine)
+        } else {
+            format!("{} ({} each)", format_amount(total_divine), format_amount(price.divine))
+        };
+        (Denom::Divine, amount)
+    } else {
+        let amount = if count == 1 {
+            format_amount(total_exalted)
+        } else {
+            format!("{} ({} each)", format_amount(total_exalted), format_amount(price.exalted))
+        };
+        (Denom::Exalted, amount)
+    }
 }
 
 pub fn build_vocab(table: &PriceTable) -> Vocab {
@@ -89,23 +128,30 @@ pub fn price_lines(
     for line in lines {
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
         if let Some(g) = gem_row(&line.unfiltered) {
-            let (label, tier) = match g {
+            let (label, tier, denom, amount) = match g {
                 GemRow::Skill(level) => {
                     let name = format!("Uncut Skill Gem (Level {level})");
                     match table.lookup(&name) {
-                        Some(p) => (
-                            display_price(p, 1, cfg.divine_threshold),
-                            tier_for(p.exalted, cfg),
-                        ),
-                        None => (UNKNOWN.to_string(), Tier::Unknown),
+                        Some(p) => {
+                            let (denom, amount) = denom_amount(p, 1, cfg.divine_threshold);
+                            (
+                                display_price(p, 1, cfg.divine_threshold),
+                                tier_for(p.exalted, cfg),
+                                denom,
+                                amount,
+                            )
+                        }
+                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string()),
                     }
                 }
-                GemRow::Unleveled => (UNKNOWN.to_string(), Tier::Unknown),
+                GemRow::Unleveled => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string()),
             };
             rows.push(Priced {
                 y_top: line.y_top,
                 height: line.height,
                 label,
+                amount,
+                denom,
                 tier,
             });
             continue;
@@ -123,6 +169,8 @@ pub fn price_lines(
                     y_top: line.y_top,
                     height: line.height,
                     label: UNKNOWN.to_string(),
+                    amount: UNKNOWN.to_string(),
+                    denom: Denom::None,
                     tier: Tier::Unknown,
                 });
             }
@@ -136,6 +184,8 @@ pub fn price_lines(
                 y_top: line.y_top,
                 height: line.height,
                 label: UNKNOWN.to_string(),
+                amount: UNKNOWN.to_string(),
+                denom: Denom::None,
                 tier: Tier::Unknown,
             });
             continue;
@@ -145,10 +195,13 @@ pub fn price_lines(
             continue;
         };
         let count = hit.count.unwrap_or(1);
+        let (denom, amount) = denom_amount(price, count, cfg.divine_threshold);
         rows.push(Priced {
             y_top: line.y_top,
             height: line.height,
             label: display_price(price, count, cfg.divine_threshold),
+            amount,
+            denom,
             tier: tier_for(price.exalted * f64::from(count), cfg),
         });
     }

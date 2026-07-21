@@ -104,7 +104,7 @@ fn headless() -> anyhow::Result<()> {
             if snap.stale { " [STALE PRICES]" } else { "" }
         );
         for r in &rows {
-            let (lx, ly) = map.label_pos_logical(r.y_top);
+            let (lx, ly) = map.label_pos_centered(r.y_top, r.height);
             println!("  y={:>4} ({lx},{ly})  {:?}  {}", r.y_top, r.tier, r.label);
         }
         if !total.is_empty() {
@@ -200,8 +200,7 @@ fn overlay_mode() -> anyhow::Result<()> {
 
     let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
     let mut overlay = poe2_lens::overlay::Overlay::new(center)?;
-    let font = std::fs::read(&cfg.font_path)?;
-    let renderer = poe2_lens::render::Renderer::new(&font)?;
+    let renderer = poe2_lens::render::Renderer::new()?;
 
     let mut scanning = true;
     let mut hidden = false;
@@ -300,7 +299,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let placed: Vec<_> = rows
                     .iter()
                     .map(|r| {
-                        let (lx, ly) = map.label_pos_logical(r.y_top);
+                        let (lx, ly) = map.label_pos_centered(r.y_top, r.height);
                         // Global logical -> surface-local (output-relative);
                         // the game may have moved, so re-anchor on its live pos.
                         let dx = game_pos.0 - map.window_logical.x;
@@ -308,7 +307,8 @@ fn overlay_mode() -> anyhow::Result<()> {
                         poe2_lens::render::Placed {
                             x: lx + dx - out_pos.0,
                             y: ly + dy - out_pos.1,
-                            label: r.label.clone(),
+                            amount: r.amount.clone(),
+                            denom: r.denom,
                             tier: r.tier,
                         }
                     })

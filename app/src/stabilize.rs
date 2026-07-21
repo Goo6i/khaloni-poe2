@@ -1,4 +1,4 @@
-use crate::pricing::Priced;
+use crate::pricing::{Denom, Priced};
 
 /// What one OCR pass produced: either priced rows, with the price service's
 /// staleness flag, or a signal that the frame was gated before tesseract
@@ -20,6 +20,8 @@ const POSITION_HYSTERESIS_PX: u32 = 12;
 
 struct Entry {
     label: String,
+    amount: String,
+    denom: Denom,
     bucket: u32,
     y_top: u32,
     height: u32,
@@ -75,12 +77,16 @@ impl Stabilizer {
                     e.bucket = bucket;
                 }
                 e.height = row.height;
+                e.amount = row.amount;
+                e.denom = row.denom;
                 e.tier = row.tier;
                 e.missed = 0;
                 matched[i] = true;
             } else {
                 self.entries.push(Entry {
                     label: row.label,
+                    amount: row.amount,
+                    denom: row.denom,
                     bucket,
                     y_top: row.y_top,
                     height: row.height,
@@ -116,6 +122,8 @@ impl Stabilizer {
                 y_top: e.y_top,
                 height: e.height,
                 label: e.label.clone(),
+                amount: e.amount.clone(),
+                denom: e.denom,
                 tier: e.tier,
             })
             .collect();
@@ -144,6 +152,8 @@ mod tests {
             y_top,
             height: 30,
             label: label.to_string(),
+            amount: label.to_string(),
+            denom: Denom::Exalted,
             tier: Tier::Decent,
         }
     }

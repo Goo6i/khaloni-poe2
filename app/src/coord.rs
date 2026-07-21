@@ -41,4 +41,11 @@ impl CoordMap {
             self.calibration.y + logical_y,
         )
     }
+
+    /// Same as `label_pos_logical`, but for the vertical center of a row
+    /// (`y_top + height / 2`) rather than its top edge, so the renderer can
+    /// center the pill on the OCR row instead of hanging it off the top.
+    pub fn label_pos_centered(&self, y_top: u32, height: u32) -> (i32, i32) {
+        self.label_pos_logical(y_top + height / 2)
+    }
 }

@@ -1,15 +1,14 @@
-use poe2_lens::pricing::Tier;
+use poe2_lens::pricing::{Denom, Tier};
 use poe2_lens::render::{Placed, Renderer};
 
 #[test]
 fn draws_nonempty_label_pixels_inside_bounds() {
-    let font = std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf").unwrap();
-    let r = Renderer::new(&font).unwrap();
+    let r = Renderer::new().unwrap();
     let mut pm = tiny_skia::Pixmap::new(600, 200).unwrap();
     r.draw_frame(
         &mut pm,
-        &[Placed { x: 20, y: 100, label: "12.5 ex (2.5 each)".into(), tier: Tier::Decent }],
-        "Total: 2.1 div",
+        &[Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent }],
+        "",
         false,
     );
     let data = pm.data();
@@ -32,18 +31,53 @@ fn repeated_draw_frame_is_deterministic_with_glyph_cache() {
     // A second draw_frame call reuses the renderer's internal glyph cache
     // instead of re-rasterizing; the output must be pixel-identical to the
     // first call, proving the cached path draws the same as the cold path.
-    let font = std::fs::read("/usr/share/fonts/TTF/DejaVuSans.ttf").unwrap();
-    let r = Renderer::new(&font).unwrap();
+    let r = Renderer::new().unwrap();
     let labels = [
-        Placed { x: 20, y: 100, label: "12.5 ex (2.5 each)".into(), tier: Tier::Decent },
-        Placed { x: 20, y: 140, label: "3 ex".into(), tier: Tier::Jackpot },
+        Placed { x: 20, y: 100, amount: "12.5".into(), denom: Denom::Exalted, tier: Tier::Decent },
+        Placed { x: 20, y: 140, amount: "3".into(), denom: Denom::Chaos, tier: Tier::Jackpot },
     ];
 
     let mut first = tiny_skia::Pixmap::new(600, 200).unwrap();
-    r.draw_frame(&mut first, &labels, "Total: 2.1 div", false);
+    r.draw_frame(&mut first, &labels, "", false);
 
     let mut second = tiny_skia::Pixmap::new(600, 200).unwrap();
-    r.draw_frame(&mut second, &labels, "Total: 2.1 div", false);
+    r.draw_frame(&mut second, &labels, "", false);
 
     assert_eq!(first.data(), second.data(), "second draw_frame with warm glyph cache must match the first");
+}
+
+#[test]
+fn jackpot_divine_row_composites_icon_pixels_beyond_the_text() {
+    // A short amount ("9") leaves the text glyphs confined to a narrow
+    // column near x=20; the divine icon sits a few px to the right of that
+    // and spans ~24x24. A flat pill fill only ever contributes one or two
+    // colors (fill + a few rounded-corner antialiasing shades) in any
+    // window; real icon art is detailed enough that composited icon pixels
+    // produce many distinct colors, so counting distinct colors in a
+    // generous icon-sized window distinguishes "icon actually composited"
+    // from "just more parchment".
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(300, 200).unwrap();
+    r.draw_frame(
+        &mut pm,
+        &[Placed { x: 20, y: 100, amount: "9".into(), denom: Denom::Divine, tier: Tier::Jackpot }],
+        "",
+        false,
+    );
+
+    let mut colors = std::collections::HashSet::new();
+    for xx in 30..85u32 {
+        for yy in 78..122u32 {
+            if let Some(p) = pm.pixel(xx, yy) {
+                if p.alpha() != 0 {
+                    colors.insert((p.red(), p.green(), p.blue(), p.alpha()));
+                }
+            }
+        }
+    }
+    assert!(
+        colors.len() >= 8,
+        "expected the divine icon's detailed artwork to produce many distinct colors beyond the amount text, got {}",
+        colors.len()
+    );
 }

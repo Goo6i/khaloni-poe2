@@ -1,6 +1,6 @@
 use poe2_lens::config::Config;
 use poe2_lens::ocr::OcrLine;
-use poe2_lens::pricing::{build_vocab, price_lines, Tier};
+use poe2_lens::pricing::{build_vocab, price_lines, Denom, Tier};
 use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
 
 fn table() -> PriceTable {
@@ -43,6 +43,11 @@ fn prices_currency_rows_with_counts() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].label.contains("each") || rows[0].label.contains("ex"));
     assert_ne!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    // amount is the label's leading number, denom carries what the label's
+    // suffix used to say ("div" or "ex"); the renderer draws an icon instead.
+    assert_ne!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    let expected_denom = if rows[0].label.contains(" div") { Denom::Divine } else { Denom::Exalted };
+    assert_eq!(rows[0].denom, expected_denom);
     // The panel is a pick-one choice: no summed total is ever rendered.
     assert!(total.is_empty());
 }
@@ -64,8 +69,12 @@ fn maps_skill_gem_rows_by_level_and_never_guesses_support() {
     assert_eq!(rows.len(), 2);
     // Level 20 skill gem is priced from the UncutGems overview: 0.05 div * 412 = 20.6 ex.
     assert!(rows[0].label.contains("20.6"), "got {}", rows[0].label);
+    assert!(rows[0].amount.contains("20.6"), "got {}", rows[0].amount);
+    assert_eq!(rows[0].denom, Denom::Exalted);
     // Support row has no level on the panel: must be "?" and Unknown tier.
     assert_eq!(rows[1].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[1].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[1].denom, Denom::None);
     assert_eq!(rows[1].tier, Tier::Unknown);
 }
 
@@ -88,6 +97,8 @@ fn unmatched_counted_stack_shows_question_mark_instead_of_dropping() {
     let (rows, _) = price_lines(&t, &v, &[line("3x mystery orb", 10)], &cfg);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
 
@@ -120,6 +131,8 @@ fn ambiguous_variant_match_shows_question_mark_not_a_guess() {
     let (clean_rows, _) = price_lines(&t, &v, &[line("1x greater jewellers orb", 10)], &cfg);
     assert_eq!(clean_rows.len(), 1);
     assert_ne!(clean_rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(clean_rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(clean_rows[0].denom, Denom::None);
 
     // "gleaser" fuzzy-scores Lesser and Greater within a hair of each
     // other; showing either price would risk being wrong, so this must
@@ -127,6 +140,8 @@ fn ambiguous_variant_match_shows_question_mark_not_a_guess() {
     let (rows, _) = price_lines(&t, &v, &[line("1x gleaser jewellers orb", 10)], &cfg);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
 
@@ -138,5 +153,7 @@ fn unmatched_unique_line_shows_question_mark_instead_of_dropping() {
     let (rows, _) = price_lines(&t, &v, &[line("saqawals unique rune", 10)], &cfg);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
