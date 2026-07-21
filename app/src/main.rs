@@ -217,6 +217,16 @@ fn overlay_mode() -> anyhow::Result<()> {
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
         );
+        // Learned-template store: identifies previously seen reward bands
+        // in well under a millisecond, bypassing tesseract; OCR remains
+        // the teacher for first encounters. Persisted across sessions.
+        let tpl_path = directories::ProjectDirs::from("", "", "poe2-lens")
+            .map(|d| d.cache_dir().join("templates.bin"));
+        let mut tstore = tpl_path
+            .as_deref()
+            .map(poe2_lens::template::TemplateStore::load)
+            .unwrap_or_default();
+        let mut tpl_saved_at = std::time::Instant::now();
         // The frame channel is capacity-1 with try_send-and-drop on the
         // capture side (see capture::consume), so a backlog here is
         // structurally impossible: this is always the latest frame, and a
@@ -275,6 +285,46 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
                 continue;
             }
+            // Template pass first: every band already learned resolves in
+            // ~0.7 ms (measured on the live corpus) with no tesseract.
+            let snap = svc_ocr.snapshot();
+            let mut resolved: Vec<pricing::Priced> = Vec::new();
+            let mut any_unresolved = false;
+            for &(y0, y1) in &bands {
+                let row = ocr::band_crop(&frame.gray, y0, y1)
+                    .and_then(|crop| {
+                        tstore.match_band(&crop).map(|(hit, _)| {
+                            (hit.item_key.clone(), hit.count, hit.count_explicit)
+                        })
+                    })
+                    .and_then(|(key, count, explicit)| {
+                        pricing::price_resolved(
+                            &snap.table,
+                            &key,
+                            count,
+                            explicit,
+                            y0 * ocr::UPSCALE,
+                            (y1 - y0) * ocr::UPSCALE,
+                            &ocr_cfg,
+                        )
+                    });
+                match row {
+                    Some(r) => resolved.push(r),
+                    None => any_unresolved = true,
+                }
+            }
+            if !any_unresolved && !resolved.is_empty() {
+                if dbg {
+                    eprintln!(
+                        "TRACE {:>8.2}s tpl_done in {:?}: {} rows",
+                        t0.elapsed().as_secs_f32(),
+                        t_frame.elapsed(),
+                        resolved.len()
+                    );
+                }
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(resolved, snap.stale));
+                continue;
+            }
             // First scan after a scroll burst: bands only, no whole-panel
             // union pass, so newly revealed rows appear ~3x sooner; the
             // union tops up on the following scan.
@@ -293,8 +343,48 @@ fn overlay_mode() -> anyhow::Result<()> {
                     lines.len()
                 )));
             }
-            let snap = svc_ocr.snapshot();
             let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
+            // Teach the template store from confidently identified OCR
+            // rows aligned to a band (OCR-taught templates then take over
+            // for every later encounter of the same reward).
+            for r in &out.0 {
+                if !r.locks_in_one
+                    || r.item_key == "unpriceable"
+                    || r.item_key == "ambiguous"
+                    || r.item_key.starts_with("gem-unleveled")
+                {
+                    continue;
+                }
+                if let Some(&(y0, y1)) = bands
+                    .iter()
+                    .find(|&&(y0, _)| y0 * ocr::UPSCALE == r.y_top)
+                {
+                    if let Some(crop) = ocr::band_crop(&frame.gray, y0, y1) {
+                        tstore.learn(&r.item_key, r.count, r.count_explicit, &crop);
+                    }
+                }
+            }
+            if tstore.dirty && tpl_saved_at.elapsed().as_secs() >= 30 {
+                if let Some(p) = tpl_path.as_deref() {
+                    let _ = tstore.save(p);
+                }
+                tpl_saved_at = std::time::Instant::now();
+            }
+            // Merge template-resolved rows with the OCR pass: a resolved
+            // row wins over any OCR row overlapping its y range.
+            let mut merged = resolved;
+            for r in out.0 {
+                let clash = merged.iter().any(|m| {
+                    let (a0, a1) = (i64::from(m.y_top), i64::from(m.y_top) + i64::from(m.height));
+                    let (b0, b1) = (i64::from(r.y_top), i64::from(r.y_top) + i64::from(r.height));
+                    a0.max(b0) < a1.min(b1)
+                });
+                if !clash {
+                    merged.push(r);
+                }
+            }
+            merged.sort_by_key(|r| r.y_top);
+            let out = (merged, out.1);
             // Bands were present but nothing priced (tooltip occlusion,
             // mid-transition frame): plain empty Rows, which the
             // stabilizer rides out with its occlusion tolerance. The

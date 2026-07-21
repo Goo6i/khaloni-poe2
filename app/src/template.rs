@@ -165,7 +165,7 @@ impl TemplateStore {
                 )
             };
             let s = best_ncc(&e.strip, e.mean, e.var, &hay);
-            if s >= NCC_THRESHOLD && best.map_or(true, |(_, b)| s > b) {
+            if s >= NCC_THRESHOLD && best.is_none_or(|(_, b)| s > b) {
                 best = Some((i, s));
             }
         }

@@ -246,7 +246,10 @@ pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
 /// Runs one band's crop/upscale/tesseract pass; `None` on any failure
 /// (crop out of range, tesseract error, or the result fails the
 /// empty/alpha-run guards), so one bad band never kills the others.
-fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> Option<OcrLine> {
+/// The exact text-region crop OCR sees for a band; shared with the
+/// template engine so learned strips and later encounters are
+/// pixel-compatible by construction.
+pub fn band_crop(gray: &GrayImage, y0: u32, y1: u32) -> Option<GrayImage> {
     let (w, h) = (gray.width(), gray.height());
     let x0 = ((w as f32) * ICON_CUT) as u32;
     let x1 = (((w as f32) * (1.0 - RIGHT_TRIM)) as u32).clamp(x0 + 1, w);
@@ -255,8 +258,11 @@ fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> O
     if x1 <= x0 || cy1 <= cy0 {
         return None;
     }
+    Some(imageops::crop_imm(gray, x0, cy0, x1 - x0, cy1 - cy0).to_image())
+}
 
-    let crop = imageops::crop_imm(gray, x0, cy0, x1 - x0, cy1 - cy0).to_image();
+fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> Option<OcrLine> {
+    let crop = band_crop(gray, y0, y1)?;
     let up = imageops::resize(
         &crop,
         crop.width() * BAND_OCR_SCALE,

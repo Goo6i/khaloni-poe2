@@ -40,6 +40,8 @@ pub struct Priced {
     /// for the "?" cases. Used by `stabilize::Stabilizer`'s slot model to
     /// decide a same-item bump vs a different-item pending switch.
     pub item_key: String,
+    /// Stack count this row was priced at (1 when uncounted).
+    pub count: u32,
     /// True when this pass's OCR line carried an explicit "Nx" count token;
     /// false when the count was implied (defaulted to 1) or this row has no
     /// count concept at all (gem rows, "?" rows). Drives the stabilizer's
@@ -161,6 +163,40 @@ fn is_unpriceable_but_present(line: &OcrLine) -> bool {
     has_leading_count(&line.unfiltered) || line.unfiltered.contains("unique")
 }
 
+/// Prices a template-identified band without any OCR text: the learned
+/// key reproduces the same Priced a full OCR+match pass would have built.
+/// Returns None only when the key no longer resolves against the current
+/// price table (league change, catalog drift); the caller then falls back
+/// to OCR so the template gets re-learned.
+pub fn price_resolved(
+    table: &PriceTable,
+    item_key: &str,
+    count: u32,
+    count_explicit: bool,
+    y_top: u32,
+    height: u32,
+    cfg: &Config,
+) -> Option<Priced> {
+    let lookup_name = item_key
+        .strip_prefix("gem-skill-")
+        .map(|lvl| format!("Uncut Skill Gem (Level {lvl})"))
+        .unwrap_or_else(|| item_key.to_string());
+    let price = table.lookup(&lookup_name)?;
+    let (denom, amount) = denom_amount(price, count, cfg.divine_threshold);
+    Some(Priced {
+        y_top,
+        height,
+        label: display_price(price, count, cfg.divine_threshold),
+        amount,
+        denom,
+        tier: tier_for(price.exalted * f64::from(count.max(1)), cfg),
+        item_key: item_key.to_string(),
+        count,
+        count_explicit,
+        locks_in_one: true,
+    })
+}
+
 pub fn price_lines(
     table: &PriceTable,
     vocab: &Vocab,
@@ -207,6 +243,7 @@ pub fn price_lines(
                 tier,
                 item_key,
                 // Skill/support/spirit rows never carry a count on the panel.
+                count: 1,
                 count_explicit: false,
                 // A deterministic type+level (or unleveled) pin, never a
                 // per-frame fuzzy guess: locks a display slot on read 1.
@@ -231,6 +268,7 @@ pub fn price_lines(
                     denom: Denom::None,
                     tier: Tier::Unknown,
                     item_key: "unpriceable".to_string(),
+                    count: 1,
                     count_explicit: false,
                     locks_in_one: true,
                 });
@@ -249,6 +287,7 @@ pub fn price_lines(
                 denom: Denom::None,
                 tier: Tier::Unknown,
                 item_key: "ambiguous".to_string(),
+                count: 1,
                 count_explicit: false,
                 locks_in_one: true,
             });
@@ -268,6 +307,7 @@ pub fn price_lines(
             denom,
             tier: tier_for(price.exalted * f64::from(count), cfg),
             item_key: normalize(name),
+            count: hit.count.unwrap_or(1),
             count_explicit: hit.count.is_some(),
             locks_in_one: hit.tier.locks_in_one(),
         });
