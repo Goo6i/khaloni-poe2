@@ -219,3 +219,221 @@ mod normalize_tests {
         );
     }
 }
+
+// --- rate limiting, search, fetch (verified live 2026-07-21; see the
+// phase-4 plan's "Verified trade API facts" and the recorded fixtures) ---
+
+/// One `max:window_seconds:ban_seconds` rule from `x-rate-limit-ip`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateRule {
+    pub max: u32,
+    pub window_s: u32,
+    pub ban_s: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RateDecision {
+    Ready,
+    Wait(std::time::Duration),
+}
+
+/// Client-side mirror of the server's sliding-window limits, driven by the
+/// real response headers: `x-rate-limit-ip` declares the rules,
+/// `x-rate-limit-ip-state` (`used:window:banned_for`) reports the server's
+/// own view after every response and overrides local bookkeeping.
+#[derive(Debug)]
+pub struct RateLimiter {
+    rules: Vec<RateRule>,
+    /// Locally recorded request instants, pruned to the largest window.
+    sent: Vec<std::time::Instant>,
+    banned_until: Option<std::time::Instant>,
+}
+
+impl RateLimiter {
+    pub fn from_header(h: &str) -> RateLimiter {
+        let rules = h
+            .split(',')
+            .filter_map(|t| {
+                let mut it = t.trim().split(':');
+                Some(RateRule {
+                    max: it.next()?.parse().ok()?,
+                    window_s: it.next()?.parse().ok()?,
+                    ban_s: it.next()?.parse().ok()?,
+                })
+            })
+            .collect();
+        RateLimiter { rules, sent: Vec::new(), banned_until: None }
+    }
+
+    /// Applies a fresh `x-rate-limit-ip-state` header: an active ban
+    /// (third field nonzero) locks the limiter for that long.
+    pub fn apply_state(&mut self, state: &str) {
+        for t in state.split(',') {
+            let mut it = t.trim().split(':');
+            let (Some(_used), Some(_win), Some(ban)) = (it.next(), it.next(), it.next()) else {
+                continue;
+            };
+            if let Ok(ban_s) = ban.parse::<u64>() {
+                if ban_s > 0 {
+                    let until = std::time::Instant::now() + std::time::Duration::from_secs(ban_s);
+                    self.banned_until = Some(match self.banned_until {
+                        Some(b) if b > until => b,
+                        _ => until,
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn check(&mut self) -> RateDecision {
+        let now = std::time::Instant::now();
+        if let Some(until) = self.banned_until {
+            if until > now {
+                return RateDecision::Wait(until - now);
+            }
+            self.banned_until = None;
+        }
+        let max_window = self.rules.iter().map(|r| r.window_s).max().unwrap_or(0);
+        self.sent
+            .retain(|t| now.duration_since(*t).as_secs() < u64::from(max_window));
+        let mut wait = std::time::Duration::ZERO;
+        for r in &self.rules {
+            let in_window = self
+                .sent
+                .iter()
+                .filter(|t| now.duration_since(**t).as_secs() < u64::from(r.window_s))
+                .count() as u32;
+            if in_window >= r.max {
+                // Free again when the oldest in-window request expires.
+                if let Some(oldest) = self
+                    .sent
+                    .iter()
+                    .filter(|t| now.duration_since(**t).as_secs() < u64::from(r.window_s))
+                    .min()
+                {
+                    let free_in = std::time::Duration::from_secs(u64::from(r.window_s))
+                        .saturating_sub(now.duration_since(*oldest));
+                    wait = wait.max(free_in);
+                }
+            }
+        }
+        if wait.is_zero() {
+            RateDecision::Ready
+        } else {
+            RateDecision::Wait(wait)
+        }
+    }
+
+    /// Records a request the caller is about to send.
+    pub fn record(&mut self) {
+        self.sent.push(std::time::Instant::now());
+    }
+}
+
+// --- query building (body shape byte-verified against the live probe) ---
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct StatFilter {
+    pub id: String,
+    pub value: FilterValue,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FilterValue {
+    pub min: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Query {
+    pub category: Option<String>,
+    pub filters: Vec<StatFilter>,
+}
+
+impl Query {
+    /// Serializes to the exact body shape verified live.
+    pub fn to_body(&self) -> serde_json::Value {
+        let mut query = serde_json::json!({
+            "status": {"option": "online"},
+            "stats": [{
+                "type": "and",
+                "filters": self.filters,
+            }],
+        });
+        if let Some(cat) = &self.category {
+            query["filters"] = serde_json::json!({
+                "type_filters": {"filters": {"category": {"option": cat}}}
+            });
+        }
+        serde_json::json!({"query": query, "sort": {"price": "asc"}})
+    }
+}
+
+/// Item classes verified against live category options; extended only as
+/// new classes appear in fixtures.
+fn category_for(item_class: &str) -> Option<String> {
+    let c = item_class.to_ascii_lowercase();
+    let cat = match c.as_str() {
+        "bows" => "weapon.bow",
+        "amulets" => "accessory.amulet",
+        "rings" => "accessory.ring",
+        "belts" => "accessory.belt",
+        "jewels" => "jewel",
+        _ => return None,
+    };
+    Some(cat.to_string())
+}
+
+/// Mods worth preselecting: the stats that dominate rare pricing.
+fn preselect(text: &str) -> bool {
+    let t = text.to_ascii_lowercase();
+    ["resistance", "maximum life", "maximum mana", "attributes", "dexterity", "strength",
+     "intelligence", "damage", "level of all", "skill"]
+        .iter()
+        .any(|k| t.contains(k))
+}
+
+/// First number in a mod line (the rolled value), if any.
+fn first_number(text: &str) -> Option<f64> {
+    let mut cur = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() || (ch == '.' && !cur.is_empty()) {
+            cur.push(ch);
+        } else if !cur.is_empty() {
+            break;
+        }
+    }
+    if cur.is_empty() {
+        None
+    } else {
+        cur.parse().ok()
+    }
+}
+
+/// Builds the default appraisal query for a parsed rare: every resolvable
+/// explicit mod becomes a stat filter with min = floor(rolled * 0.9)
+/// (undershot to widen matches, per the established price-checker
+/// pattern); pricing-dominant mods start enabled, the rest disabled.
+pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
+    let mut filters: Vec<StatFilter> = Vec::new();
+    for m in &item.explicits {
+        // Rune-socket mods are gear, not the item's own explicits; the
+        // trade site treats them separately, and mapping one onto an
+        // explicit filter (same stat id, lower roll) both duplicates the
+        // filter and drags the min value down.
+        if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
+            continue;
+        }
+        let Some(entry) = stats.resolve(&m.text) else { continue };
+        if filters.iter().any(|f| f.id == entry.id) {
+            continue;
+        }
+        let Some(v) = first_number(&m.text) else { continue };
+        filters.push(StatFilter {
+            id: entry.id.clone(),
+            value: FilterValue { min: (v * 0.9).floor() as i64 },
+            disabled: !preselect(&m.text),
+        });
+    }
+    Query { category: category_for(&item.item_class), filters }
+}

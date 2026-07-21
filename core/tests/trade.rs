@@ -41,15 +41,66 @@ fn resolves_six_verified_stat_ids_from_real_fixtures() {
 #[test]
 fn unknown_mod_resolves_to_none() {
     let index = StatIndex::from_json(STATS_JSON).unwrap();
-    // Real mod text, but its stat id was trimmed out of the fixture, so it
-    // must not be found rather than silently matching something else.
-    let text = mod_text(BOW, "Lightning Damage");
-    assert!(index.resolve(&text).is_none());
-
+    // A fabricated mod must never silently match anything.
     assert!(index.resolve("this is not a real mod at all").is_none());
+    assert!(index.resolve("Adds 3 to 82 Voidfire Damage").is_none());
 }
 
 #[test]
 fn bad_json_is_an_error() {
     assert!(StatIndex::from_json("not json").is_err());
+}
+
+// --- rate limiter + query builder (facts verified live 2026-07-21) ---
+
+use poe2_lens_core::trade::{build_query, RateDecision, RateLimiter};
+
+#[test]
+fn parses_the_real_search_rate_rules() {
+    let mut rl = RateLimiter::from_header("5:10:60,15:60:300,30:300:1800");
+    assert_eq!(rl.check(), RateDecision::Ready);
+    for _ in 0..5 {
+        rl.record();
+    }
+    match rl.check() {
+        RateDecision::Wait(d) => assert!(d.as_secs() <= 10, "waits for the 10s window"),
+        RateDecision::Ready => panic!("5 requests in the 5:10:60 window must saturate it"),
+    }
+}
+
+#[test]
+fn a_reported_ban_locks_the_limiter() {
+    let mut rl = RateLimiter::from_header("5:10:60");
+    rl.apply_state("1:10:60");
+    match rl.check() {
+        RateDecision::Wait(d) => assert!(d.as_secs() >= 59, "ban must hold ~60s, got {d:?}"),
+        RateDecision::Ready => panic!("an active ban in the state header must lock the limiter"),
+    }
+    let mut ok = RateLimiter::from_header("5:10:60");
+    ok.apply_state("1:10:0");
+    assert_eq!(ok.check(), RateDecision::Ready, "zero ban field is not a ban");
+}
+
+#[test]
+fn builds_the_verified_body_shape_for_the_rare_bow() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let item = parse_item(BOW).expect("parse");
+    let q = build_query(&item, &stats);
+    assert_eq!(q.category.as_deref(), Some("weapon.bow"));
+    assert!(q.filters.len() >= 4, "most bow mods resolve, got {}", q.filters.len());
+    let body = q.to_body();
+    assert_eq!(body["query"]["status"]["option"], "online");
+    assert_eq!(body["sort"]["price"], "asc");
+    assert_eq!(
+        body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
+        "weapon.bow"
+    );
+    let filters = body["query"]["stats"][0]["filters"].as_array().expect("filters");
+    let phys = filters
+        .iter()
+        .find(|f| f["id"] == "explicit.stat_1509134228")
+        .expect("physical damage filter present");
+    // 157% rolled, undershot by 10% -> 141
+    assert_eq!(phys["value"]["min"], 141);
+    assert_eq!(phys["disabled"], false, "damage mods preselect");
 }

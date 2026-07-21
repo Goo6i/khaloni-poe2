@@ -207,6 +207,21 @@
      "id": "explicit.stat_1509134228",
      "text": "#% increased Physical Damage",
      "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_1940865751",
+     "text": "Adds # to # Physical Damage",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_3336890334",
+     "text": "Adds # to # Lightning Damage",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_518292764",
+     "text": "#% to Critical Hit Chance",
+     "type": "explicit"
     }
    ]
   }
