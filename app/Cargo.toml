@@ -19,6 +19,7 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 directories = "6"
 anyhow = "1"
+leptess = "0.14"
 futures-util = "0.3"
 evdev = "0.12"
 

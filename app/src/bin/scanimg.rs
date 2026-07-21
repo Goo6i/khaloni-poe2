@@ -12,7 +12,8 @@ fn main() -> anyhow::Result<()> {
     let img = image::open(&path)?.to_luma8();
     let bands = ocr::detect_bands(&img);
     eprintln!("{} band(s) detected", bands.len());
-    let lines = ocr::ocr_scan(&cfg.tesseract_cmd, &img);
+    let mut engine = ocr::OcrEngine::new()?;
+    let lines = ocr::ocr_scan(&mut engine, &img);
     for l in &lines {
         eprintln!("line y={:>4}: filtered={:?} unfiltered={:?}", l.y_top, l.filtered, l.unfiltered);
     }
