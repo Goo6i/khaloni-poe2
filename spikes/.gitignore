@@ -3,3 +3,4 @@ ocr/samples/
 frame.png
 restore_token.txt
 frame_preview.png
+__pycache__/
