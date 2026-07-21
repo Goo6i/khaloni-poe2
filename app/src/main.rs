@@ -230,7 +230,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
         }
 
-        let paused = !scanning || (!game_focused && cfg.pause_when_unfocused);
+        let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
 
         while let Ok((out, stale)) = rows_rx.try_recv() {
