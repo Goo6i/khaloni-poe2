@@ -21,6 +21,9 @@ directories = "6"
 anyhow = "1"
 futures-util = "0.3"
 
+[dev-dependencies]
+serde_json = "1"
+
 [lib]
 name = "poe2_lens"
 path = "src/lib.rs"

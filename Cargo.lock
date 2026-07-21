@@ -1754,6 +1754,7 @@ dependencies = [
  "pipewire",
  "poe2-lens-core",
  "serde",
+ "serde_json",
  "smithay-client-toolkit",
  "tiny-skia",
  "tokio",
