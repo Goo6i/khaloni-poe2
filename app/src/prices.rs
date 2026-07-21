@@ -13,6 +13,7 @@ pub struct Snapshot {
 #[derive(Clone)]
 pub struct PriceService {
     inner: Arc<RwLock<Arc<Snapshot>>>,
+    force: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn fetch(client: &NinjaClient, league: &str) -> anyhow::Result<(PriceTable, bool)> {
@@ -35,17 +36,35 @@ fn fetch(client: &NinjaClient, league: &str) -> anyhow::Result<(PriceTable, bool
 }
 
 impl PriceService {
-    /// Blocking initial fetch, then a background refresh every 30 minutes.
-    /// On refresh failure the previous snapshot is kept (never a zeroed table).
+    /// Blocking initial fetch, then a background refresh every
+    /// `refresh_minutes` (checked each second so `refresh_now` takes
+    /// effect immediately). On refresh failure the previous snapshot is
+    /// kept (never a zeroed table).
     pub fn start(client: NinjaClient, league: String) -> anyhow::Result<PriceService> {
+        Self::start_with_interval(client, league, Duration::from_secs(30 * 60))
+    }
+
+    pub fn start_with_interval(
+        client: NinjaClient,
+        league: String,
+        interval: Duration,
+    ) -> anyhow::Result<PriceService> {
         let (table, stale) = fetch(&client, &league)?;
         let vocab = crate::pricing::build_vocab(&table);
         let inner = Arc::new(RwLock::new(Arc::new(Snapshot { table, vocab, stale })));
+        let force = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let force_bg = force.clone();
         let svc = PriceService {
             inner: inner.clone(),
+            force,
         };
         std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_secs(30 * 60));
+            let started = std::time::Instant::now();
+            while started.elapsed() < interval
+                && !force_bg.swap(false, std::sync::atomic::Ordering::Relaxed)
+            {
+                std::thread::sleep(Duration::from_secs(1));
+            }
             match fetch(&client, &league) {
                 Ok((table, stale)) => {
                     let vocab = crate::pricing::build_vocab(&table);
@@ -56,6 +75,12 @@ impl PriceService {
             }
         });
         Ok(svc)
+    }
+
+    /// Requests an immediate refresh; the background thread notices
+    /// within a second.
+    pub fn refresh_now(&self) {
+        self.force.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn snapshot(&self) -> Arc<Snapshot> {

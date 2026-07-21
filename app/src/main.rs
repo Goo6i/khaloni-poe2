@@ -65,7 +65,11 @@ fn headless() -> anyhow::Result<()> {
         .unwrap()
         .cache_dir()
         .to_path_buf();
-    let svc = prices::PriceService::start(NinjaClient::new(cache), cfg.league.clone())?;
+    let svc = prices::PriceService::start_with_interval(
+        NinjaClient::new(cache),
+        cfg.league.clone(),
+        std::time::Duration::from_secs(cfg.refresh_minutes * 60),
+    )?;
     eprintln!("price table ready ({} names)", svc.snapshot().table.len());
 
     let rt = tokio::runtime::Runtime::new()?;
@@ -125,7 +129,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
 
     let cache = directories::ProjectDirs::from("", "", "poe2-lens").unwrap().cache_dir().to_path_buf();
-    let svc = prices::PriceService::start(NinjaClient::new(cache), cfg.league.clone())?;
+    let svc = prices::PriceService::start_with_interval(
+        NinjaClient::new(cache),
+        cfg.league.clone(),
+        std::time::Duration::from_secs(cfg.refresh_minutes * 60),
+    )?;
 
     let kwin = poe2_lens::kwin::GeometryFeed::start()?;
     // First geometry fixes the output; 0,0,0,0 means no game yet.
@@ -458,6 +466,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // one within one tick on its own.
                 }
                 poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
+                poe2_lens::hotkeys::Hotkey::PriceRefresh => {
+                    eprintln!("manual price refresh requested");
+                    svc.refresh_now();
+                }
                 poe2_lens::hotkeys::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
                         // game_focused-gated so a press over some other

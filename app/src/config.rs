@@ -13,6 +13,10 @@ pub struct Rect {
 fn default_true() -> bool {
     true
 }
+fn default_refresh_minutes() -> u64 {
+    10
+}
+
 fn default_divine_threshold() -> f64 {
     1.0
 }
@@ -46,6 +50,10 @@ pub struct Config {
     pub calibration: Option<Rect>,
     #[serde(default = "default_divine_threshold")]
     pub divine_threshold: f64,
+    /// Price table refresh interval; a manual refresh hotkey (F9) forces
+    /// one immediately regardless.
+    #[serde(default = "default_refresh_minutes")]
+    pub refresh_minutes: u64,
     #[serde(default = "default_true")]
     pub pause_when_unfocused: bool,
     #[serde(default = "default_font")]
