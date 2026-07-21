@@ -554,8 +554,52 @@ pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> V
 /// `ocr_whole_panel` for why both passes run unconditionally rather than
 /// picking one.
 pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
+    ocr_scan_gated(engine, gray, &mut WholePanelGate::always())
+}
+
+/// Rate limiter for the whole-panel pass on band-less frames. Bright
+/// noise scenes (measured live: full-screen fire effects during combat)
+/// open the brightness gate and cost 1-2 s of tesseract per frame with
+/// zero yield, collapsing scan cadence exactly during fights. When bar
+/// structure exists the whole-panel pass always runs (the union needs
+/// it); without bars it runs at most once per interval, which still
+/// catches an under-threshold panel within a second.
+pub struct WholePanelGate {
+    last: Option<std::time::Instant>,
+    interval: std::time::Duration,
+}
+
+impl WholePanelGate {
+    pub fn new(interval: std::time::Duration) -> WholePanelGate {
+        WholePanelGate { last: None, interval }
+    }
+    /// A gate that never limits (headless/scanimg one-shot use).
+    pub fn always() -> WholePanelGate {
+        WholePanelGate { last: None, interval: std::time::Duration::ZERO }
+    }
+    fn allow(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        match self.last {
+            Some(t) if now.duration_since(t) < self.interval => false,
+            _ => {
+                self.last = Some(now);
+                true
+            }
+        }
+    }
+}
+
+pub fn ocr_scan_gated(
+    engine: &mut OcrEngine,
+    gray: &GrayImage,
+    whole_gate: &mut WholePanelGate,
+) -> Vec<OcrLine> {
     let bands = detect_bands(gray);
     let band_lines = ocr_bands(engine, gray, &bands);
-    let whole_lines = ocr_whole_panel(engine, gray);
+    let whole_lines = if !bands.is_empty() || whole_gate.allow() {
+        ocr_whole_panel(engine, gray)
+    } else {
+        Vec::new()
+    };
     union_ocr_lines(band_lines, whole_lines)
 }

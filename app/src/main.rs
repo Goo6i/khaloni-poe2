@@ -211,6 +211,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             eprintln!("tesseract init failed; OCR disabled");
             return;
         };
+        let mut whole_gate = ocr::WholePanelGate::new(std::time::Duration::from_secs(1));
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -246,7 +247,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             if dbg {
                 eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
-            let lines = ocr::ocr_scan(&mut engine, &frame.gray);
+            let lines = ocr::ocr_scan_gated(&mut engine, &frame.gray, &mut whole_gate);
             if dbg {
                 let d = std::path::Path::new("/tmp/poe2lens-frames");
                 let _ = std::fs::create_dir_all(d);
