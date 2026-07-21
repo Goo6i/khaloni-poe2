@@ -1,0 +1,15 @@
+Item Class: Amulets
+Rarity: Rare
+Pain Locket
+Stellar Amulet
+--------
+Requires: Level 54
+--------
+Item Level: 82
+--------
++5 to all Attributes (implicit)
+--------
+24% increased Armour
++59 to maximum Mana
++28% to Fire Resistance
+24.7 Life Regeneration per second

@@ -1,0 +1,17 @@
+Item Class: Jewels
+Rarity: Rare
+Ghoul Essence
+Emerald
+--------
+Item Level: 79
+--------
+{ Prefix Modifier "Evasive" (Tier: 1) — Evasion }
+17(10-20)% increased Evasion Rating
+{ Prefix Modifier "Monk's" (Tier: 1) — Damage, Attack }
+12(6-16)% increased Damage with Quarterstaves
+{ Suffix Modifier "of Deadliness" (Tier: 1) — Attack, Critical }
+14(6-16)% increased Critical Hit Chance for Attacks
+{ Suffix Modifier "of Tracking" (Tier: 1) }
+Mark Skills have 20(18-32)% increased Skill Effect Duration
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.
