@@ -304,6 +304,23 @@ fn overlay_mode() -> anyhow::Result<()> {
         // Learned-template store: identifies previously seen reward bands
         // in well under a millisecond, bypassing tesseract; OCR remains
         // the teacher for first encounters. Persisted across sessions.
+        // Rumour annotations: optional dataset at config_dir/rumours.csv
+        // (community sheet snapshot). Absent file = feature off; rumour
+        // lines then render nothing, exactly as before the wiring.
+        let rumours = Config::path()
+            .parent()
+            .map(|d| d.join("rumours.csv"))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|csv| {
+                let idx = poe2_lens_core::rumour::RumourIndex::new(
+                    poe2_lens_core::rumour::parse_csv(&csv),
+                );
+                eprintln!("rumour dataset loaded: {} entries", idx.len());
+                idx
+            });
+        if rumours.is_none() {
+            eprintln!("no rumours.csv in config dir; rumour annotations off");
+        }
         let tpl_path = directories::ProjectDirs::from("", "", "poe2-lens")
             .map(|d| d.cache_dir().join("templates.bin"));
         let mut tstore = tpl_path
@@ -452,7 +469,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                     lines.len()
                 )));
             }
-            let out = pricing::price_lines(&snap.table, &snap.vocab, &lines, &ocr_cfg);
+            let out = pricing::price_lines_with_rumours(
+                &snap.table,
+                &snap.vocab,
+                &lines,
+                &ocr_cfg,
+                rumours.as_ref(),
+            );
             // Teach the template store from confidently identified OCR
             // rows aligned to a band (OCR-taught templates then take over
             // for every later encounter of the same reward).

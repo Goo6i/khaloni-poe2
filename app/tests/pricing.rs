@@ -157,3 +157,43 @@ fn unmatched_unique_line_shows_question_mark_instead_of_dropping() {
     assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
+
+#[test]
+fn unmatched_line_resolves_as_a_rumour_annotation() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let idx = poe2_lens_core::rumour::RumourIndex::new(poe2_lens_core::rumour::parse_csv(
+        include_str!("../../core/tests/fixtures/rumours.csv"),
+    ));
+    let (rows, _) = poe2_lens::pricing::price_lines_with_rumours(
+        &t,
+        &v,
+        &[line("fallen stars", 10)],
+        &cfg,
+        Some(&idx),
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].item_key, "rumour:Fallen Stars|Moor|S+");
+    assert_eq!(rows[0].amount, "Moor S+");
+    assert_eq!(rows[0].denom, poe2_lens::pricing::Denom::None);
+    assert!(rows[0].locks_in_one, "an exact rumour resolve locks in one read");
+}
+
+#[test]
+fn rumour_template_key_reprices_without_ocr() {
+    let t = table();
+    let cfg = Config::default();
+    let row = poe2_lens::pricing::price_resolved(
+        &t,
+        "rumour:Fallen Stars|Moor|S+",
+        1,
+        false,
+        30,
+        90,
+        &cfg,
+    )
+    .expect("rumour keys must resolve without a table hit");
+    assert_eq!(row.amount, "Moor S+");
+    assert_eq!(row.denom, poe2_lens::pricing::Denom::None);
+}

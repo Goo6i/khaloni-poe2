@@ -180,6 +180,16 @@ pub fn price_resolved(
     height: u32,
     cfg: &Config,
 ) -> Option<Priced> {
+    // Rumour keys carry their whole annotation ("rumour:{name}|{map}|
+    // {rating}") so a template hit reprices without the rumour index or
+    // a table lookup; otherwise rumour rows would defeat the template
+    // cache and re-run tesseract on every scan of a rumour panel.
+    if let Some(rest) = item_key.strip_prefix("rumour:") {
+        let mut parts = rest.splitn(3, '|');
+        let (_name, map_type, rating) =
+            (parts.next()?, parts.next()?, parts.next()?);
+        return Some(rumour_row(item_key, map_type, rating, y_top, height));
+    }
     let lookup_name = item_key
         .strip_prefix("gem-skill-")
         .map(|lvl| format!("Uncut Skill Gem (Level {lvl})"))
@@ -201,11 +211,40 @@ pub fn price_resolved(
     })
 }
 
+/// A rumour annotation rendered through the same row machinery as a
+/// price: map type + rating in the amount slot, no denomination, never a
+/// best-pick candidate (value_ex 0).
+fn rumour_row(item_key: &str, map_type: &str, rating: &str, y_top: u32, height: u32) -> Priced {
+    Priced {
+        y_top,
+        height,
+        label: format!("{map_type} {rating}"),
+        amount: format!("{map_type} {rating}"),
+        denom: Denom::None,
+        tier: Tier::Unknown,
+        item_key: item_key.to_string(),
+        value_ex: 0.0,
+        count: 1,
+        count_explicit: false,
+        locks_in_one: true,
+    }
+}
+
 pub fn price_lines(
     table: &PriceTable,
     vocab: &Vocab,
     lines: &[OcrLine],
     cfg: &Config,
+) -> (Vec<Priced>, String) {
+    price_lines_with_rumours(table, vocab, lines, cfg, None)
+}
+
+pub fn price_lines_with_rumours(
+    table: &PriceTable,
+    vocab: &Vocab,
+    lines: &[OcrLine],
+    cfg: &Config,
+    rumours: Option<&poe2_lens_core::rumour::RumourIndex>,
 ) -> (Vec<Priced>, String) {
     let mut rows = Vec::new();
 
@@ -266,6 +305,15 @@ pub fn price_lines(
             std::slice::from_ref(&line.unfiltered),
         );
         let Some(hit) = hits.first() else {
+            // Rumour panels flow through the same OCR pipeline; a line
+            // that matches no catalog name may be a rumour name. Resolve
+            // before the unpriceable gate (rumour lines carry no count
+            // tokens, so the gate would drop them).
+            if let Some(entry) = rumours.and_then(|r| r.resolve(line.unfiltered.trim())) {
+                let key = format!("rumour:{}|{}|{}", entry.rumour, entry.map_type, entry.rating);
+                rows.push(rumour_row(&key, &entry.map_type, &entry.rating, line.y_top, line.height));
+                continue;
+            }
             if is_unpriceable_but_present(line) {
                 rows.push(Priced {
                     y_top: line.y_top,
