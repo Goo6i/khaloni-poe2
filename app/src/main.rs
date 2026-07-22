@@ -67,7 +67,8 @@ fn headless() -> anyhow::Result<()> {
         .cache_dir()
         .to_path_buf();
     let svc = prices::PriceService::start_with_interval(
-        NinjaClient::new(cache),
+        NinjaClient::new(cache.clone()),
+        poe2_lens_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
@@ -131,7 +132,8 @@ fn overlay_mode() -> anyhow::Result<()> {
 
     let cache = directories::ProjectDirs::from("", "", "poe2-lens").unwrap().cache_dir().to_path_buf();
     let svc = prices::PriceService::start_with_interval(
-        NinjaClient::new(cache),
+        NinjaClient::new(cache.clone()),
+        poe2_lens_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
@@ -583,7 +585,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
                 Ok(text) => {
                     let snap = svc.snapshot();
-                    hover.trigger(&text, &snap.table, cfg.divine_threshold);
+                    hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
                     if let Some(item) = hover.pending_appraisal.take() {
                         let _ = appraise_req_tx.send(item);
                     }

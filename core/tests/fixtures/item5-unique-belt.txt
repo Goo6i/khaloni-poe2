@@ -1,0 +1,23 @@
+Item Class: Belts
+Rarity: Unique
+The Gnashing Sash
+Wide Belt
+--------
+Charm Slots: 2 (augmented)
+--------
+Requirements:
+Level: 60
+--------
+Item Level: 68
+--------
+Has 2 Charm Slots (implicit)
+25% increased Flask Charges gained (implicit)
+--------
+28% increased Flask Life Recovery rate
++20% to Chaos Resistance
+Lose 5% of maximum Life per second
+Life Recovery from Flasks can Overflow Maximum Life
+--------
+"Ghorr knows only hunger, only ravenous feasting.
+It will consume all that lives, and more!"
+- Rantings of a Templar prisoner, page fourteen

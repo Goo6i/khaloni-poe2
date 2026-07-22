@@ -2,6 +2,8 @@ use std::time::{Duration, Instant};
 
 use poe2_lens::hover::HoverState;
 use poe2_lens::pricing::Denom;
+use std::collections::HashMap;
+
 use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
 
 fn table() -> PriceTable {
@@ -16,7 +18,7 @@ fn currency_fixture_prices_with_stack_count() {
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item4-currency-exalted.txt");
-    hs.trigger(clipboard, &t, 1.0);
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.title, "Exalted Orb");
     assert_eq!(popup.lines.len(), 1);
@@ -29,7 +31,7 @@ fn rare_item_queues_an_appraisal() {
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item1-inventory-rare-bow.txt");
-    hs.trigger(clipboard, &t, 1.0);
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.title, "Horror Bane");
     assert_eq!(popup.lines[0].text, "searching trade...");
@@ -60,7 +62,7 @@ fn rare_item_queues_an_appraisal() {
 fn garbage_clipboard_clears_popup_and_sets_error() {
     let t = table();
     let mut hs = HoverState::default();
-    hs.trigger("not an item at all", &t, 1.0);
+    hs.trigger("not an item at all", &t, &HashMap::new(), 1.0);
     assert!(hs.current.is_none());
     assert!(hs.last_error.is_some());
 }
@@ -70,10 +72,10 @@ fn trigger_always_resets_the_ttl() {
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item4-currency-exalted.txt");
-    hs.trigger(clipboard, &t, 1.0);
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let first_expiry = hs.current.as_ref().unwrap().expires;
     std::thread::sleep(Duration::from_millis(5));
-    hs.trigger(clipboard, &t, 1.0);
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let second_expiry = hs.current.as_ref().unwrap().expires;
     assert!(second_expiry > first_expiry);
 }
@@ -83,9 +85,33 @@ fn tick_expires_the_popup_after_ttl() {
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item4-currency-exalted.txt");
-    hs.trigger(clipboard, &t, 1.0);
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     // Force expiry without sleeping 6s in a test.
     hs.current.as_mut().unwrap().expires = Instant::now() - Duration::from_millis(1);
     hs.tick();
     assert!(hs.current.is_none());
+}
+
+#[test]
+fn unique_item_prices_from_the_uniques_map() {
+    let t = table();
+    let mut hs = HoverState::default();
+    let uniques = HashMap::from([("The Gnashing Sash".to_string(), 415.0)]);
+    let clipboard = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
+    hs.trigger(clipboard, &t, &uniques, 1.0);
+    let popup = hs.current.as_ref().expect("popup set");
+    assert_eq!(popup.title, "The Gnashing Sash");
+    assert_ne!(popup.lines[0].text, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(popup.lines[0].denom, Denom::None);
+    assert!(hs.pending_appraisal.is_none(), "uniques answer locally, no trade search");
+}
+
+#[test]
+fn unknown_unique_still_shows_the_question_mark() {
+    let t = table();
+    let mut hs = HoverState::default();
+    let clipboard = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
+    hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
+    let popup = hs.current.as_ref().expect("popup set");
+    assert_eq!(popup.lines[0].text, poe2_lens_core::value::UNKNOWN);
 }

@@ -49,7 +49,13 @@ impl HoverState {
         });
     }
 
-    pub fn trigger(&mut self, clipboard: &str, table: &PriceTable, divine_threshold: f64) {
+    pub fn trigger(
+        &mut self,
+        clipboard: &str,
+        table: &PriceTable,
+        uniques: &std::collections::HashMap<String, f64>,
+        divine_threshold: f64,
+    ) {
         self.last_error = None;
         let parsed = match item::parse_item(clipboard) {
             Ok(i) => i,
@@ -73,6 +79,31 @@ impl HoverState {
                     denom: Denom::None,
                 }]
             }
+            // Uniques answer from the poe2scout map (exalted, by name);
+            // an unknown name (map empty, unlisted unique) stays "?".
+            // The divine value derives through the currency table's
+            // Divine Orb rate so denom_amount can promote expensive
+            // uniques to a divine display.
+            item::Rarity::Unique => match uniques.get(&parsed.name).copied() {
+                Some(ex) => {
+                    let div_rate = table
+                        .lookup("Divine Orb")
+                        .map(|p| p.exalted)
+                        .filter(|v| *v > 0.0);
+                    let price = poe2_lens_core::ninja::Price {
+                        divine: div_rate.map(|r| ex / r).unwrap_or(0.0),
+                        exalted: ex,
+                        chaos: 0.0,
+                    };
+                    let (denom, amount) =
+                        crate::pricing::denom_amount(&price, count, divine_threshold);
+                    vec![PopupLine { text: amount, denom }]
+                }
+                None => vec![PopupLine {
+                    text: value::UNKNOWN.into(),
+                    denom: Denom::None,
+                }],
+            },
             _ => match table.lookup(&title) {
                 Some(price) => {
                     let (denom, amount) = crate::pricing::denom_amount(price, count, divine_threshold);

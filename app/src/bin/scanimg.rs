@@ -8,7 +8,11 @@ fn main() -> anyhow::Result<()> {
         .unwrap()
         .cache_dir()
         .to_path_buf();
-    let svc = prices::PriceService::start(NinjaClient::new(cache), cfg.league.clone())?;
+    let svc = prices::PriceService::start(
+        NinjaClient::new(cache.clone()),
+        poe2_lens_core::scout::ScoutClient::new(cache),
+        cfg.league.clone(),
+    )?;
     let img = image::open(&path)?.to_luma8();
     let bands = ocr::detect_bands(&img);
     eprintln!("{} band(s) detected", bands.len());
