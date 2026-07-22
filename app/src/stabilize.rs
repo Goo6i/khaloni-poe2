@@ -18,6 +18,12 @@ pub enum ScanResult {
     /// instantly; no confirmation/miss bookkeeping is touched, so a scan
     /// landing after the scroll matches the shifted slots in place.
     Scrolled(i64),
+    /// Frame-to-frame correlation broke (flick faster than the search
+    /// range, panel switch mid-scroll). If a scroll was in progress the
+    /// held positions are untrustworthy and the display hides until the
+    /// next Rows result re-anchors; outside a scroll it is ignored so
+    /// tooltip occlusion keeps its ride-through tolerance.
+    TrackingLost,
 }
 
 // --- Slot-model constants, ported from the reference overlay's MergeReads
@@ -296,6 +302,9 @@ pub struct Stabilizer {
     /// "?" rows are not created (the first post-burst frame can carry
     /// motion blur that fakes count tokens).
     scroll_recent: u8,
+    /// Set by TrackingLost during a scroll: positions are untrustworthy,
+    /// so rows() hides everything until the next Rows result re-anchors.
+    lost_hidden: bool,
 }
 
 impl Stabilizer {
@@ -318,6 +327,14 @@ impl Stabilizer {
                 self.stale = false;
                 self.empty_streak = 0;
                 self.nobands_streak = 0;
+                self.lost_hidden = false;
+            }
+            ScanResult::TrackingLost => {
+                // Only a scroll makes held positions wrong; outside one,
+                // ride it out like any other occlusion/transition frame.
+                if self.scroll_recent > 0 {
+                    self.lost_hidden = true;
+                }
             }
             ScanResult::NoBands => {
                 self.nobands_streak = self.nobands_streak.saturating_add(1);
@@ -341,6 +358,12 @@ impl Stabilizer {
             ScanResult::Rows(rows, stale) => {
                 self.nobands_streak = 0;
                 self.stale = stale;
+                // A scan after lost tracking is the new ground truth:
+                // slot positions are arbitrary, so anything this scan
+                // does not match is evicted instead of miss-counted
+                // (otherwise a stale slot re-shows at a wrong position
+                // the moment the lost-hide lifts).
+                let resync = std::mem::take(&mut self.lost_hidden);
                 if rows.is_empty() {
                     self.empty_streak = self.empty_streak.saturating_add(1);
                 } else {
@@ -351,13 +374,13 @@ impl Stabilizer {
                 } else {
                     let post_scroll = self.scroll_recent > 0;
                     self.scroll_recent = self.scroll_recent.saturating_sub(1);
-                    self.update(rows, post_scroll);
+                    self.update(rows, post_scroll, resync);
                 }
             }
         }
     }
 
-    fn update(&mut self, rows: Vec<Priced>, post_scroll: bool) {
+    fn update(&mut self, rows: Vec<Priced>, post_scroll: bool, resync: bool) {
         let mut matched = vec![false; self.slots.len()];
         for row in rows {
             // Post-scroll frames can carry motion blur that fakes count
@@ -392,7 +415,7 @@ impl Stabilizer {
                 continue;
             }
             self.slots[i].misses += 1;
-            if self.slots[i].misses >= EVICT_AFTER {
+            if resync || self.slots[i].misses >= EVICT_AFTER {
                 self.slots.remove(i);
                 matched.remove(i);
             } else {
@@ -407,7 +430,10 @@ impl Stabilizer {
     /// rendered snapshot and are stubbed since nothing downstream reads
     /// them.
     pub fn rows(&self) -> Vec<Priced> {
-        if self.empty_streak >= STALE_HIDE_AFTER || self.nobands_streak >= NOBANDS_HIDE_AFTER {
+        if self.lost_hidden
+            || self.empty_streak >= STALE_HIDE_AFTER
+            || self.nobands_streak >= NOBANDS_HIDE_AFTER
+        {
             return Vec::new();
         }
         let mut out: Vec<Priced> = self
@@ -442,6 +468,7 @@ impl Stabilizer {
         self.stale = false;
         self.empty_streak = 0;
         self.nobands_streak = 0;
+        self.lost_hidden = false;
     }
 }
 
@@ -752,5 +779,37 @@ mod tests {
         assert_eq!(rows.len(), 1, "the slot scrolled far above the top is dropped");
         assert_eq!(rows[0].item_key, "b");
         assert_eq!(rows[0].y_top, 300);
+    }
+
+    #[test]
+    fn tracking_lost_after_a_scroll_hides_until_the_next_scan() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        assert_eq!(s.rows().len(), 1);
+        s.apply(ScanResult::Scrolled(30));
+        s.apply(ScanResult::TrackingLost);
+        assert!(s.rows().is_empty(), "lost tracking during a scroll must hide");
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 400)], false));
+        assert_eq!(s.rows().len(), 1, "a fresh scan re-shows re-anchored rows");
+    }
+
+    #[test]
+    fn tracking_lost_without_a_recent_scroll_is_ignored() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::TrackingLost); // tooltip popped, no scroll
+        assert_eq!(s.rows().len(), 1, "occlusion tolerance must keep rows visible");
+    }
+
+    #[test]
+    fn gate_empty_resets_the_lost_hidden_state() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::Scrolled(30));
+        s.apply(ScanResult::TrackingLost);
+        assert!(s.rows().is_empty());
+        s.apply(ScanResult::GateEmpty);
+        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        assert_eq!(s.rows().len(), 1);
     }
 }

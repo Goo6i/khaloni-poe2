@@ -581,6 +581,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                     poe2_lens::stabilize::ScanResult::Scrolled(dy) => {
                         eprintln!("DBG rows_rx: scrolled {dy}");
                     }
+                    poe2_lens::stabilize::ScanResult::TrackingLost => {
+                        eprintln!("DBG rows_rx: tracking-lost");
+                    }
                 }
             }
             if scanning {
