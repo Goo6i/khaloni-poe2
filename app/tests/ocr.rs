@@ -237,29 +237,58 @@ fn shifted(profile: &[u16], dy: i32) -> Vec<u16> {
 }
 
 #[test]
-fn scroll_estimate_recovers_known_shifts() {
+fn motion_tracking_recovers_known_shifts() {
     let base = synthetic_profile(1000, &[(100, 170), (250, 320), (400, 470), (700, 770)]);
     for dy in [-180i32, -60, -7, 7, 60, 180] {
         let cur = shifted(&base, dy);
         assert_eq!(
-            poe2_lens::ocr::estimate_scroll(&base, &cur),
-            Some(dy),
+            poe2_lens::ocr::track_motion(&base, &cur),
+            poe2_lens::ocr::Motion::Scrolled(dy),
             "shift {dy} must be recovered exactly"
         );
     }
 }
 
 #[test]
-fn scroll_estimate_refuses_flat_and_static_frames() {
+fn flat_and_static_frames_are_still() {
     let flat = vec![150u16; 1000];
-    assert_eq!(poe2_lens::ocr::estimate_scroll(&flat, &flat), None, "flat profiles carry no signal");
+    assert_eq!(
+        poe2_lens::ocr::track_motion(&flat, &flat),
+        poe2_lens::ocr::Motion::Still,
+        "flat profiles carry no signal"
+    );
     let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
-    assert_eq!(poe2_lens::ocr::estimate_scroll(&base, &base), None, "identical frames are not a scroll");
+    assert_eq!(
+        poe2_lens::ocr::track_motion(&base, &base),
+        poe2_lens::ocr::Motion::Still,
+        "identical frames are not a scroll"
+    );
 }
 
 #[test]
-fn scroll_estimate_refuses_uncorrelated_content() {
+fn a_tiny_shift_is_still_not_a_scroll() {
+    // Sub-3-row drift is jitter; POSITION_SNAP absorbs it downstream.
+    let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
+    assert_eq!(
+        poe2_lens::ocr::track_motion(&base, &shifted(&base, 2)),
+        poe2_lens::ocr::Motion::Still
+    );
+}
+
+#[test]
+fn uncorrelated_content_is_lost() {
     let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
     let b = synthetic_profile(1000, &[(37, 61), (533, 601), (804, 851)]);
-    assert_eq!(poe2_lens::ocr::estimate_scroll(&a, &b), None, "a panel change is not a scroll");
+    assert_eq!(
+        poe2_lens::ocr::track_motion(&a, &b),
+        poe2_lens::ocr::Motion::Lost,
+        "a panel change is not a scroll and must not hold old positions"
+    );
+}
+
+#[test]
+fn mismatched_profile_lengths_are_lost() {
+    let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
+    let b = synthetic_profile(999, &[(100, 170), (400, 470)]);
+    assert_eq!(poe2_lens::ocr::track_motion(&a, &b), poe2_lens::ocr::Motion::Lost);
 }

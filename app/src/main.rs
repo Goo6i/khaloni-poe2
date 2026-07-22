@@ -319,21 +319,21 @@ fn overlay_mode() -> anyhow::Result<()> {
                 continue;
             }
             let profile = ocr::row_profile(&frame.gray);
-            if let Some(prev) = last_profile.replace(profile.clone()) {
-                if let Some(dy) = ocr::estimate_scroll(&prev, &profile) {
-                    if dy.abs() > 2 {
-                        // Content is scrolling: move labels instantly and
-                        // skip OCR (mid-scroll frames are motion blur);
-                        // the next stable frame rescans normally.
-                        let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
-                        post_scroll_fast = true;
-                        let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
-                        if dbg {
-                            eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
-                        }
-                        continue;
-                    }
+            let motion = match last_profile.replace(profile.clone()) {
+                Some(prev) => ocr::track_motion(&prev, &profile),
+                None => ocr::Motion::Still,
+            };
+            if let ocr::Motion::Scrolled(dy) = motion {
+                // Content is scrolling: move labels instantly and
+                // skip OCR (mid-scroll frames are motion blur);
+                // the next stable frame rescans normally.
+                let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
+                post_scroll_fast = true;
+                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
+                if dbg {
+                    eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
                 }
+                continue;
             }
             let bands = ocr::detect_bands_from_profile(&profile);
             if dbg {

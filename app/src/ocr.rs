@@ -154,21 +154,42 @@ pub fn row_profile(gray: &GrayImage) -> Vec<u16> {
         .collect()
 }
 
-/// Estimates the vertical scroll between two frames' row profiles:
+/// One frame's vertical motion relative to the previous frame, judged
+/// from their row profiles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Motion {
+    /// Near-identical to the previous frame (or drifted by <= 2 profile
+    /// rows, which POSITION_SNAP absorbs downstream). Safe to scan.
+    Still,
+    /// Content shifted vertically by this many profile rows.
+    Scrolled(i32),
+    /// The frame differs substantially and no shift explains it: a flick
+    /// faster than the search range, a panel switch, or a large content
+    /// change mid-scroll. Positions held from before are untrustworthy.
+    Lost,
+}
+
+/// Normalized-SAD ceiling (x1024 fixed point) under which two profiles
+/// count as "the same content": accepts a candidate shift, and separates
+/// Still from Lost at dy=0. Measured on the live corpus for
+/// estimate_scroll and carried over unchanged.
+const SAME_MAX: u64 = 12 * 1024;
+
+/// Classifies the vertical motion between two frames' row profiles:
 /// minimizes normalized SAD over dy candidates, requiring at least 30%
-/// overlap. Returns None when the profiles do not clearly correlate at a
-/// nonzero shift (flat/noise frames, panel change) so the caller falls
-/// back to a normal OCR pass. Sub-millisecond for ~1000-row profiles.
-pub fn estimate_scroll(prev: &[u16], cur: &[u16]) -> Option<i32> {
+/// overlap. Sub-millisecond for ~1000-row profiles, so it can run on
+/// every captured frame.
+pub fn track_motion(prev: &[u16], cur: &[u16]) -> Motion {
     const MAX_DY: i32 = 240;
     if prev.len() != cur.len() || prev.len() < 100 {
-        return None;
+        return Motion::Lost;
     }
     let n = prev.len() as i32;
-    // Flat profiles (no structure) match at every shift; refuse.
+    // Flat profiles (no structure) match at every shift; call the frame
+    // Still and let band detection decide what is actually on screen.
     let (min, max) = cur.iter().fold((u16::MAX, 0u16), |(a, b), &v| (a.min(v), b.max(v)));
     if max - min < 20 {
-        return None;
+        return Motion::Still;
     }
     // Convention: positive dy = content moved DOWN by dy rows (cur[i]
     // matches prev[i - dy]), which is the direction slot y values shift.
@@ -188,7 +209,9 @@ pub fn estimate_scroll(prev: &[u16], cur: &[u16]) -> Option<i32> {
         // floored to 0 and tied three offsets at zero).
         Some(sum * 1024 / overlap as u64)
     };
-    let base = sad_at(0)?;
+    let Some(base) = sad_at(0) else {
+        return Motion::Lost;
+    };
     let mut best = (0i32, base);
     for dy in (-MAX_DY..=MAX_DY).filter(|&d| d != 0) {
         if let Some(s) = sad_at(dy) {
@@ -199,13 +222,19 @@ pub fn estimate_scroll(prev: &[u16], cur: &[u16]) -> Option<i32> {
             }
         }
     }
-    // Require the winning shift to beat "no movement" decisively AND be
+    // A shift only counts when it beats "no movement" decisively AND is
     // a near-exact overlay of the previous frame (a true scroll is the
     // same pixels displaced; unrelated content merely resembles it).
-    if best.0 != 0 && best.1 * 3 < base && best.1 <= 12 * 1024 {
-        Some(best.0)
+    if best.0 != 0 && best.1 * 3 < base && best.1 <= SAME_MAX {
+        if best.0.abs() > 2 {
+            Motion::Scrolled(best.0)
+        } else {
+            Motion::Still
+        }
+    } else if base <= SAME_MAX {
+        Motion::Still
     } else {
-        None
+        Motion::Lost
     }
 }
 
