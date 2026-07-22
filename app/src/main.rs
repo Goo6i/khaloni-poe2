@@ -120,9 +120,11 @@ fn headless() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What one tick draws+presents: the row labels, whether their prices are
-/// stale, and the hover popup (with its anchor) if one is currently up.
-type FrameState = (Vec<poe2_lens::render::Placed>, bool, Option<(hover::Popup, (i32, i32))>);
+/// What one tick draws+presents: the row labels, the header line (the
+/// div=>ex rate), whether prices are stale, and the hover popup (with its
+/// anchor) if one is currently up.
+type FrameState =
+    (Vec<poe2_lens::render::Placed>, String, bool, Option<(hover::Popup, (i32, i32))>);
 
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
@@ -730,7 +732,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                         (p.clone(), (rect.x - out_pos.0, rect.y - out_pos.1))
                     })
                 });
-                Some((placed, stabilizer.stale(), popup))
+                // Divine=>exalted rate as the header pill above the first
+                // row: answers "is this divine price worth it" at a glance
+                // without a manual lookup.
+                let rate = svc
+                    .snapshot()
+                    .table
+                    .lookup("Divine Orb")
+                    .map(|p| format!("1 div = {} ex", p.exalted.round() as i64))
+                    .unwrap_or_default();
+                Some((placed, rate, stabilizer.stale(), popup))
             } else {
                 None
             };
@@ -743,8 +754,8 @@ fn overlay_mode() -> anyhow::Result<()> {
             // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, stale, popup)) => {
-                        renderer.draw_frame(pm, placed, "", *stale);
+                    Some((placed, rate, stale, popup)) => {
+                        renderer.draw_frame(pm, placed, rate, *stale);
                         // Popup drawn after the rows so it sits on top.
                         if let Some((p, anchor)) = popup {
                             renderer.draw_popup(pm, p, *anchor);
