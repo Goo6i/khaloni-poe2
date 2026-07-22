@@ -19,10 +19,8 @@ pub async fn listen(tx: std::sync::mpsc::Sender<Hotkey>) -> anyhow::Result<()> {
         NewShortcut::new("price-refresh", "poe2-lens: refresh prices now").preferred_trigger("F9"),
     ];
     gs.bind_shortcuts(&session, &shortcuts, None).await?.response()?;
-    eprintln!("hotkeys bound: F5 scan, F7 price-check, F8 hide, F9 refresh");
     let mut activated = gs.receive_activated().await?;
     while let Some(a) = activated.next().await {
-        eprintln!("hotkey activated: {}", a.shortcut_id());
         let hk = match a.shortcut_id() {
             "scan-toggle" => Hotkey::ScanToggle,
             "overlay-hide" => Hotkey::Hide,

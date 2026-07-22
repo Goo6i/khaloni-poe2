@@ -114,9 +114,6 @@ fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String
             }
         }
     }
-    if std::env::var("POE2LENS_DEBUG").is_ok() {
-        eprintln!("INJECT item={} bytes", item.len());
-    }
     Ok(item)
 }
 
