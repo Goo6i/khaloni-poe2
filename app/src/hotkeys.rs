@@ -10,13 +10,21 @@ pub enum Hotkey {
     PriceCheck,
 }
 
-pub async fn listen(tx: std::sync::mpsc::Sender<Hotkey>) -> anyhow::Result<()> {
+/// `price_check` and `overlay` are preferred triggers from the config
+/// ("F7"/"F8" by default); the portal treats them as suggestions the user
+/// can override in KDE's shortcut settings.
+pub async fn listen(
+    tx: std::sync::mpsc::Sender<Hotkey>,
+    price_check: String,
+    overlay: String,
+) -> anyhow::Result<()> {
     let gs = GlobalShortcuts::new().await?;
     let session = gs.create_session().await?;
     let shortcuts = vec![
-        NewShortcut::new("overlay-toggle", "poe2-lens: overlay on/off").preferred_trigger("F8"),
+        NewShortcut::new("overlay-toggle", "poe2-lens: overlay on/off")
+            .preferred_trigger(overlay.as_str()),
         NewShortcut::new("price-check", "poe2-lens: price check hovered item")
-            .preferred_trigger("F7"),
+            .preferred_trigger(price_check.as_str()),
     ];
     gs.bind_shortcuts(&session, &shortcuts, None).await?.response()?;
     let mut activated = gs.receive_activated().await?;

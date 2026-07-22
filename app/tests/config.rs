@@ -22,4 +22,15 @@ fn missing_fields_take_defaults() {
     assert!(c.calibration.is_none());
     assert_eq!(c.font_path, "/usr/share/fonts/TTF/DejaVuSans.ttf");
     assert_eq!(c.tier_good_ex, 10.0);
+    assert_eq!(c.hotkey_price_check, "F7");
+    assert_eq!(c.hotkey_overlay, "F8");
+}
+
+#[test]
+fn hotkeys_are_remappable() {
+    let c: Config =
+        toml::from_str("league = \"Standard\"\nhotkey_price_check = \"F2\"\nhotkey_overlay = \"F3\"")
+            .unwrap();
+    assert_eq!(c.hotkey_price_check, "F2");
+    assert_eq!(c.hotkey_overlay, "F3");
 }

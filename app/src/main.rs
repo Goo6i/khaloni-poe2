@@ -167,11 +167,14 @@ fn overlay_mode() -> anyhow::Result<()> {
         cfg.save()?;
     }
     let (hk_tx, hk_rx) = mpsc::channel();
-    rt.spawn(async move {
-        if let Err(e) = poe2_lens::hotkeys::listen(hk_tx).await {
-            eprintln!("hotkeys unavailable: {e}");
-        }
-    });
+    {
+        let (check, overlay) = (cfg.hotkey_price_check.clone(), cfg.hotkey_overlay.clone());
+        rt.spawn(async move {
+            if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay).await {
+                eprintln!("hotkeys unavailable: {e}");
+            }
+        });
+    }
 
     // Hover price check: the Injector runs a uinput virtual keyboard on
     // its own dedicated thread (see inject.rs for why the injection must

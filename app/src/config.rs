@@ -38,6 +38,12 @@ fn default_panel_open_brightness() -> u8 {
 fn default_panel_close_brightness() -> u8 {
     80
 }
+fn default_hotkey_price_check() -> String {
+    "F7".into()
+}
+fn default_hotkey_overlay() -> String {
+    "F8".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -50,10 +56,16 @@ pub struct Config {
     pub calibration: Option<Rect>,
     #[serde(default = "default_divine_threshold")]
     pub divine_threshold: f64,
-    /// Price table refresh interval; a manual refresh hotkey (F9) forces
-    /// one immediately regardless.
+    /// Price table refresh interval; while data is stale a 60s retry
+    /// takes over until a fetch succeeds.
     #[serde(default = "default_refresh_minutes")]
     pub refresh_minutes: u64,
+    /// Portal GlobalShortcuts preferred triggers. KDE shows one approval
+    /// dialog whenever the binding set changes.
+    #[serde(default = "default_hotkey_price_check")]
+    pub hotkey_price_check: String,
+    #[serde(default = "default_hotkey_overlay")]
+    pub hotkey_overlay: String,
     #[serde(default = "default_true")]
     pub pause_when_unfocused: bool,
     #[serde(default = "default_font")]
