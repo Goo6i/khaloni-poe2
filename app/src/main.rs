@@ -245,7 +245,15 @@ fn overlay_mode() -> anyhow::Result<()> {
                         client.fetch(&s.id, &s.hashes[..take])
                     }
                 });
-                let outcome = outcome.map_err(|e| e.to_string());
+                // Cooldown gets a human line with whole seconds instead
+                // of the Debug duration ("rate limited; retry in
+                // 32.847s"); other errors keep their Display text.
+                let outcome = outcome.map_err(|e| match e {
+                    poe2_lens_core::trade::TradeError::Cooldown(d) => {
+                        format!("trade cooldown, retry in {}s", d.as_secs().max(1))
+                    }
+                    other => other.to_string(),
+                });
                 let _ = tx.send((title, outcome));
             }
         });
