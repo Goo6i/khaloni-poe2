@@ -30,8 +30,19 @@ without prices or build the Linux version myself.
   waiting for the next text read.
 - F7 prices whatever your cursor is on, anywhere: inventory, stash, vendor,
   even items linked in chat. Fixed-value items answer from the local
-  price table with no network round trip. Rares run a filtered search against pathofexile.com/trade2 and
-  the popup lists the cheapest matching listings with seller names.
+  price table with no network round trip. Uniques price by name from
+  poe2scout. Rares run a filtered search against pathofexile.com/trade2 and
+  the popup lists the cheapest matching listings with seller names. When
+  the trade API is cooling down, the popup says so in seconds instead of
+  failing silently.
+- The popup opens next to your cursor and closes on its own when you move
+  away from where you checked. Moving INTO the popup keeps it open for
+  reading. No key to dismiss, nothing to manage.
+- A small header above the rows shows the live divine-to-exalted rate, so
+  divine prices mean something at a glance.
+- Rumour rows (expedition rumour names in the scanned panel) annotate with
+  their map type and community rating when `rumours.csv` is present in the
+  config dir.
 - Prices refresh every 10 minutes on their own. If the network dies, the
   last good table stays up, labels are marked `(old)`, and it retries every
   minute until fresh data lands. There is no refresh key because you should
@@ -119,7 +130,10 @@ binding set changed).
 Settings live in `~/.config/poe2-lens/config.toml`. The fields that matter:
 
 - `league`: which economy to price against. Defaults to the current league.
-- `refresh_minutes`: price refresh interval, default 10.
+- `refresh_minutes`: price refresh interval, default 10. Uniques refetch
+  every third cycle.
+- `hotkey_price_check`, `hotkey_overlay`: the two triggers, default F7 and
+  F8. Changing them re-triggers KDE's one-time shortcut approval.
 - `divine_threshold`: above this many divine, values display in divine
   instead of exalted.
 - `tier_decent_ex`, `tier_good_ex`: the exalted cutoffs for the label
