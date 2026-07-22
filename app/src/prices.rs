@@ -13,8 +13,13 @@ pub struct Snapshot {
 #[derive(Clone)]
 pub struct PriceService {
     inner: Arc<RwLock<Arc<Snapshot>>>,
-    force: Arc<std::sync::atomic::AtomicBool>,
 }
+
+/// Retry cadence while the current snapshot is stale (a fetch failed or
+/// came from the on-disk cache): staleness heals itself as soon as the
+/// network is back instead of waiting out the full refresh interval.
+/// This is what made a manual refresh key unnecessary.
+const STALE_RETRY: Duration = Duration::from_secs(60);
 
 fn fetch(client: &NinjaClient, league: &str) -> anyhow::Result<(PriceTable, bool)> {
     let mut overviews = Vec::new();
@@ -37,9 +42,9 @@ fn fetch(client: &NinjaClient, league: &str) -> anyhow::Result<(PriceTable, bool
 
 impl PriceService {
     /// Blocking initial fetch, then a background refresh every
-    /// `refresh_minutes` (checked each second so `refresh_now` takes
-    /// effect immediately). On refresh failure the previous snapshot is
-    /// kept (never a zeroed table).
+    /// `refresh_minutes`, dropping to STALE_RETRY while the snapshot is
+    /// stale. On refresh failure the previous snapshot is kept (never a
+    /// zeroed table).
     pub fn start(client: NinjaClient, league: String) -> anyhow::Result<PriceService> {
         Self::start_with_interval(client, league, Duration::from_secs(30 * 60))
     }
@@ -52,35 +57,40 @@ impl PriceService {
         let (table, stale) = fetch(&client, &league)?;
         let vocab = crate::pricing::build_vocab(&table);
         let inner = Arc::new(RwLock::new(Arc::new(Snapshot { table, vocab, stale })));
-        let force = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let force_bg = force.clone();
-        let svc = PriceService {
-            inner: inner.clone(),
-            force,
-        };
-        std::thread::spawn(move || loop {
-            let started = std::time::Instant::now();
-            while started.elapsed() < interval
-                && !force_bg.swap(false, std::sync::atomic::Ordering::Relaxed)
-            {
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            match fetch(&client, &league) {
-                Ok((table, stale)) => {
-                    let vocab = crate::pricing::build_vocab(&table);
-                    *inner.write().unwrap() = Arc::new(Snapshot { table, vocab, stale });
-                    eprintln!("prices refreshed (stale={stale})");
+        let svc = PriceService { inner: inner.clone() };
+        std::thread::spawn(move || {
+            // Tracks outright fetch failures, which keep the old snapshot
+            // (whose stale flag then understates the data's age): either
+            // signal arms the fast retry.
+            let mut last_failed = false;
+            loop {
+                let started = std::time::Instant::now();
+                loop {
+                    let wait = if last_failed || inner.read().unwrap().stale {
+                        STALE_RETRY.min(interval)
+                    } else {
+                        interval
+                    };
+                    if started.elapsed() >= wait {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
                 }
-                Err(e) => eprintln!("price refresh failed, keeping last table: {e}"),
+                match fetch(&client, &league) {
+                    Ok((table, stale)) => {
+                        last_failed = false;
+                        let vocab = crate::pricing::build_vocab(&table);
+                        *inner.write().unwrap() = Arc::new(Snapshot { table, vocab, stale });
+                        eprintln!("prices refreshed (stale={stale})");
+                    }
+                    Err(e) => {
+                        last_failed = true;
+                        eprintln!("price refresh failed, keeping last table: {e}");
+                    }
+                }
             }
         });
         Ok(svc)
-    }
-
-    /// Requests an immediate refresh; the background thread notices
-    /// within a second.
-    pub fn refresh_now(&self) {
-        self.force.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn snapshot(&self) -> Arc<Snapshot> {

@@ -32,8 +32,10 @@ without prices or build the Linux version myself.
   even items linked in chat. Fixed-value items answer from the local
   price table with no network round trip. Rares run a filtered search against pathofexile.com/trade2 and
   the popup lists the cheapest matching listings with seller names.
-- Prices refresh every 10 minutes on their own and immediately on F9. If the
-  network dies, the last good table stays up and labels are marked `(old)`.
+- Prices refresh every 10 minutes on their own. If the network dies, the
+  last good table stays up, labels are marked `(old)`, and it retries every
+  minute until fresh data lands. There is no refresh key because you should
+  never have to think about freshness.
 
 ## How it reads the screen
 
@@ -103,12 +105,14 @@ except the hotkeys.
 
 | Key | Action |
 |-----|--------|
-| F5  | Start or stop scanning; labels clear while off |
 | F7  | Price the item under the cursor |
-| F8  | Hide or show the overlay |
-| F9  | Refresh prices now |
+| F8  | Overlay on or off |
 
-KDE asks once to approve the shortcuts on first launch.
+Two keys is the whole surface on purpose. Panel detection, focus pausing,
+and price freshness are automatic; F8 is the one manual override, and it
+stops the pipeline too, not just the drawing. KDE asks once to approve the
+shortcuts on first launch (and once more after this change, since the
+binding set changed).
 
 ## Configuration
 

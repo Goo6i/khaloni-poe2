@@ -502,7 +502,6 @@ fn overlay_mode() -> anyhow::Result<()> {
     let renderer = poe2_lens::render::Renderer::new()?;
 
     let mut scanning = true;
-    let mut hidden = false;
     let mut game_focused = true;
     let mut game_present = true;
     let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
@@ -541,20 +540,15 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         while let Ok(hk) = hk_rx.try_recv() {
             match hk {
-                poe2_lens::hotkeys::Hotkey::ScanToggle => {
+                poe2_lens::hotkeys::Hotkey::OverlayToggle => {
                     scanning = !scanning;
                     if !scanning {
                         stabilizer.clear();
                     }
                     // No forced rescan needed either way: capture emits a
                     // frame on every throttle tick regardless of pause
-                    // state, so scanning turning back on picks up the next
-                    // one within one tick on its own.
-                }
-                poe2_lens::hotkeys::Hotkey::Hide => hidden = !hidden,
-                poe2_lens::hotkeys::Hotkey::PriceRefresh => {
-                    eprintln!("manual price refresh requested");
-                    svc.refresh_now();
+                    // state, so toggling back on picks up the next one
+                    // within one tick on its own.
                 }
                 poe2_lens::hotkeys::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
@@ -632,7 +626,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if t.is_multiple_of(10) {
                 eprintln!(
-                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} hidden={hidden} rows={} surface={:?} game_pos={game_pos:?}",
+                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} rows={} surface={:?} game_pos={game_pos:?}",
                     stabilizer.rows().len(),
                     overlay.size()
                 );
@@ -640,7 +634,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
 
         let show =
-            !hidden && scanning && game_present && (game_focused || !cfg.pause_when_unfocused);
+            scanning && game_present && (game_focused || !cfg.pause_when_unfocused);
         let size = overlay.size();
         if size.0 > 0 && size.1 > 0 {
             let mut resized = false;
