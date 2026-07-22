@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 use poe2_lens::{
     capture,
@@ -277,6 +278,10 @@ fn overlay_mode() -> anyhow::Result<()> {
         };
         let mut last_profile: Option<Vec<u16>> = None;
         let mut post_scroll_fast = false;
+        // Tesseract cadence floor: at 16ms capture the per-frame work is
+        // profile+templates only; the expensive OCR paths keep the old
+        // 120ms rhythm regardless of capture rate.
+        let mut last_heavy = std::time::Instant::now() - Duration::from_secs(1);
         let mut gate = poe2_lens::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
@@ -323,17 +328,34 @@ fn overlay_mode() -> anyhow::Result<()> {
                 Some(prev) => ocr::track_motion(&prev, &profile),
                 None => ocr::Motion::Still,
             };
-            if let ocr::Motion::Scrolled(dy) = motion {
-                // Content is scrolling: move labels instantly and
-                // skip OCR (mid-scroll frames are motion blur);
-                // the next stable frame rescans normally.
-                let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
-                post_scroll_fast = true;
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
-                if dbg {
-                    eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
+            match motion {
+                ocr::Motion::Scrolled(dy) => {
+                    // Content is scrolling: move labels instantly and
+                    // skip OCR (mid-scroll frames are motion blur);
+                    // the next stable frame rescans normally.
+                    let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
+                    post_scroll_fast = true;
+                    let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
+                    if dbg {
+                        eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
+                    }
+                    continue;
                 }
-                continue;
+                ocr::Motion::Lost => {
+                    // Flick faster than correlation can follow, or a
+                    // panel-scale change mid-scroll: the stabilizer
+                    // hides rather than showing prices on rows they no
+                    // longer belong to. Skip OCR on this frame (it is
+                    // blur/transition); the next Still frame re-anchors
+                    // everything from scratch.
+                    post_scroll_fast = true;
+                    let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::TrackingLost);
+                    if dbg {
+                        eprintln!("TRACE {:>8.2}s tracking lost", t0.elapsed().as_secs_f32());
+                    }
+                    continue;
+                }
+                ocr::Motion::Still => {}
             }
             let bands = ocr::detect_bands_from_profile(&profile);
             if dbg {
@@ -389,6 +411,14 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(resolved, snap.stale));
                 continue;
             }
+            // Unresolved bands wait for the next tesseract slot (120ms
+            // rhythm); nothing is sent for a gated frame, so slot
+            // miss-counting does not advance and the next slot's scan
+            // sees a fresher frame anyway.
+            if last_heavy.elapsed() < Duration::from_millis(120) {
+                continue;
+            }
+            last_heavy = std::time::Instant::now();
             // First scan after a scroll burst: bands only, no whole-panel
             // union pass, so newly revealed rows appear ~3x sooner; the
             // union tops up on the following scan.
@@ -699,7 +729,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                 last_frame = frame_state;
             }
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        // 16ms so label motion renders at the tracker's cadence during
+        // scrolls; the frame_state change-detection above keeps an idle
+        // tick to a channel drain plus one comparison, no repaint.
+        std::thread::sleep(std::time::Duration::from_millis(16));
     }
 }
 
