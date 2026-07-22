@@ -7,21 +7,18 @@
 //! like the game's own "copy item to clipboard" hover shortcut. Proven
 //! working at milestone 0 (see spikes/src/bin/inject.rs).
 //!
-//! The virtual keyboard is created fresh for each injection and dropped
-//! after. A device created once at startup and reused minutes later stops
-//! delivering events (the milestone-0 spike copies item text as the user,
-//! while a persistent device built at startup and used from a worker
-//! thread came back with the clipboard untouched); the spike works
-//! because it builds the device and injects while it is fresh, so this
-//! does the same. The ~700ms build+settle cost is invisible on a manual,
-//! occasional price check.
+//! The device is built once and every injection runs on one dedicated
+//! thread (a device injected from a short-lived per-press thread does not
+//! deliver events to the game under gamescope). A no-item hover is
+//! detected by the clipboard not changing after the Ctrl+C.
 //!
-//! The user's clipboard is saved before the copy and restored after, so
-//! pressing the price-check key never leaves item text (or an empty
-//! clipboard) behind. That save/restore is also how a no-item hover is
-//! detected: if the clipboard is unchanged after the injected Ctrl+C, the
-//! cursor was not over an item. This sidesteps KDE's clipboard manager,
-//! which restores a cleared clipboard and would defeat a plain --clear.
+//! The clipboard is never written, only read. Under gamescope the game
+//! can only overwrite a stale clipboard, not one an external process just
+//! set, so priming or restoring the clipboard blocks the game's copy
+//! (verified against wl-copy, Klipper DBus, and Exiled Exchange 2's
+//! sentinel approach, which relies on Electron's clipboard behaving unlike
+//! wl-copy). The copied item text is therefore left in the clipboard; the
+//! previous content stays in the clipboard manager's history.
 //!
 //! One-time setup required on the user's machine before this runs (the app
 //! must never run as root just to reach /dev/uinput):
@@ -37,11 +34,6 @@ use std::{process::Command, thread::sleep, time::Duration};
 
 use evdev::{uinput::VirtualDeviceBuilder, AttributeSet, EventType, InputEvent, Key};
 
-/// Quiet time after the last price check before the user's clipboard is
-/// restored. Long enough that a rapid burst of checks never triggers a
-/// restore mid-burst (which would break the next copy), short enough that
-/// the clipboard is back to normal moments after the user stops.
-const RESTORE_IDLE: Duration = Duration::from_millis(2500);
 
 /// Runs one virtual keyboard on a dedicated thread and does every
 /// injection on that same thread. A uinput device injected from a
@@ -74,36 +66,8 @@ impl Injector {
             };
             // Settle once so the first price check after launch works.
             sleep(Duration::from_millis(700));
-            // The user's clipboard captured at the start of a price-check
-            // burst, restored once the burst ends. Restoring between
-            // presses breaks the game's next copy under gamescope (any
-            // active clipboard write contends with the immediately
-            // following Ctrl+C), so a burst runs with no restore and the
-            // original is put back only after RESTORE_IDLE of quiet.
-            let mut original: Option<String> = None;
-            loop {
-                match req_rx.recv_timeout(RESTORE_IDLE) {
-                    Ok(reply) => {
-                        // Capture the user's real clipboard the first time
-                        // this burst clobbers it (item text always starts
-                        // with "Item Class:", so it is never mistaken for
-                        // the user's own content).
-                        if original.is_none() {
-                            if let Some(s) = clipboard_read() {
-                                if !s.starts_with("Item Class:") {
-                                    original = Some(s);
-                                }
-                            }
-                        }
-                        let _ = reply.send(copy_hovered(&mut dev));
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        if let Some(orig) = original.take() {
-                            clipboard_restore(&orig);
-                        }
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
+            for reply in req_rx {
+                let _ = reply.send(copy_hovered(&mut dev));
             }
         });
         ready_rx
@@ -120,54 +84,39 @@ impl Injector {
     }
 }
 
-/// Injects Ctrl+C and returns the item text the game copies (empty when
-/// nothing is hovered). Retries once: right after a clipboard restore, the
-/// first injected Ctrl+C does not copy under gamescope (the game replaces
-/// only clipboard content it last owned, not content an external app
-/// restored), but that first attempt hands ownership back, so the retry
-/// lands. Runs only on the injector thread.
-fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String> {
-    for attempt in 0..2 {
-        let item = inject_once(dev, attempt)?;
-        if !item.is_empty() {
-            return Ok(item);
-        }
-    }
-    Ok(String::new())
+/// True when clipboard text is a copied PoE item (English client).
+fn is_poe_item(text: &str) -> bool {
+    text.starts_with("Item Class: ") || text.starts_with("Rarity: ")
 }
 
-fn inject_once(dev: &mut evdev::uinput::VirtualDevice, attempt: u32) -> anyhow::Result<String> {
-    let saved = clipboard_read();
+/// Injects Ctrl+C and returns the item text the game copies (empty when
+/// nothing is hovered). Deliberately never writes the clipboard: under
+/// gamescope the game can only replace a stale clipboard, not one an
+/// external process (wl-copy, Klipper) just set, so any priming or restore
+/// blocks the copy. The item is detected by content becoming a PoE item
+/// that differs from what was there before. Runs only on the injector
+/// thread.
+fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String> {
+    let before = clipboard_read();
     emit(dev, Key::KEY_LEFTCTRL, true)?;
     emit(dev, Key::KEY_C, true)?;
     emit(dev, Key::KEY_C, false)?;
     emit(dev, Key::KEY_LEFTCTRL, false)?;
-    // Poll for the clipboard to change rather than reading once after a
-    // fixed delay: copy latency varies and the clipboard manager
-    // re-asserts content, so a single timed read lands on the wrong value.
-    // The first attempt after a restore may only unblock ownership without
-    // copying, so it gets a short window; the retry gets the full window.
-    let window = if attempt == 0 { 400 } else { 1200 };
+
     let mut item = String::new();
-    let deadline = std::time::Instant::now() + Duration::from_millis(window);
+    let deadline = std::time::Instant::now() + Duration::from_millis(600);
     while std::time::Instant::now() < deadline {
-        sleep(Duration::from_millis(20));
+        sleep(Duration::from_millis(40));
         if let Some(cur) = clipboard_read() {
-            if Some(&cur) != saved.as_ref() && !cur.trim().is_empty() {
+            if is_poe_item(&cur) && Some(&cur) != before.as_ref() {
                 item = cur;
                 break;
             }
         }
     }
     if std::env::var("POE2LENS_DEBUG").is_ok() {
-        eprintln!(
-            "INJECT attempt={attempt} saved={} bytes, item={} bytes",
-            saved.as_ref().map(|s| s.len()).unwrap_or(0),
-            item.len(),
-        );
+        eprintln!("INJECT item={} bytes", item.len());
     }
-    // No restore here: the burst's original clipboard is restored by the
-    // injector thread once the burst goes idle (see RESTORE_IDLE).
     Ok(item)
 }
 
@@ -194,32 +143,3 @@ fn clipboard_read() -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Restores clipboard content through KDE's Klipper (the persistent
-/// clipboard manager) over DBus, so no new transient owner is created.
-/// Falls back to wl-copy only when Klipper is absent (non-KDE); on KDE the
-/// wl-copy path is exactly what breaks the game's next copy, so it is a
-/// last resort.
-fn clipboard_restore(text: &str) {
-    let via_klipper = Command::new("qdbus6")
-        .args(["org.kde.klipper", "/klipper", "setClipboardContents", text])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if via_klipper {
-        return;
-    }
-    use std::io::Write;
-    if let Ok(mut child) = Command::new("wl-copy")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-        let _ = child.wait();
-    }
-}
