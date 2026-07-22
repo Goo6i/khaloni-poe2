@@ -38,6 +38,17 @@ impl HoverState {
     /// Parses and prices `clipboard`, replacing any existing popup (a
     /// trigger always starts a fresh 6s countdown, even if the previous
     /// popup had not yet expired).
+    /// Shows a brief "no item under cursor" popup so an F7 over empty
+    /// space gives feedback rather than silence.
+    pub fn show_no_item(&mut self) {
+        self.last_error = Some("no item under cursor".into());
+        self.current = Some(Popup {
+            title: "no item".into(),
+            lines: vec![PopupLine { text: "hover an item, then F7".into(), denom: Denom::None }],
+            expires: Instant::now() + Duration::from_secs(3),
+        });
+    }
+
     pub fn trigger(&mut self, clipboard: &str, table: &PriceTable, divine_threshold: f64) {
         self.last_error = None;
         let parsed = match item::parse_item(clipboard) {

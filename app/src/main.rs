@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 
 use poe2_lens::{
     capture,
@@ -168,22 +168,19 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
     });
 
-    // Hover price check: the Injector owns a persistent uinput virtual
-    // keyboard, created once here since registering it with the compositor
-    // is slow. A missing /dev/uinput permission (see inject.rs's doc
-    // comment) is not fatal to the rest of the overlay: F7 just does
-    // nothing and this is logged once at startup.
-    let injector: Option<Arc<Mutex<inject::Injector>>> = match inject::Injector::new() {
-        Ok(i) => Some(Arc::new(Mutex::new(i))),
+    // Hover price check: the Injector runs a uinput virtual keyboard on
+    // its own dedicated thread (see inject.rs for why the injection must
+    // stay on one long-lived thread). A missing /dev/uinput permission is
+    // not fatal: F7 just does nothing, logged once at startup.
+    let injector: Option<inject::Injector> = match inject::Injector::new() {
+        Ok(i) => Some(i),
         Err(e) => {
             eprintln!("price check unavailable: {e}");
             None
         }
     };
-    // Guards against F7 firing again while an injection (Ctrl+C + the ~300ms
-    // settle sleep in copy_hovered_item) is still in flight on its own
-    // thread; also never touched while the game isn't focused, so a stray
-    // F7 press over some other window is silently dropped.
+    // Set true while a price check is running on the injector thread so a
+    // second F7 does not queue another; reset when its result is drained.
     let price_check_in_flight = Arc::new(AtomicBool::new(false));
     let (clip_tx, clip_rx) = mpsc::channel::<anyhow::Result<String>>();
     // Trade appraisal worker: rare items parsed from the clipboard get a
@@ -528,25 +525,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                 poe2_lens::hotkeys::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
                         // game_focused-gated so a press over some other
-                        // window never sends Ctrl+C into it; the swap is
-                        // the concurrency guard (see price_check_in_flight's
-                        // doc comment above), only reached at all when the
-                        // game has focus.
+                        // window never sends Ctrl+C into it; the swap keeps
+                        // a second press from queueing another copy while
+                        // one is running on the injector thread.
                         if game_focused && !price_check_in_flight.swap(true, Ordering::AcqRel) {
-                            let inj = inj.clone();
-                            let tx = clip_tx.clone();
-                            let in_flight = price_check_in_flight.clone();
-                            std::thread::spawn(move || {
-                                // The ~300ms Ctrl+C + settle sleep lives in
-                                // copy_hovered_item; running it here keeps
-                                // it off the tick loop entirely.
-                                let result = inj
-                                    .lock()
-                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                    .copy_hovered_item();
-                                let _ = tx.send(result);
-                                in_flight.store(false, Ordering::Release);
-                            });
+                            inj.submit(clip_tx.clone());
                         }
                     }
                 }
@@ -556,7 +539,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         // Drain injected clipboard text: reprice against whatever the price
         // table looks like right now (not at the moment F7 was pressed).
         while let Ok(result) = clip_rx.try_recv() {
+            price_check_in_flight.store(false, Ordering::Release);
             match result {
+                Ok(text) if text.trim().is_empty() => {
+                    hover.show_no_item();
+                }
                 Ok(text) => {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, cfg.divine_threshold);
