@@ -100,8 +100,8 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
         .iter()
         .find(|f| f["id"] == "explicit.stat_1509134228")
         .expect("physical damage filter present");
-    // 157% rolled, undershot by 10% -> 141
-    assert_eq!(phys["value"]["min"], 141);
+    // tier floor of 157(155-169) -> 155
+    assert_eq!(phys["value"]["min"], 155); // tier floor of 157(155-169)
     assert_eq!(phys["disabled"], false, "damage mods preselect");
 }
 

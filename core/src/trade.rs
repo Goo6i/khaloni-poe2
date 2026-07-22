@@ -414,10 +414,33 @@ fn first_number(text: &str) -> Option<f64> {
     }
 }
 
+/// The value to search a mod on: the low end of its tier's roll range.
+/// Item text annotates each rolled value with the tier range it came from
+/// in parentheses, e.g. `157(155-169)% increased Physical Damage` or
+/// `Adds 3(1-4) to 82(63-82) Lightning Damage`; searching on the tier
+/// floor (155, or 1 for the added-damage example) matches every item of
+/// that tier or better, which is what a price check wants. A mod with no
+/// range annotation (a fixed implicit like `+5 to all Attributes`) is
+/// searched on its own value.
+fn tier_floor(text: &str) -> Option<i64> {
+    if let Some(open) = text.find('(') {
+        let rest = &text[open + 1..];
+        if let Some(close) = rest.find(')') {
+            let inside = &rest[..close];
+            if let Some(low) = inside.split('-').next() {
+                if let Ok(v) = low.trim().parse::<f64>() {
+                    return Some(v.floor() as i64);
+                }
+            }
+        }
+    }
+    first_number(text).map(|v| v.floor() as i64)
+}
+
 /// Builds the default appraisal query for a parsed rare: every resolvable
-/// explicit mod becomes a stat filter with min = floor(rolled * 0.9)
-/// (undershot to widen matches, per the established price-checker
-/// pattern); pricing-dominant mods start enabled, the rest disabled.
+/// explicit mod becomes a stat filter with min = the mod's tier floor
+/// (see `tier_floor`), so the search is by tier range rather than the
+/// exact roll; pricing-dominant mods start enabled, the rest disabled.
 pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
     let mut filters: Vec<StatFilter> = Vec::new();
     for m in &item.explicits {
@@ -432,14 +455,67 @@ pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
         if filters.iter().any(|f| f.id == entry.id) {
             continue;
         }
-        let Some(v) = first_number(&m.text) else { continue };
+        let Some(min) = tier_floor(&m.text) else { continue };
         filters.push(StatFilter {
             id: entry.id.clone(),
-            value: FilterValue { min: (v * 0.9).floor() as i64 },
+            value: FilterValue { min },
             disabled: !preselect(&m.text),
         });
     }
     Query { category: category_for(&item.item_class), filters }
+}
+
+impl TradeClient {
+    /// Searches with auto-relaxation: an exact multi-mod query on a rare
+    /// usually matches nothing, so if the full enabled filter set returns
+    /// no listings, drop the least-impactful enabled filter (the one with
+    /// the smallest min, so the biggest mods are kept longest) and retry,
+    /// down to the single strongest mod. Returns the first non-empty
+    /// result with how many filters it took, or the last (empty) result.
+    pub fn search_relaxed(&mut self, query: &Query) -> Result<(SearchResult, usize), TradeError> {
+        // Order enabled filters by min descending; disabled ones ride along
+        // untouched (they never constrain the search).
+        let mut enabled: Vec<usize> = query
+            .filters
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.disabled)
+            .map(|(i, _)| i)
+            .collect();
+        enabled.sort_by_key(|&i| std::cmp::Reverse(query.filters[i].value.min));
+
+        let mut last: Option<SearchResult> = None;
+        for keep in (1..=enabled.len()).rev() {
+            let keep_set: std::collections::HashSet<usize> =
+                enabled.iter().take(keep).copied().collect();
+            let filters = query
+                .filters
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let mut f = f.clone();
+                    // Disable enabled filters we are dropping this round.
+                    if !f.disabled && !keep_set.contains(&i) {
+                        f.disabled = true;
+                    }
+                    f
+                })
+                .collect();
+            let trimmed = Query { category: query.category.clone(), filters };
+            let result = self.search(&trimmed)?;
+            if !result.hashes.is_empty() {
+                return Ok((result, keep));
+            }
+            last = Some(result);
+        }
+        // No enabled filters, or every relaxation was empty: one plain
+        // search on category alone.
+        if enabled.is_empty() {
+            let result = self.search(query)?;
+            return Ok((result, 0));
+        }
+        Ok((last.expect("loop ran at least once"), 0))
+    }
 }
 
 // --- HTTP client (endpoints and shapes verified live 2026-07-21) ---

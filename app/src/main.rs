@@ -227,13 +227,17 @@ fn overlay_mode() -> anyhow::Result<()> {
                     item.name.clone()
                 };
                 let q = poe2_lens_core::trade::build_query(&item, &stats);
-                let outcome = client
-                    .search(&q)
-                    .and_then(|s| {
-                        let take = s.hashes.len().min(10);
+                let outcome = client.search_relaxed(&q).and_then(|(s, _kept)| {
+                    // Empty even after relaxing to the strongest mod:
+                    // fetching an empty id list 404s, so report none.
+                    let take = s.hashes.len().min(10);
+                    if take == 0 {
+                        Ok(Vec::new())
+                    } else {
                         client.fetch(&s.id, &s.hashes[..take])
-                    })
-                    .map_err(|e| e.to_string());
+                    }
+                });
+                let outcome = outcome.map_err(|e| e.to_string());
                 let _ = tx.send((title, outcome));
             }
         });

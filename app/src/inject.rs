@@ -120,23 +120,36 @@ impl Injector {
     }
 }
 
-/// Saves the clipboard, injects Ctrl+C, reads the item text the game
-/// wrote, restores the clipboard, and returns the item text (empty string
-/// when nothing was under the cursor). Runs only on the injector thread.
+/// Injects Ctrl+C and returns the item text the game copies (empty when
+/// nothing is hovered). Retries once: right after a clipboard restore, the
+/// first injected Ctrl+C does not copy under gamescope (the game replaces
+/// only clipboard content it last owned, not content an external app
+/// restored), but that first attempt hands ownership back, so the retry
+/// lands. Runs only on the injector thread.
 fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String> {
+    for attempt in 0..2 {
+        let item = inject_once(dev, attempt)?;
+        if !item.is_empty() {
+            return Ok(item);
+        }
+    }
+    Ok(String::new())
+}
+
+fn inject_once(dev: &mut evdev::uinput::VirtualDevice, attempt: u32) -> anyhow::Result<String> {
     let saved = clipboard_read();
     emit(dev, Key::KEY_LEFTCTRL, true)?;
     emit(dev, Key::KEY_C, true)?;
     emit(dev, Key::KEY_C, false)?;
     emit(dev, Key::KEY_LEFTCTRL, false)?;
     // Poll for the clipboard to change rather than reading once after a
-    // fixed delay: the game's copy latency varies, and KDE's clipboard
-    // manager (Klipper) re-asserts the previous content, so a single
-    // timed read lands on the wrong value intermittently. Grab the item
-    // text the moment it appears, before anything reverts it.
+    // fixed delay: copy latency varies and the clipboard manager
+    // re-asserts content, so a single timed read lands on the wrong value.
+    // The first attempt after a restore may only unblock ownership without
+    // copying, so it gets a short window; the retry gets the full window.
+    let window = if attempt == 0 { 400 } else { 1200 };
     let mut item = String::new();
-    let deadline = std::time::Instant::now() + Duration::from_millis(1200);
-    let mut polls = 0u32;
+    let deadline = std::time::Instant::now() + Duration::from_millis(window);
     while std::time::Instant::now() < deadline {
         sleep(Duration::from_millis(20));
         if let Some(cur) = clipboard_read() {
@@ -145,11 +158,10 @@ fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String
                 break;
             }
         }
-        polls += 1;
     }
     if std::env::var("POE2LENS_DEBUG").is_ok() {
         eprintln!(
-            "INJECT saved={} bytes, item={} bytes after {polls} polls",
+            "INJECT attempt={attempt} saved={} bytes, item={} bytes",
             saved.as_ref().map(|s| s.len()).unwrap_or(0),
             item.len(),
         );
