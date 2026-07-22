@@ -316,6 +316,16 @@ impl Renderer {
     /// (item name) followed by one priced line per `popup.lines`, each with
     /// its currency icon composited the same way as `draw_frame`'s rows.
     /// `anchor` is the popup's top-left corner in surface-local pixels.
+    /// Pixel size the popup pill will occupy, for placement and the
+    /// move-away inside test. Must mirror draw_popup's layout math.
+    pub fn popup_size(popup: &Popup) -> (i32, i32) {
+        let title_h = POPUP_TITLE_PX + POPUP_ROW_GAP;
+        let line_h = POPUP_LINE_PX + POPUP_ROW_GAP;
+        let content_h = title_h + popup.lines.len() as f32 * line_h;
+        let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
+        (POPUP_WIDTH as i32, pill_h.ceil() as i32)
+    }
+
     pub fn draw_popup(&self, pm: &mut Pixmap, popup: &Popup, anchor: (i32, i32)) {
         let (ax, ay) = anchor;
         let title_h = POPUP_TITLE_PX + POPUP_ROW_GAP;

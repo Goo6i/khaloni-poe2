@@ -33,6 +33,21 @@ for (const w of workspace.windowList()) hook(w);
 workspace.windowAdded.connect(hook);
 workspace.windowActivated.connect(function (w) { reportActive(w); });
 reportActive(workspace.activeWindow);
+// Cursor feed for popup anchoring + move-away dismissal: 100ms QTimer,
+// pushed only when the pointer actually moved (>4px) so an idle desktop
+// costs nothing on the bus.
+var lastCx = -100000, lastCy = -100000;
+var cursorTimer = new QTimer();
+cursorTimer.interval = 100;
+cursorTimer.timeout.connect(function () {
+    var p = workspace.cursorPos;
+    if (Math.abs(p.x - lastCx) > 4 || Math.abs(p.y - lastCy) > 4) {
+        lastCx = p.x; lastCy = p.y;
+        callDBus("org.poe2lens.App", "/org/poe2lens/App", "org.poe2lens.App", "Cursor",
+                 Math.round(p.x), Math.round(p.y));
+    }
+});
+cursorTimer.start();
 "#;
 
 pub enum KwinEvent {
@@ -40,6 +55,9 @@ pub enum KwinEvent {
     /// True when the game window currently holds focus.
     Active(bool),
     GameGone,
+    /// Live pointer position in global logical coordinates (throttled to
+    /// 100ms and >4px moves by the KWin script).
+    Cursor(i32, i32),
 }
 
 struct Service {
@@ -63,6 +81,9 @@ impl Service {
             || cap.contains(" gamescope")
             || cap.contains(" steam_app");
         let _ = self.tx.send(KwinEvent::Active(is_game));
+    }
+    fn cursor(&self, x: i32, y: i32) {
+        let _ = self.tx.send(KwinEvent::Cursor(x, y));
     }
 }
 

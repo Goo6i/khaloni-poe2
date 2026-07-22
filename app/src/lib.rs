@@ -8,6 +8,7 @@ pub mod inject;
 pub mod kwin;
 pub mod ocr;
 pub mod overlay;
+pub mod popup_pos;
 pub mod pricing;
 pub mod prices;
 pub mod render;

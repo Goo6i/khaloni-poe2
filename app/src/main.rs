@@ -507,6 +507,13 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
     let mut hover = hover::HoverState::default();
     let mut game_pos = (game.x, game.y);
+    // Live pointer position (global logical), fed by the KWin script's
+    // cursor timer. Falls back to the game center until the first move.
+    let mut cursor_pos = center;
+    // Where the cursor was when the current popup fired, and the placed
+    // popup rect: move-away dismissal measures against these. None while
+    // no popup is up.
+    let mut popup_at: Option<((i32, i32), Rect)> = None;
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
     // What was actually drawn+presented last tick: `Some((placed, stale,
     // popup))` while visible, `None` while hidden/blank. Compared each tick
@@ -536,6 +543,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     game_present = false;
                     overlay.hide()?;
                 }
+                poe2_lens::kwin::KwinEvent::Cursor(x, y) => cursor_pos = (x, y),
             }
         }
         while let Ok(hk) = hk_rx.try_recv() {
@@ -566,6 +574,7 @@ fn overlay_mode() -> anyhow::Result<()> {
 
         // Drain injected clipboard text: reprice against whatever the price
         // table looks like right now (not at the moment F7 was pressed).
+        let game_rect = Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
         while let Ok(result) = clip_rx.try_recv() {
             price_check_in_flight.store(false, Ordering::Release);
             match result {
@@ -581,11 +590,35 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
                 Err(e) => eprintln!("price check: {e}"),
             }
+            // A fresh popup anchors at the cursor that triggered it.
+            popup_at = hover.current.as_ref().map(|p| {
+                let size = poe2_lens::render::Renderer::popup_size(p);
+                let (px, py) = poe2_lens::popup_pos::place(cursor_pos, size, game_rect);
+                (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
+            });
         }
         while let Ok((title, outcome)) = appraise_rx.try_recv() {
             hover.appraisal_done(&title, outcome);
+            // Listings change the pill height; re-place from the ORIGINAL
+            // check position so the popup grows in place instead of
+            // jumping to wherever the cursor is now.
+            if let (Some(p), Some((origin, _))) = (hover.current.as_ref(), popup_at) {
+                let size = poe2_lens::render::Renderer::popup_size(p);
+                let (px, py) = poe2_lens::popup_pos::place(origin, size, game_rect);
+                popup_at = Some((origin, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 }));
+            }
         }
         hover.tick();
+        match (&hover.current, popup_at) {
+            (Some(_), Some((origin, rect))) => {
+                if poe2_lens::popup_pos::should_dismiss(origin, cursor_pos, rect) {
+                    hover.current = None;
+                    popup_at = None;
+                }
+            }
+            (None, Some(_)) => popup_at = None,
+            _ => {}
+        }
 
         let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
@@ -686,16 +719,14 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     })
                     .collect();
-                // Popup anchor (Stage A fallback: no cursor coordinates are
-                // available from the app side on Wayland): fixed margin off
-                // the calibration rect's top-right, same coordinate route
-                // as the row labels above rather than the live cursor.
-                let popup = hover.current.as_ref().map(|p| {
-                    let anchor_x = map.calibration.x + map.calibration.w as i32 + 24;
-                    let anchor_y = map.calibration.y;
-                    let ax = anchor_x + dx - out_pos.0;
-                    let ay = anchor_y + dy - out_pos.1;
-                    (p.clone(), (ax, ay))
+                // Popup anchor: the rect placed at check time next to the
+                // cursor (popup_pos::place), converted global -> surface
+                // like the row labels. Global coords are already live, so
+                // no dx/dy re-anchoring applies to the popup.
+                let popup = hover.current.as_ref().and_then(|p| {
+                    popup_at.map(|(_, rect)| {
+                        (p.clone(), (rect.x - out_pos.0, rect.y - out_pos.1))
+                    })
                 });
                 Some((placed, stabilizer.stale(), popup))
             } else {
