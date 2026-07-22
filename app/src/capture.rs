@@ -13,8 +13,13 @@ use image::GrayImage;
 use crate::config::Rect;
 
 /// Capture throttle while the brightness gate is open (the panel is
-/// probably on screen): scan more often for responsiveness.
-const THROTTLE_OPEN_MS: u64 = 120;
+/// probably on screen): effectively compositor rate. Motion tracking runs
+/// per captured frame and needs this cadence to keep correlation locked
+/// through fast scrolls; each open-gate frame costs one grayscale crop
+/// plus a sub-ms row profile, and the expensive OCR paths are
+/// cadence-gated downstream (main.rs last_heavy), so the panel-open CPU
+/// cost stays a few ms per frame.
+const THROTTLE_OPEN_MS: u64 = 16;
 /// Capture throttle while the brightness gate is closed: no point spending
 /// CPU on frequent frames nothing will OCR.
 const THROTTLE_CLOSED_MS: u64 = 120;
