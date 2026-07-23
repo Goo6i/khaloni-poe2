@@ -89,50 +89,15 @@ fn is_poe_item(text: &str) -> bool {
     text.starts_with("Item Class: ") || text.starts_with("Rarity: ")
 }
 
-/// The game runs on gamescope's nested Xwayland (DISPLAY=:N) and copies
-/// items to THAT inner X clipboard first; gamescope then forwards the text
-/// to the user's real Wayland clipboard. Reading the inner clipboard
-/// directly (a) never touches the user's real clipboard and (b) lets us
-/// CLEAR it before the copy so a re-check of the same item is detectable,
-/// which the outer path could not do (any outer write blocks the copy).
-/// Discovered from gamescopereaper's environ; None means no gamescope
-/// (dev desktop), and the caller falls back to the outer Wayland read.
-fn inner_display() -> Option<String> {
-    let out = Command::new("pgrep").args(["-x", "gamescopereaper"]).output().ok()?;
-    let pid = String::from_utf8_lossy(&out.stdout).split_whitespace().next()?.to_string();
-    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    environ
-        .split(|&b| b == 0)
-        .filter_map(|kv| std::str::from_utf8(kv).ok())
-        .find_map(|kv| kv.strip_prefix("DISPLAY=").map(str::to_string))
-}
-
 /// Injects Ctrl+C and returns the item text the game copies (empty when
-/// nothing is hovered). Reads the inner gamescope X clipboard when present
-/// so the user's real clipboard is never involved; clears it first so a
-/// re-check of the same item still registers as a fresh copy. Falls back
-/// to the outer Wayland clipboard (read-only, change-detected) off
-/// gamescope. Runs only on the injector thread.
+/// nothing is hovered). Deliberately never writes the clipboard: under
+/// gamescope the game can only replace a stale clipboard, not one an
+/// external process (wl-copy, Klipper) just set, so any priming or restore
+/// blocks the copy. The item is detected by content becoming a PoE item
+/// that differs from what was there before. Runs only on the injector
+/// thread.
 fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String> {
-    let inner = inner_display();
-    if let Some(dpy) = &inner {
-        // Clear the inner selection so the game's copy is the only PoE
-        // item present afterward; an empty-space F7 then leaves it empty
-        // and reports "no item" correctly. Wait for the clear to actually
-        // take before injecting, otherwise xclip taking ownership AFTER
-        // the game's copy would wipe the very item we want.
-        inner_clear(dpy);
-        let clear_deadline = std::time::Instant::now() + Duration::from_millis(200);
-        while std::time::Instant::now() < clear_deadline {
-            match inner_read(dpy) {
-                Some(s) if !is_poe_item(&s) => break,
-                None => break,
-                _ => sleep(Duration::from_millis(15)),
-            }
-        }
-    }
-    let before = if inner.is_none() { clipboard_read() } else { None };
-
+    let before = clipboard_read();
     emit(dev, Key::KEY_LEFTCTRL, true)?;
     emit(dev, Key::KEY_C, true)?;
     emit(dev, Key::KEY_C, false)?;
@@ -142,49 +107,14 @@ fn copy_hovered(dev: &mut evdev::uinput::VirtualDevice) -> anyhow::Result<String
     let deadline = std::time::Instant::now() + Duration::from_millis(600);
     while std::time::Instant::now() < deadline {
         sleep(Duration::from_millis(40));
-        let cur = match &inner {
-            Some(dpy) => inner_read(dpy),
-            None => clipboard_read(),
-        };
-        if let Some(cur) = cur {
-            // Inner path: it was cleared, so any PoE item present is the
-            // fresh copy (same-item re-checks included). Outer path: keep
-            // change-detection, since we cannot safely clear it.
-            let fresh = inner.is_some() || Some(&cur) != before.as_ref();
-            if is_poe_item(&cur) && fresh {
+        if let Some(cur) = clipboard_read() {
+            if is_poe_item(&cur) && Some(&cur) != before.as_ref() {
                 item = cur;
                 break;
             }
         }
     }
     Ok(item)
-}
-
-fn inner_read(display: &str) -> Option<String> {
-    let out = Command::new("xclip")
-        .args(["-o", "-selection", "clipboard", "-d", display])
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-fn inner_clear(display: &str) {
-    use std::io::Write;
-    // xclip becomes the selection owner with empty content; the game
-    // reclaims ownership on its next copy (standard X selection handoff).
-    if let Ok(mut child) = Command::new("xclip")
-        .args(["-i", "-selection", "clipboard", "-d", display])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(b"");
-        }
-        // xclip forks to hold the selection; do not wait on it.
-    }
 }
 
 fn build_device() -> anyhow::Result<evdev::uinput::VirtualDevice> {
