@@ -11,10 +11,17 @@ pub const DEFAULT_BASE: &str = "https://poe.ninja";
 pub const USER_AGENT: &str = concat!("poe2-lens/", env!("CARGO_PKG_VERSION"));
 
 /// Exchange types verified to return data on the PoE2 API (2026-07-21).
-pub const EXCHANGE_TYPES: [&str; 15] = [
-    "Currency", "Fragments", "Essences", "Runes", "UncutGems", "Omens", "Catalysts",
-    "Artifacts", "SoulCores", "Talismans", "Expedition", "Ritual", "Breach", "Delirium",
-    "Abyss",
+// Every poe.ninja PoE2 exchange type that trades in the in-game currency
+// exchange. Named skill/support gems ("Uruk's Smelting"), idols, and
+// verisium are traded here just like orbs, so they must be pulled or they
+// price as "?" (live-verified 2026-07-23: LineageSupportGems 75 items,
+// Idols 32, Verisium 24, all divine-denominated). Types that come back
+// empty this league (Omens, Catalysts, Artifacts right now) are harmless:
+// prices::fetch skips an empty/malformed type and keeps the rest.
+pub const EXCHANGE_TYPES: [&str; 18] = [
+    "Currency", "Fragments", "Essences", "Runes", "UncutGems", "LineageSupportGems", "Omens",
+    "Catalysts", "Artifacts", "SoulCores", "Talismans", "Expedition", "Ritual", "Breach",
+    "Delirium", "Abyss", "Idols", "Verisium",
 ];
 
 #[derive(Debug, Error)]
