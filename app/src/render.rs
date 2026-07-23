@@ -316,6 +316,78 @@ impl Renderer {
     /// (item name) followed by one priced line per `popup.lines`, each with
     /// its currency icon composited the same way as `draw_frame`'s rows.
     /// `anchor` is the popup's top-left corner in surface-local pixels.
+    /// Draws the interactive appraisal panel from the SAME layout the
+    /// click handler hit-tests against (appraise_ui::layout), offset to
+    /// `anchor` (surface-local top-left).
+    pub fn draw_appraisal(
+        &self,
+        pm: &mut Pixmap,
+        panel: &crate::appraise_ui::Panel,
+        lay: &crate::appraise_ui::Layout,
+        anchor: (i32, i32),
+    ) {
+        let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
+        let ink = Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF);
+        let dim = Color::from_rgba8(0x8A, 0x7A, 0x60, 0xFF);
+        self.pill(pm, ax, ay, lay.size.0 as f32, lay.size.1 as f32, border_color(Tier::Decent));
+
+        let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: ink };
+        self.draw_text(pm, ax + 12.0, ay + 12.0 + POPUP_TITLE_PX * 0.8, &panel.title, &title_style);
+        // Close X.
+        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
+        self.draw_text(
+            pm,
+            ax + lay.close.x as f32 + 4.0,
+            ay + lay.close.y as f32 + 15.0,
+            "x",
+            &x_style,
+        );
+
+        for ((check, text_pos), m) in lay.rows.iter().zip(&panel.mods) {
+            let (cx, cy) = (ax + check.x as f32, ay + check.y as f32);
+            let side = check.w as f32;
+            // Checkbox: outline always, filled square when enabled.
+            let color = if m.enabled { ink } else { dim };
+            self.pill(pm, cx, cy, side, side, color);
+            if m.enabled {
+                let mut inner = tiny_skia::Paint::default();
+                inner.set_color(ink);
+                if let Some(r) = tiny_skia::Rect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
+                    pm.fill_rect(r, &inner, tiny_skia::Transform::identity(), None);
+                }
+            }
+            let tier = m.tier.map(|t| format!("T{t} ")).unwrap_or_default();
+            let line = format!("{tier}{} (min {})", m.label, m.min);
+            let style = TextStyle {
+                kind: FontKind::Annotation,
+                px: POPUP_LINE_PX,
+                color: if m.enabled { ink } else { dim },
+            };
+            self.draw_text(pm, ax + text_pos.0 as f32, ay + text_pos.1 as f32, &line, &style);
+        }
+
+        for (rect, _, label) in &lay.buttons {
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, border_color(Tier::Jackpot));
+            let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: ink };
+            self.draw_text(pm, bx + 12.0, by + rect.h as f32 - 8.0, label, &style);
+        }
+        if !panel.status.is_empty() {
+            let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
+            self.draw_text(
+                pm,
+                ax + lay.status_pos.0 as f32,
+                ay + lay.status_pos.1 as f32,
+                &panel.status,
+                &style,
+            );
+        }
+        for (pos, line) in lay.listing_pos.iter().zip(&panel.listings) {
+            let style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
+            self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, line, &style);
+        }
+    }
+
     /// Pixel size the popup pill will occupy, for placement and the
     /// move-away inside test. Must mirror draw_popup's layout math.
     pub fn popup_size(popup: &Popup) -> (i32, i32) {

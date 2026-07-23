@@ -121,10 +121,33 @@ fn headless() -> anyhow::Result<()> {
 }
 
 /// What one tick draws+presents: the row labels, the header line (the
-/// div=>ex rate), whether prices are stale, and the hover popup (with its
-/// anchor) if one is currently up.
-type FrameState =
-    (Vec<poe2_lens::render::Placed>, String, bool, Option<(hover::Popup, (i32, i32))>);
+/// div=>ex rate), whether prices are stale, the hover popup (with its
+/// anchor), and the interactive appraisal panel (with its anchor).
+type FrameState = (
+    Vec<poe2_lens::render::Placed>,
+    String,
+    bool,
+    Option<(hover::Popup, (i32, i32))>,
+    Option<(poe2_lens::appraise_ui::Panel, (i32, i32))>,
+);
+
+/// Appraisal worker requests: Auto = fresh item, build the query and
+/// relax until listings appear; Exact = the user's checkbox state, run
+/// verbatim with no relaxation (their toggle IS the intent).
+enum AppraiseReq {
+    Auto(poe2_lens_core::item::Item),
+    Exact { title: String, query: poe2_lens_core::trade::Query },
+}
+
+struct AppraiseDone {
+    title: String,
+    outcome: Result<Vec<poe2_lens_core::trade::Listing>, String>,
+    /// Query + labels only on Auto responses (they seed the panel); an
+    /// Exact response updates listings on the panel the user already has.
+    query: Option<poe2_lens_core::trade::Query>,
+    labels: Vec<poe2_lens_core::trade::FilterLabel>,
+    search_id: Option<String>,
+}
 
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
@@ -194,8 +217,8 @@ fn overlay_mode() -> anyhow::Result<()> {
     // Trade appraisal worker: rare items parsed from the clipboard get a
     // background search+fetch against the official trade API (strictly
     // rate limited inside TradeClient); results return on this channel.
-    let (appraise_tx, appraise_rx) = mpsc::channel::<(String, Result<Vec<poe2_lens_core::trade::Listing>, String>)>();
-    let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<poe2_lens_core::item::Item>();
+    let (appraise_tx, appraise_rx) = mpsc::channel::<AppraiseDone>();
+    let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<AppraiseReq>();
     {
         let tx = appraise_tx.clone();
         let league = cfg.league.clone();
@@ -228,14 +251,28 @@ fn overlay_mode() -> anyhow::Result<()> {
                 eprintln!("trade stats index unavailable; rare appraisal disabled");
                 return;
             };
-            for item in appraise_req_rx {
-                let title = if item.name.is_empty() {
-                    item.base_type.clone().unwrap_or_default()
-                } else {
-                    item.name.clone()
+            for req in appraise_req_rx {
+                let (title, q, labels, relaxed) = match req {
+                    AppraiseReq::Auto(item) => {
+                        let title = if item.name.is_empty() {
+                            item.base_type.clone().unwrap_or_default()
+                        } else {
+                            item.name.clone()
+                        };
+                        let (q, labels) =
+                            poe2_lens_core::trade::build_query_with_labels(&item, &stats);
+                        (title, q, labels, true)
+                    }
+                    AppraiseReq::Exact { title, query } => (title, query, Vec::new(), false),
                 };
-                let q = poe2_lens_core::trade::build_query(&item, &stats);
-                let outcome = client.search_relaxed(&q).and_then(|(s, _kept)| {
+                let searched = if relaxed {
+                    client.search_relaxed(&q).map(|(s, _kept)| s)
+                } else {
+                    client.search(&q)
+                };
+                let mut search_id = None;
+                let outcome = searched.and_then(|s| {
+                    search_id = Some(s.id.clone());
                     // Empty even after relaxing to the strongest mod:
                     // fetching an empty id list 404s, so report none.
                     let take = s.hashes.len().min(10);
@@ -254,7 +291,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     other => other.to_string(),
                 });
-                let _ = tx.send((title, outcome));
+                let _ = tx.send(AppraiseDone {
+                    title,
+                    outcome,
+                    query: relaxed.then_some(q),
+                    labels,
+                    search_id,
+                });
             }
         });
     }
@@ -552,6 +595,14 @@ fn overlay_mode() -> anyhow::Result<()> {
     // popup rect: move-away dismissal measures against these. None while
     // no popup is up.
     let mut popup_at: Option<((i32, i32), Rect)> = None;
+    // Interactive appraisal panel: model + the query its checkboxes edit
+    // + placed top-left (global logical). While Some, the overlay's input
+    // region covers the panel and clicks resolve through appraise_ui.
+    let mut apanel: Option<(
+        poe2_lens::appraise_ui::Panel,
+        poe2_lens_core::trade::Query,
+        (i32, i32),
+    )> = None;
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
     // What was actually drawn+presented last tick: `Some((placed, stale,
     // popup))` while visible, `None` while hidden/blank. Compared each tick
@@ -579,6 +630,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                 poe2_lens::kwin::KwinEvent::GameGone => {
                     stabilizer.clear();
                     game_present = false;
+                    if apanel.take().is_some() {
+                        overlay.set_interactive(None)?;
+                    }
                     overlay.hide()?;
                 }
                 poe2_lens::kwin::KwinEvent::Cursor(x, y) => cursor_pos = (x, y),
@@ -596,6 +650,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // state, so toggling back on picks up the next one
                     // within one tick on its own.
                     eprintln!("overlay toggled {}", if scanning { "on" } else { "off" });
+                    if apanel.take().is_some() {
+                        overlay.set_interactive(None)?;
+                    }
                     hover.show_note(if scanning { "overlay on" } else { "overlay off" });
                     let game_rect =
                         Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
@@ -633,7 +690,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
                     if let Some(item) = hover.pending_appraisal.take() {
-                        let _ = appraise_req_tx.send(item);
+                        // A fresh check replaces any open panel.
+                        if apanel.take().is_some() {
+                            overlay.set_interactive(None)?;
+                        }
+                        let _ = appraise_req_tx.send(AppraiseReq::Auto(item));
                     }
                 }
                 Err(e) => eprintln!("price check: {e}"),
@@ -645,16 +706,118 @@ fn overlay_mode() -> anyhow::Result<()> {
                 (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
             });
         }
-        while let Ok((title, outcome)) = appraise_rx.try_recv() {
-            hover.appraisal_done(&title, outcome);
-            // Listings change the pill height; re-place from the ORIGINAL
-            // check position so the popup grows in place instead of
-            // jumping to wherever the cursor is now.
-            if let (Some(p), Some((origin, _))) = (hover.current.as_ref(), popup_at) {
-                let size = poe2_lens::render::Renderer::popup_size(p);
-                let (px, py) = poe2_lens::popup_pos::place(origin, size, game_rect);
-                popup_at = Some((origin, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 }));
+        while let Ok(done) = appraise_rx.try_recv() {
+            let listings_of = |outcome: &Result<Vec<poe2_lens_core::trade::Listing>, String>| match outcome {
+                Ok(ls) if ls.is_empty() => (vec![], "no online matches".to_string()),
+                Ok(ls) => (
+                    ls.iter()
+                        .take(8)
+                        .map(|l| format!("{} {} ({})", l.price_amount, l.price_currency, l.account))
+                        .collect(),
+                    format!("{} shown", ls.len().min(8)),
+                ),
+                Err(e) => (vec![], e.clone()),
+            };
+            match (done.query, apanel.as_mut()) {
+                // Auto response: seed the interactive panel where the
+                // "searching trade..." popup was anchored.
+                (Some(query), _) => {
+                    let (listings, status) = listings_of(&done.outcome);
+                    let mods = done
+                        .labels
+                        .iter()
+                        .enumerate()
+                        .map(|(i, l)| poe2_lens::appraise_ui::ModRow {
+                            label: l.text.clone(),
+                            tier: l.tier,
+                            min: l.min,
+                            enabled: !query.filters[i].disabled,
+                            filter_index: i,
+                        })
+                        .collect();
+                    let panel = poe2_lens::appraise_ui::Panel {
+                        title: done.title,
+                        mods,
+                        listings,
+                        status,
+                        search_id: done.search_id,
+                    };
+                    let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
+                    let lay = poe2_lens::appraise_ui::layout(&panel);
+                    let pos = poe2_lens::popup_pos::place(origin, lay.size, game_rect);
+                    hover.current = None;
+                    popup_at = None;
+                    let out_pos = overlay.output_pos();
+                    overlay.set_interactive(Some((
+                        pos.0 - out_pos.0,
+                        pos.1 - out_pos.1,
+                        lay.size.0 as u32,
+                        lay.size.1 as u32,
+                    )))?;
+                    apanel = Some((panel, query, pos));
+                }
+                // Exact response: update the open panel in place.
+                (None, Some((panel, _, _))) if panel.title == done.title => {
+                    let (listings, status) = listings_of(&done.outcome);
+                    panel.listings = listings;
+                    panel.status = status;
+                    if done.search_id.is_some() {
+                        panel.search_id = done.search_id;
+                    }
+                }
+                // Panel was closed while the search ran: drop the result.
+                (None, _) => {}
             }
+        }
+        // Panel clicks: geometry from the same layout the renderer drew.
+        if apanel.is_some() {
+            let out_pos = overlay.output_pos();
+            for (cx, cy) in overlay.take_clicks() {
+                if dbg {
+                    eprintln!("panel click at surface ({cx},{cy})");
+                }
+                let Some((panel, query, pos)) = apanel.as_mut() else { break };
+                let lay = poe2_lens::appraise_ui::layout(panel);
+                let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
+                match poe2_lens::appraise_ui::hit(panel, &lay, local.0, local.1) {
+                    Some(poe2_lens::appraise_ui::Action::ToggleMod(fi)) => {
+                        if let Some(f) = query.filters.get_mut(fi) {
+                            f.disabled = !f.disabled;
+                        }
+                        if let Some(m) = panel.mods.iter_mut().find(|m| m.filter_index == fi) {
+                            m.enabled = !m.enabled;
+                        }
+                    }
+                    Some(poe2_lens::appraise_ui::Action::Search) => {
+                        panel.status = "searching...".into();
+                        let _ = appraise_req_tx.send(AppraiseReq::Exact {
+                            title: panel.title.clone(),
+                            query: query.clone(),
+                        });
+                    }
+                    Some(poe2_lens::appraise_ui::Action::OpenSite) => {
+                        if let Some(id) = &panel.search_id {
+                            let url = format!(
+                                "https://www.pathofexile.com/trade2/search/poe2/{}/{}",
+                                cfg.league.replace(' ', "%20"),
+                                id
+                            );
+                            let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                        }
+                    }
+                    Some(poe2_lens::appraise_ui::Action::Close) => {
+                        apanel = None;
+                        overlay.set_interactive(None)?;
+                    }
+                    None => {}
+                }
+            }
+        }
+        // Losing the game (focus with pause, or presence) closes the
+        // panel: a stale input region would silently eat desktop clicks.
+        if apanel.is_some() && (!game_present || (!game_focused && cfg.pause_when_unfocused)) {
+            apanel = None;
+            overlay.set_interactive(None)?;
         }
         hover.tick();
         match (&hover.current, popup_at) {
@@ -720,7 +883,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         // hotkeys read as dead keys (live finding, 2026-07-23).
         let on_screen = game_present && (game_focused || !cfg.pause_when_unfocused);
         let show_rows = scanning && on_screen;
-        let show = show_rows || (on_screen && hover.current.is_some());
+        let show = show_rows || (on_screen && (hover.current.is_some() || apanel.is_some()));
         let size = overlay.size();
         if size.0 > 0 && size.1 > 0 {
             let mut resized = false;
@@ -781,6 +944,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                         (p.clone(), (rect.x - out_pos.0, rect.y - out_pos.1))
                     })
                 });
+                let panel = apanel
+                    .as_ref()
+                    .map(|(p, _, pos)| (p.clone(), (pos.0 - out_pos.0, pos.1 - out_pos.1)));
                 // Divine=>exalted rate as the header pill above the first
                 // row: answers "is this divine price worth it" at a glance
                 // without a manual lookup.
@@ -790,7 +956,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     .lookup("Divine Orb")
                     .map(|p| format!("1 div = {} ex", p.exalted.round() as i64))
                     .unwrap_or_default();
-                Some((placed, rate, stabilizer.stale(), popup))
+                Some((placed, rate, stabilizer.stale(), popup, panel))
             } else {
                 None
             };
@@ -803,11 +969,15 @@ fn overlay_mode() -> anyhow::Result<()> {
             // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, rate, stale, popup)) => {
+                    Some((placed, rate, stale, popup, panel)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
                         // Popup drawn after the rows so it sits on top.
                         if let Some((p, anchor)) = popup {
                             renderer.draw_popup(pm, p, *anchor);
+                        }
+                        if let Some((p, anchor)) = panel {
+                            let lay = poe2_lens::appraise_ui::layout(p);
+                            renderer.draw_appraisal(pm, p, &lay, *anchor);
                         }
                     }
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),

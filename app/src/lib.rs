@@ -1,3 +1,4 @@
+pub mod appraise_ui;
 pub mod brightness;
 pub mod capture;
 pub mod config;

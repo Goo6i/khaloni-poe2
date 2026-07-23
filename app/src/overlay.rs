@@ -1,9 +1,14 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        Capability, SeatHandler, SeatState,
+    },
     shell::{
         wlr_layer::{
             Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
@@ -16,17 +21,24 @@ use smithay_client_toolkit::{
 use tiny_skia::Pixmap;
 use wayland_client::{
     globals::registry_queue_init,
-    protocol::{wl_output, wl_shm, wl_surface},
+    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, EventQueue, QueueHandle,
 };
 
 struct App {
     registry_state: RegistryState,
     output_state: OutputState,
+    seat_state: SeatState,
     shm: Shm,
     pool: SlotPool,
     layer: Option<LayerSurface>,
     surface_size: (u32, u32),
+    pointer: Option<wl_pointer::WlPointer>,
+    /// Left-button presses on the overlay surface (surface-local logical
+    /// px), drained by the main loop. Only non-empty while an interactive
+    /// input region is set: with the default empty region the compositor
+    /// never routes pointer input here at all.
+    clicks: Vec<(i32, i32)>,
     exit: bool,
 }
 
@@ -35,6 +47,7 @@ pub struct Overlay {
     event_queue: EventQueue<App>,
     app: App,
     output_pos: (i32, i32),
+    compositor: CompositorState,
 }
 
 impl Overlay {
@@ -51,10 +64,13 @@ impl Overlay {
         let mut app = App {
             registry_state: RegistryState::new(&globals),
             output_state: OutputState::new(&globals, &qh),
+            seat_state: SeatState::new(&globals, &qh),
             shm,
             pool,
             layer: None,
             surface_size: (0, 0),
+            pointer: None,
+            clicks: Vec::new(),
             exit: false,
         };
 
@@ -103,7 +119,31 @@ impl Overlay {
             event_queue,
             app,
             output_pos,
+            compositor,
         })
+    }
+
+    /// Makes `rect` (surface-local logical px) accept pointer input, or
+    /// restores full click-through with None. The wl_region contents are
+    /// copied by set_input_region, so the Region can drop right after.
+    pub fn set_interactive(&mut self, rect: Option<(i32, i32, u32, u32)>) -> anyhow::Result<()> {
+        let layer = self.app.layer.as_ref().expect("layer created in new()");
+        let region = Region::new(&self.compositor)?;
+        if let Some((x, y, w, h)) = rect {
+            region.add(x, y, w as i32, h as i32);
+        } else {
+            // Dropping the region also drops any stale clicks nobody
+            // drained (a click raced the panel closing).
+            self.app.clicks.clear();
+        }
+        layer.wl_surface().set_input_region(Some(region.wl_region()));
+        layer.commit();
+        Ok(())
+    }
+
+    /// Drains left-clicks received since the last call (surface-local).
+    pub fn take_clicks(&mut self) -> Vec<(i32, i32)> {
+        std::mem::take(&mut self.app.clicks)
     }
 
     pub fn pump(&mut self) -> anyhow::Result<()> {
@@ -188,6 +228,55 @@ impl OutputHandler for App {
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
 }
 
+impl SeatHandler for App {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+    fn new_capability(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer && self.pointer.is_none() {
+            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+        }
+    }
+    fn remove_capability(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer {
+            if let Some(p) = self.pointer.take() {
+                p.release();
+            }
+        }
+    }
+    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl PointerHandler for App {
+    fn pointer_frame(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        const BTN_LEFT: u32 = 0x110;
+        for ev in events {
+            if let PointerEventKind::Press { button: BTN_LEFT, .. } = ev.kind {
+                self.clicks.push((ev.position.0 as i32, ev.position.1 as i32));
+            }
+        }
+    }
+}
+
 impl ShmHandler for App {
     fn shm_state(&mut self) -> &mut Shm {
         &mut self.shm
@@ -198,11 +287,13 @@ impl ProvidesRegistryState for App {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
+    registry_handlers![OutputState, SeatState];
 }
 
 delegate_compositor!(App);
 delegate_output!(App);
 delegate_shm!(App);
+delegate_seat!(App);
+delegate_pointer!(App);
 delegate_layer!(App);
 delegate_registry!(App);

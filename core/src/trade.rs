@@ -441,8 +441,27 @@ fn tier_floor(text: &str) -> Option<i64> {
 /// explicit mod becomes a stat filter with min = the mod's tier floor
 /// (see `tier_floor`), so the search is by tier range rather than the
 /// exact roll; pricing-dominant mods start enabled, the rest disabled.
+/// A filter's human-facing description, index-aligned with
+/// Query::filters: the cleaned mod text, its tier (when annotated), and
+/// the search floor. This is what an interactive panel renders next to
+/// each checkbox.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterLabel {
+    pub text: String,
+    pub tier: Option<u8>,
+    pub min: i64,
+}
+
 pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
+    build_query_with_labels(item, stats).0
+}
+
+pub fn build_query_with_labels(
+    item: &crate::item::Item,
+    stats: &StatIndex,
+) -> (Query, Vec<FilterLabel>) {
     let mut filters: Vec<StatFilter> = Vec::new();
+    let mut labels: Vec<FilterLabel> = Vec::new();
     for m in &item.explicits {
         // Rune-socket mods are gear, not the item's own explicits; the
         // trade site treats them separately, and mapping one onto an
@@ -461,8 +480,29 @@ pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
             value: FilterValue { min },
             disabled: !preselect(&m.text),
         });
+        labels.push(FilterLabel {
+            text: strip_range_annotations(&m.text),
+            tier: m.header.as_ref().and_then(|h| h.tier),
+            min,
+        });
     }
-    Query { category: category_for(&item.item_class), filters }
+    (Query { category: category_for(&item.item_class), filters }, labels)
+}
+
+/// Removes the advanced-format "(min-max)" roll annotations for display:
+/// "+45(40-49) to maximum Life" reads as "+45 to maximum Life".
+fn strip_range_annotations(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut depth = 0u32;
+    for c in text.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 impl TradeClient {
