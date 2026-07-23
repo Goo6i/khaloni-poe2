@@ -38,6 +38,17 @@ impl HoverState {
     /// Parses and prices `clipboard`, replacing any existing popup (a
     /// trigger always starts a fresh 6s countdown, even if the previous
     /// popup had not yet expired).
+    /// Brief status note at the cursor (e.g. "overlay off"): every
+    /// hotkey press gets visible feedback, because a silent toggle reads
+    /// as a dead key (live finding, 2026-07-23 test session).
+    pub fn show_note(&mut self, text: &str) {
+        self.current = Some(Popup {
+            title: text.into(),
+            lines: Vec::new(),
+            expires: Instant::now() + Duration::from_millis(1500),
+        });
+    }
+
     /// Shows a brief "no item under cursor" popup so an F7 over empty
     /// space gives feedback rather than silence.
     pub fn show_no_item(&mut self) {

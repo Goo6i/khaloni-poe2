@@ -595,6 +595,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // frame on every throttle tick regardless of pause
                     // state, so toggling back on picks up the next one
                     // within one tick on its own.
+                    eprintln!("overlay toggled {}", if scanning { "on" } else { "off" });
+                    hover.show_note(if scanning { "overlay on" } else { "overlay off" });
+                    let game_rect =
+                        Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
+                    popup_at = hover.current.as_ref().map(|p| {
+                        let size = poe2_lens::render::Renderer::popup_size(p);
+                        let (px, py) =
+                            poe2_lens::popup_pos::place(cursor_pos, size, game_rect);
+                        (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
+                    });
                 }
                 poe2_lens::hotkeys::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
@@ -704,8 +714,13 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
         }
 
-        let show =
-            scanning && game_present && (game_focused || !cfg.pause_when_unfocused);
+        // Rows obey the F8 master switch; the popup only needs the game
+        // on screen. An explicit F7 (or the F8 toggle note itself) must
+        // stay visible while the overlay is toggled off, otherwise the
+        // hotkeys read as dead keys (live finding, 2026-07-23).
+        let on_screen = game_present && (game_focused || !cfg.pause_when_unfocused);
+        let show_rows = scanning && on_screen;
+        let show = show_rows || (on_screen && hover.current.is_some());
         let size = overlay.size();
         if size.0 > 0 && size.1 > 0 {
             let mut resized = false;
@@ -719,7 +734,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
 
             let frame_state = if show {
-                let rows = stabilizer.rows();
+                let rows = if show_rows { stabilizer.rows() } else { Vec::new() };
                 let out_pos = overlay.output_pos();
                 // Global logical -> surface-local (output-relative); the
                 // game may have moved, so re-anchor on its live pos. Shared
