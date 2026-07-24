@@ -30,14 +30,58 @@ def run_once(cap, rec) -> None:
         print(f"[{dt:.1f}s] no rumour panel in view")
 
 
+def run_overlay(cap, rec, interval: float, scale: float, monitor: int) -> None:
+    """On-screen mode: a background thread polls capture+recognize and pushes
+    hits to the GTK layer-shell overlay, which redraws the rating pills."""
+    import threading
+    from .overlay import Overlay
+
+    ov = Overlay(scale=scale, monitor_index=monitor)
+
+    def log(msg):
+        with open("/tmp/ov-worker.log", "a") as f:
+            f.write(msg + "\n")
+
+    def worker():
+        log("worker thread started")
+        n = 0
+        while True:
+            n += 1
+            log(f"poll {n} start (grabbing)")
+            try:
+                frame = cap.grab()
+                hits = rec.recognize(frame)
+                ov.set_rumours(hits)
+                log(f"poll {n}: frame={frame.shape} hits={len(hits)} "
+                    + ", ".join(f"{h.rumour.name}[{h.rumour.rating}]" for h in hits))
+            except Exception as e:
+                import traceback
+                log(f"poll {n} ERROR: {e}\n{traceback.format_exc()}")
+            time.sleep(interval)
+
+    threading.Thread(target=worker, daemon=True).start()
+    ov.run()
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--loop", type=float, default=0,
-                    help="poll interval in seconds (0 = one-shot)")
+                    help="poll interval in seconds (0 = one-shot console)")
+    ap.add_argument("--overlay", action="store_true",
+                    help="draw on-screen (GTK layer-shell) instead of console")
+    ap.add_argument("--interval", type=float, default=2.0,
+                    help="overlay poll interval seconds")
+    ap.add_argument("--scale", type=float, default=1.5,
+                    help="game physical / logical pixel ratio (DP-2 4K = 1.5)")
+    ap.add_argument("--monitor", type=int, default=0,
+                    help="GTK monitor index of the game output (DP-2 = 0)")
     args = ap.parse_args()
 
     cap = default_capture()
     rec = RumourRecognizer()
+    if args.overlay:
+        run_overlay(cap, rec, args.interval, args.scale, args.monitor)
+        return
     if args.loop <= 0:
         run_once(cap, rec)
         return
