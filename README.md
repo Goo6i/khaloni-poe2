@@ -118,30 +118,31 @@ except the hotkeys.
 |-----|--------|
 | F7  | Price the item under the cursor |
 | F8  | Overlay on or off |
+| F9  | In-overlay reference search (affixes, bases, uniques, gems, keystones, currencies, more) |
+| F10 | In-overlay leveling checklist (act-by-act, progress persists) |
+| F12 | Open the settings window |
 
-Two keys is the whole surface on purpose. Panel detection, focus pausing,
-and price freshness are automatic; F8 is the one manual override, and it
-stops the pipeline too, not just the drawing. KDE asks once to approve the
-shortcuts on first launch (and once more after this change, since the
-binding set changed).
+Panel detection, focus pausing, and price freshness are automatic; F8 is
+the manual override, and it stops the pipeline too, not just the drawing.
+KDE asks once to approve the shortcuts on first launch (and again when the
+binding set changes). Chat macros and per-site item shortcuts get their own
+keys once configured in Settings.
 
-## Configuration
+## Settings and the tray
 
-Settings live in `~/.config/poe2-lens/config.toml`. The fields that matter:
+Everything is configured from a native settings window: `F12`, the tray
+icon's "Open Settings", or `poe2-lens --settings` all open it. Changes save
+automatically and apply to the running overlay within a second (hotkey
+changes need a relaunch). The tray icon (Plasma system tray) also toggles
+the overlay, pauses pricing, and quits.
 
-- `league`: which economy to price against. Defaults to the current league.
-- `refresh_minutes`: price refresh interval, default 10. Uniques refetch
-  every third cycle.
-- `hotkey_price_check`, `hotkey_overlay`: the two triggers, default F7 and
-  F8. Changing them re-triggers KDE's one-time shortcut approval.
-- `divine_threshold`: above this many divine, values display in divine
-  instead of exalted.
-- `tier_decent_ex`, `tier_good_ex`: the exalted cutoffs for the label
-  colors.
-- `panel_open_brightness`, `panel_close_brightness`: the brightness
-  hysteresis that decides when a panel is on screen. The defaults came from
-  measuring real frames (parchment reads about 156 to 168, open game world
-  about 40 to 90) and should not need touching.
+The config file behind the window is `~/.config/poe2-lens/config.toml`;
+two fields are file-only on purpose: `restore_token` (screencast portal
+grant) and `calibration` (set via the Recalibrate button or
+`--calibrate`). The brightness hysteresis defaults
+(`panel_open_brightness`/`panel_close_brightness`) came from measuring
+real frames (parchment reads about 156 to 168, open game world about 40
+to 90) and should not need touching.
 
 Diagnostics from every run land in `~/.cache/poe2-lens/last-run.log`, with
 the previous run kept next to it. If a row reads wrong, that log plus the
