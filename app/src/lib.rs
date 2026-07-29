@@ -20,6 +20,5 @@ pub mod prices;
 pub mod refcache;
 pub mod render;
 pub mod rumours;
-pub mod webserver;
 pub mod stabilize;
 pub mod template;
