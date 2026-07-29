@@ -1,5 +1,9 @@
 pub mod appraise_ui;
 pub mod brightness;
+pub mod leveling_ui;
+pub mod reference_ui;
+pub mod settings_ui;
+pub mod tray;
 pub mod capture;
 pub mod clipwatch;
 pub mod config;
