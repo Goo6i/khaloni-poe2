@@ -37,12 +37,6 @@ fn default_refresh_minutes() -> u64 {
 fn default_divine_threshold() -> f64 {
     1.0
 }
-fn default_font() -> String {
-    "/usr/share/fonts/TTF/DejaVuSans.ttf".into()
-}
-fn default_tesseract() -> String {
-    "tesseract".into()
-}
 fn default_tier_decent() -> f64 {
     1.0
 }
@@ -63,6 +57,12 @@ fn default_hotkey_overlay() -> String {
 }
 fn default_hotkey_settings() -> String {
     "F12".into()
+}
+fn default_hotkey_reference() -> String {
+    "F9".into()
+}
+fn default_hotkey_leveling() -> String {
+    "F10".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,12 +90,13 @@ pub struct Config {
     /// KDE re-approval on next launch.
     #[serde(default = "default_hotkey_settings")]
     pub hotkey_settings: String,
+    /// Hotkeys toggling the in-overlay reference search and leveling panels.
+    #[serde(default = "default_hotkey_reference")]
+    pub hotkey_reference: String,
+    #[serde(default = "default_hotkey_leveling")]
+    pub hotkey_leveling: String,
     #[serde(default = "default_true")]
     pub pause_when_unfocused: bool,
-    #[serde(default = "default_font")]
-    pub font_path: String,
-    #[serde(default = "default_tesseract")]
-    pub tesseract_cmd: String,
     /// Value tier thresholds in exalts: below decent = junk, above good = jackpot.
     #[serde(default = "default_tier_decent")]
     pub tier_decent_ex: f64,
@@ -120,10 +121,6 @@ pub struct Config {
     /// Empty by default. Changing this set triggers one KDE re-approval.
     #[serde(default)]
     pub resource_shortcuts: Vec<ResourceShortcut>,
-    /// Hotkey to analyze the hovered waystone: copies a stash-search regex of
-    /// its reward mods and notifies which mods are dangerous. None = off.
-    #[serde(default)]
-    pub map_hotkey: Option<String>,
     /// Extra danger/reward mod needles (lowercase substrings) merged with the
     /// built-in map-mod rules, so the classifier is tunable without a rebuild.
     #[serde(default)]
@@ -164,11 +161,25 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let p = Self::path();
-        if let Some(dir) = p.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        fs::write(&p, toml::to_string_pretty(self)?)?;
-        Ok(())
+        write_atomic(&Self::path(), &toml::to_string_pretty(self)?)
     }
+}
+
+/// Write `contents` to `path` atomically: temp file in the same directory,
+/// fsync, then rename over the target. The overlay polls this file's mtime
+/// every second, so it must never observe a torn write.
+pub fn write_atomic(path: &std::path::Path, contents: &str) -> anyhow::Result<()> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("config path has no parent dir"))?;
+    fs::create_dir_all(dir)?;
+    let tmp = dir.join(".config.toml.tmp");
+    {
+        use std::io::Write;
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)?;
+    Ok(())
 }

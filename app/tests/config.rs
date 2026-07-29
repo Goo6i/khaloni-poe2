@@ -20,10 +20,37 @@ fn missing_fields_take_defaults() {
     let c: Config = toml::from_str("league = \"Standard\"").unwrap();
     assert_eq!(c.league, "Standard");
     assert!(c.calibration.is_none());
-    assert_eq!(c.font_path, "/usr/share/fonts/TTF/DejaVuSans.ttf");
     assert_eq!(c.tier_good_ex, 10.0);
     assert_eq!(c.hotkey_price_check, "F7");
     assert_eq!(c.hotkey_overlay, "F8");
+    assert_eq!(c.hotkey_reference, "F9");
+    assert_eq!(c.hotkey_leveling, "F10");
+}
+
+#[test]
+fn dead_fields_are_gone_and_unknown_keys_ignored() {
+    // Old configs still carry the removed keys; loading must not error and
+    // saving must not resurrect them.
+    let c: Config = toml::from_str(
+        "league = \"X\"\nfont_path = \"/x\"\ntesseract_cmd = \"t\"\nmap_hotkey = \"F1\"",
+    )
+    .unwrap();
+    assert_eq!(c.league, "X");
+    let out = toml::to_string_pretty(&c).unwrap();
+    assert!(!out.contains("font_path"));
+    assert!(!out.contains("tesseract_cmd"));
+    assert!(!out.contains("map_hotkey"));
+}
+
+#[test]
+fn save_is_atomic_no_partial_file() {
+    let dir = std::env::temp_dir().join(format!("poe2lens-atomic-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    poe2_lens::config::write_atomic(&path, "league = \"Y\"").unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "league = \"Y\"");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temp litter");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

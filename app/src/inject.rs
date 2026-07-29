@@ -189,18 +189,10 @@ fn copy_hovered(
     }
 }
 
-/// Reads the game's clipboard, always fresh from the owner.
-///
-/// The game is an XWayland client that writes the X11 CLIPBOARD selection
-/// directly (on the session DISPLAY). KWin mirrors that selection to the
-/// Wayland clipboard only on OWNERSHIP changes, so when the game updates its
-/// selection *content* without a new grab (misclick F7 copies nothing over
-/// empty space, then you copy a real item) the Wayland mirror goes stale and
-/// `wl-paste` keeps returning the old value until a focus change (alt-tab)
-/// forces a re-sync. That was the "keeps saying hover an item" bug. Reading
-/// the X11 selection with xclip asks the owner directly, so it never goes
-/// stale. xclip can return empty transiently under game load, so retry a few
-/// times; only fall back to wl-paste if xclip cannot run at all.
+/// Reads the Wayland clipboard via `wl-paste`, retrying once because it can
+/// return empty transiently under game load. Same-item re-checks (where the
+/// content, and so the mirror, does not change) are disambiguated not here
+/// but by the X11 ownership probe in `clipwatch` — see `copy_hovered`.
 fn clipboard_read() -> Option<String> {
     for _ in 0..2 {
         if let Ok(out) = Command::new("wl-paste").arg("-n").output() {
