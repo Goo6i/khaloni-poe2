@@ -6,7 +6,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use poe2_lens::clipwatch::ClipboardWatcher;
+use poe2_lens::platform::clipwatch::ClipboardWatcher;
 
 #[test]
 fn detects_a_real_copy_and_times_out_on_none() {

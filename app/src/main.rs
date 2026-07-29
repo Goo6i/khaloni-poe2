@@ -3,10 +3,11 @@ use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use poe2_lens::{
-    capture,
     config::{Config, Rect},
     coord::CoordMap,
-    hover, inject, ocr, pricing, prices,
+    hover, ocr,
+    platform::{capture, inject},
+    pricing, prices,
 };
 use poe2_lens_core::ninja::NinjaClient;
 
@@ -158,7 +159,7 @@ fn open_resource(url_template: &str, item_text: &str) {
 /// single rect; the union is slightly generous when panels are far apart,
 /// but clicks between them still fall through to nothing (hit() misses).
 fn sync_input_region(
-    overlay: &mut poe2_lens::overlay::Overlay,
+    overlay: &mut poe2_lens::platform::overlay::Overlay,
     renderer: &poe2_lens::render::Renderer,
     apanel: &Option<(poe2_lens::appraise_ui::Panel, poe2_lens_core::trade::Query, (i32, i32))>,
     ref_panel: &Option<(poe2_lens::reference_ui::Panel, (i32, i32))>,
@@ -355,7 +356,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
 
-    let kwin = poe2_lens::kwin::GeometryFeed::start()?;
+    let kwin = poe2_lens::platform::gamewin::start()?;
     // First geometry fixes the output; 0,0,0,0 means no game yet.
     let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
     let geometry_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -366,7 +367,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             break;
         }
         match kwin.rx.recv_timeout(remaining) {
-            Ok(poe2_lens::kwin::KwinEvent::Geometry(g)) => {
+            Ok(poe2_lens::platform::GameWindowEvent::Geometry(g)) => {
                 game = g;
                 break;
             }
@@ -428,7 +429,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         let hk_tx = hk_tx.clone();
         rt.spawn(async move {
-            if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay, extra).await {
+            if let Err(e) = poe2_lens::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
                 eprintln!("hotkeys unavailable: {e}");
             }
         });
@@ -983,7 +984,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     });
 
     let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
-    let mut overlay = poe2_lens::overlay::Overlay::new(center)?;
+    let mut overlay = poe2_lens::platform::overlay::Overlay::new(center)?;
     let renderer = poe2_lens::render::Renderer::new()?;
 
     let mut scanning = true;
@@ -1062,14 +1063,14 @@ fn overlay_mode() -> anyhow::Result<()> {
 
         while let Ok(ev) = kwin.rx.try_recv() {
             match ev {
-                poe2_lens::kwin::KwinEvent::Geometry(g) => {
+                poe2_lens::platform::GameWindowEvent::Geometry(g) => {
                     game_pos = (g.x, g.y);
                     game_present = true;
                     let m = CoordMap::new(g, (3840, 2160), cal);
                     let _ = region_tx.send(m.region_px());
                 }
-                poe2_lens::kwin::KwinEvent::Active(is_game) => game_focused = is_game,
-                poe2_lens::kwin::KwinEvent::GameGone => {
+                poe2_lens::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
+                poe2_lens::platform::GameWindowEvent::GameGone => {
                     stabilizer.clear();
                     game_present = false;
                     let any_panel = apanel.take().is_some()
@@ -1081,7 +1082,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     overlay.hide()?;
                 }
-                poe2_lens::kwin::KwinEvent::Cursor(x, y) => cursor_pos = (x, y),
+                poe2_lens::platform::GameWindowEvent::Cursor(x, y) => cursor_pos = (x, y),
             }
         }
         // Tray menu actions reuse the hotkey paths where one exists, so the
@@ -1090,7 +1091,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             match ev {
                 poe2_lens::tray::TrayEvent::OpenSettings => open_settings(),
                 poe2_lens::tray::TrayEvent::ToggleOverlay => {
-                    let _ = hk_tx.send(poe2_lens::hotkeys::Hotkey::OverlayToggle);
+                    let _ = hk_tx.send(poe2_lens::platform::Hotkey::OverlayToggle);
                 }
                 poe2_lens::tray::TrayEvent::TogglePause => {
                     let v = !pipeline_paused.load(Ordering::Relaxed);
@@ -1102,7 +1103,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         while let Ok(hk) = hk_rx.try_recv() {
             match hk {
-                poe2_lens::hotkeys::Hotkey::OverlayToggle => {
+                poe2_lens::platform::Hotkey::OverlayToggle => {
                     scanning = !scanning;
                     if !scanning {
                         stabilizer.clear();
@@ -1130,7 +1131,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
                     });
                 }
-                poe2_lens::hotkeys::Hotkey::PriceCheck => {
+                poe2_lens::platform::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
                         // game_focused-gated so a press over some other
                         // window never sends Ctrl+C into it; the swap keeps
@@ -1141,7 +1142,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     }
                 }
-                poe2_lens::hotkeys::Hotkey::Extra(id) => {
+                poe2_lens::platform::Hotkey::Extra(id) => {
                     // The settings hotkey opens the native settings window in
                     // its own process. No focus gate: it's an out-of-game
                     // window; config changes flow back via the mtime watcher.
@@ -1560,13 +1561,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                     break;
                 };
                 match key {
-                    poe2_lens::overlay::Key::Digit(c) => {
+                    poe2_lens::platform::Key::Digit(c) => {
                         if edit_buf.len() < 8 {
                             edit_buf.push(c);
                         }
                     }
                     // One decimal point, so values like 3.5 are typeable.
-                    poe2_lens::overlay::Key::Dot => {
+                    poe2_lens::platform::Key::Dot => {
                         if edit_buf.len() < 8 && !edit_buf.contains('.') {
                             if edit_buf.is_empty() {
                                 edit_buf.push('0');
@@ -1574,10 +1575,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                             edit_buf.push('.');
                         }
                     }
-                    poe2_lens::overlay::Key::Backspace => {
+                    poe2_lens::platform::Key::Backspace => {
                         edit_buf.pop();
                     }
-                    poe2_lens::overlay::Key::Enter => {
+                    poe2_lens::platform::Key::Enter => {
                         // Trailing "." (e.g. "3.") parses fine after trimming.
                         let cleaned = edit_buf.trim_end_matches('.');
                         let parsed: Option<f64> = if cleaned.is_empty() {
@@ -1605,16 +1606,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                         edit_buf.clear();
                         overlay.set_keyboard(false)?;
                     }
-                    poe2_lens::overlay::Key::Escape => {
+                    poe2_lens::platform::Key::Escape => {
                         editing = None;
                         edit_buf.clear();
                         overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
                     }
                     // Text and arrow keys have no meaning in a numeric value
                     // box; they exist for the reference/leveling panels.
-                    poe2_lens::overlay::Key::Char(_)
-                    | poe2_lens::overlay::Key::Up
-                    | poe2_lens::overlay::Key::Down => {}
+                    poe2_lens::platform::Key::Char(_)
+                    | poe2_lens::platform::Key::Up
+                    | poe2_lens::platform::Key::Down => {}
                 }
             }
         } else if ref_panel.is_some() {
@@ -1624,32 +1625,32 @@ fn overlay_mode() -> anyhow::Result<()> {
             for key in overlay.take_keys() {
                 let Some((p, _)) = ref_panel.as_mut() else { break };
                 match key {
-                    poe2_lens::overlay::Key::Char(c) => {
+                    poe2_lens::platform::Key::Char(c) => {
                         p.query.push(c);
                         changed = true;
                     }
-                    poe2_lens::overlay::Key::Digit(c) => {
+                    poe2_lens::platform::Key::Digit(c) => {
                         p.query.push(c);
                         changed = true;
                     }
-                    poe2_lens::overlay::Key::Dot => {
+                    poe2_lens::platform::Key::Dot => {
                         p.query.push('.');
                         changed = true;
                     }
-                    poe2_lens::overlay::Key::Backspace => {
+                    poe2_lens::platform::Key::Backspace => {
                         p.query.pop();
                         changed = true;
                     }
-                    poe2_lens::overlay::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    poe2_lens::overlay::Key::Down => {
+                    poe2_lens::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    poe2_lens::platform::Key::Down => {
                         p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
                     }
-                    poe2_lens::overlay::Key::Escape => {
+                    poe2_lens::platform::Key::Escape => {
                         ref_panel = None;
                         overlay.set_keyboard(lvl_panel.is_some())?;
                         sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                     }
-                    poe2_lens::overlay::Key::Enter => {}
+                    poe2_lens::platform::Key::Enter => {}
                 }
             }
             if changed {
@@ -1662,9 +1663,9 @@ fn overlay_mode() -> anyhow::Result<()> {
             for key in overlay.take_keys() {
                 let Some((p, _)) = lvl_panel.as_mut() else { break };
                 match key {
-                    poe2_lens::overlay::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    poe2_lens::overlay::Key::Down => p.scroll += 1,
-                    poe2_lens::overlay::Key::Escape => {
+                    poe2_lens::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    poe2_lens::platform::Key::Down => p.scroll += 1,
+                    poe2_lens::platform::Key::Escape => {
                         lvl_panel = None;
                         overlay.set_keyboard(false)?;
                         sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;

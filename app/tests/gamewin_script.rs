@@ -1,4 +1,4 @@
-use poe2_lens::kwin::KWIN_SCRIPT;
+use poe2_lens::platform::gamewin::KWIN_SCRIPT;
 
 #[test]
 fn script_reports_geometry_focus_and_close() {
