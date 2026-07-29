@@ -7,20 +7,20 @@
 //! Method mirrors the danielmtv2/poe2-expedition-overlay approach proven in
 //! the Python spike (8/10 recall, 0 false positives on 5 real 4K frames).
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 use std::collections::HashSet;
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 use image::imageops;
 use image::GrayImage;
 use poe2_lens_core::rumour::RumourEntry;
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 use poe2_lens_core::rumour::RumourIndex;
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 use poe2_lens_core::rumour_scan::{parse_rumour_tsv, RumourLine};
 use poe2_lens_core::rumour_scan::Rect;
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 use crate::ocr::OcrEngine;
 
 /// OCR passes unioned per scan, as (upscale, page-segmentation mode).
@@ -61,7 +61,7 @@ pub struct RumourHit {
 /// column up to full width and pulls in cross-screen false positives. The
 /// panel box is tight and reliable on every real fixture, and OCRing only
 /// it is also far cheaper than a full-frame anchor pre-scan every poll.
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 pub fn recognize(engine: &mut OcrEngine, gray: &GrayImage, index: &RumourIndex) -> Vec<RumourHit> {
     let Some(panel) = find_panel(gray) else {
         return Vec::new();
@@ -104,7 +104,7 @@ pub fn recognize(engine: &mut OcrEngine, gray: &GrayImage, index: &RumourIndex) 
 /// OCR `img` at `scale` and `psm`, returning line boxes mapped back to
 /// `img`'s own pixel space. `scale` > 1 upsamples so tesseract reads small
 /// text better; `scale` < 1 downsamples for a cheap pre-scan.
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 fn ocr_scaled(engine: &mut OcrEngine, img: &GrayImage, scale: f32, psm: u32) -> Vec<RumourLine> {
     let native = (scale - 1.0).abs() < f32::EPSILON;
     let scaled;

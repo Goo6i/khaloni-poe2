@@ -1,3 +1,4 @@
+#![cfg(ocr)]
 use poe2_lens::config::Config;
 use poe2_lens::ocr;
 use poe2_lens::pricing::{build_vocab, price_lines, Tier};

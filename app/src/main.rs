@@ -1,7 +1,7 @@
 // On non-Linux targets the overlay/headless pipelines are compiled out
 // (they need the Linux OCR stack; see platform/windows/mod.rs), which
 // leaves their helpers and imports dead there. Linux lints are unaffected.
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
+#![cfg_attr(not(ocr), allow(dead_code, unused_imports))]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -220,12 +220,12 @@ fn open_settings() {
 
 /// Headless one-shot needs the Linux capture + OCR stack; the Windows
 /// backend lands in SP3 (see platform/windows/mod.rs).
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(ocr))]
 fn headless() -> anyhow::Result<()> {
-    anyhow::bail!("windows backend lands in SP3")
+    anyhow::bail!("this build has no OCR (windows-gnu check target); the shipped Windows build is MSVC with vcpkg tesseract")
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 fn headless() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg
@@ -368,12 +368,12 @@ struct AppraiseDone {
 
 /// The live overlay drives the Linux backends (and the Linux OCR stack)
 /// directly; the Windows backend lands in SP3 (see platform/windows/mod.rs).
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(ocr))]
 fn overlay_mode() -> anyhow::Result<()> {
-    anyhow::bail!("windows backend lands in SP3")
+    anyhow::bail!("this build has no OCR (windows-gnu check target); the shipped Windows build is MSVC with vcpkg tesseract")
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg

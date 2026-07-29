@@ -40,11 +40,38 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  # Cross-target type-check of the shared code for Windows. Only core and
-  # app are checked (spikes is Linux-only and excluded via default-members);
-  # the Windows backends are compiling stubs until SP3, and leptess/OCR is
-  # Linux-gated (see app/src/platform/windows/mod.rs). ring's build script
-  # compiles C for the target, hence the mingw-w64 cross compiler.
+  # Real Windows build + tests on the MSVC target with full OCR via vcpkg.
+  # Slow (vcpkg builds tesseract from source on cache miss), so it runs in
+  # parallel with the cheap gnu cross-check below.
+  test-windows:
+    name: Windows tests (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tesseract via vcpkg
+        run: vcpkg install tesseract:x64-windows-static-md
+
+      - name: Fetch eng traineddata
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force $env:RUNNER_TEMP/tessdata | Out-Null
+          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata -OutFile $env:RUNNER_TEMP/tessdata/eng.traineddata
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+        env:
+          VCPKGRS_TRIPLET: x64-windows-static-md
+          TESSDATA_PREFIX: ${{ runner.temp }}/tessdata
+
+  # Cross-target type-check of the shared code for the gnu target — cheap
+  # and linker-free, so type drift is caught in minutes even when the MSVC
+  # job queue is slow. OCR is deliberately absent here (app/build.rs `ocr`
+  # cfg); the MSVC job above covers it. ring's build script compiles C for
+  # the target, hence the mingw-w64 cross compiler.
   windows-check:
     name: Windows cross-check (x86_64-pc-windows-gnu)
     runs-on: ubuntu-latest

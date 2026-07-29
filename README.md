@@ -77,9 +77,21 @@ the labels stay anchored if the window moves.
 
 ## Setup
 
-This currently targets Linux with KDE Plasma on Wayland. A Windows build is
-planned; the code is split so the platform layer is the only part that
-changes.
+Two supported platforms: Linux with KDE Plasma on Wayland, and Windows
+10/11. The platform layer (capture, overlay window, input injection,
+hotkeys, window tracking) is selected at compile time; everything else is
+shared.
+
+### Windows
+
+Grab the release zip, unzip anywhere, run `poe2-lens.exe`. Notes:
+- The game must run **windowed or borderless-windowed**; true exclusive
+  fullscreen occludes every overlay (a Windows-wide limitation).
+- First launch shows a SmartScreen warning because the binary is unsigned:
+  "More info" → "Run anyway".
+- `eng.traineddata` ships in the zip and must stay next to the exe.
+
+### Linux
 
 Packages, on Arch and derivatives:
 

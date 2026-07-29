@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 //! Rumour recognizer gate against the 5 real 4K fixtures (ground truth from
 //! pyoverlay/test_rumours.py). Full recall 10/10, 0 false positives: better
 //! than the Python spike's 8/10, which lost rumour-4 (anchor-first failed to

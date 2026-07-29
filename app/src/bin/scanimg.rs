@@ -1,12 +1,12 @@
 /// OCR + pricing over a saved image; a dev aid. Needs the Linux OCR stack
 /// (leptess) — OCR linking on Windows is an SP3 packaging task, see
 /// app/src/platform/windows/mod.rs.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(ocr))]
 fn main() -> anyhow::Result<()> {
     anyhow::bail!("scanimg needs the Linux OCR stack; windows OCR linking lands in SP3")
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(ocr)]
 fn main() -> anyhow::Result<()> {
     use poe2_lens::{config::Config, ocr, pricing, prices};
     use poe2_lens_core::ninja::NinjaClient;

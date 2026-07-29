@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 use poe2_lens::platform::gamewin::KWIN_SCRIPT;
 
 #[test]

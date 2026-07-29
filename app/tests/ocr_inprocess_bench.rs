@@ -1,3 +1,4 @@
+#![cfg(ocr)]
 use leptess::LepTess;
 use std::time::Instant;
 

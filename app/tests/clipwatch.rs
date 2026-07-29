@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 //! Live X11 test for the CLIPBOARD ownership watcher. Requires a running X
 //! server on $DISPLAY with xclip; skips cleanly otherwise so it does not fail
 //! in a headless CI.
