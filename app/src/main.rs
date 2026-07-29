@@ -152,6 +152,44 @@ fn open_resource(url_template: &str, item_text: &str) {
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
 }
 
+/// Sets the overlay's pointer input region to the union bounding box of
+/// every open interactive panel (appraisal, reference, leveling), or clears
+/// it when none is open. One region because the layer surface supports a
+/// single rect; the union is slightly generous when panels are far apart,
+/// but clicks between them still fall through to nothing (hit() misses).
+fn sync_input_region(
+    overlay: &mut poe2_lens::overlay::Overlay,
+    renderer: &poe2_lens::render::Renderer,
+    apanel: &Option<(poe2_lens::appraise_ui::Panel, poe2_lens_core::trade::Query, (i32, i32))>,
+    ref_panel: &Option<(poe2_lens::reference_ui::Panel, (i32, i32))>,
+    lvl_panel: &Option<(poe2_lens::leveling_ui::Panel, (i32, i32))>,
+) -> anyhow::Result<()> {
+    let out = overlay.output_pos();
+    let measure = |s: &str| renderer.appraisal_label_width(s);
+    let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::new();
+    if let Some((p, _, pos)) = apanel {
+        let lay = poe2_lens::appraise_ui::layout(p, &measure);
+        boxes.push((pos.0 - out.0, pos.1 - out.1, lay.size.0, lay.size.1));
+    }
+    if let Some((p, pos)) = ref_panel {
+        let lay = poe2_lens::reference_ui::layout(p, &measure);
+        boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
+    }
+    if let Some((p, pos)) = lvl_panel {
+        let lay = poe2_lens::leveling_ui::layout(p, &measure);
+        boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
+    }
+    let union = boxes.into_iter().fold(None, |acc: Option<(i32, i32, i32, i32)>, (x, y, w, h)| {
+        Some(match acc {
+            None => (x, y, x + w, y + h),
+            Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x + w), y1.max(y + h)),
+        })
+    });
+    overlay.set_interactive(
+        union.map(|(x0, y0, x1, y1)| (x0, y0, (x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32)),
+    )
+}
+
 /// Launches the native settings window as its own process; the overlay keeps
 /// running and picks config changes up via the mtime watcher, so no IPC.
 fn open_settings() {
@@ -262,6 +300,9 @@ type FrameState = (
     // Focused value box (filter index, field, live edit buffer), so typed
     // digits repaint even though the committed panel values are unchanged.
     Option<(usize, poe2_lens::appraise_ui::Field, String)>,
+    // In-overlay reference search and leveling checklist panels.
+    Option<(poe2_lens::reference_ui::Panel, (i32, i32))>,
+    Option<(poe2_lens::leveling_ui::Panel, (i32, i32))>,
 );
 
 /// What an in-flight copy-hovered request (other than a price check) should
@@ -458,36 +499,25 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         r
     };
-    // Control panel: a local web server (Settings, Reference, Leveling) the
-    // browser opens on the settings hotkey. Reference data loads (cached,
-    // fetched once) on a background thread so a cold fetch never blocks
-    // startup; the bound loopback port lands in `panel_port`.
-    let panel_port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
+    // Reference data for the in-overlay panels loads (cached, fetched once)
+    // on a background thread so a cold fetch never blocks startup; the
+    // panels show a loading row until the OnceLock fills.
+    let reference: std::sync::Arc<std::sync::OnceLock<poe2_lens::refcache::Reference>> =
+        std::sync::Arc::new(std::sync::OnceLock::new());
     {
-        let pp = panel_port.clone();
+        let reference = reference.clone();
         std::thread::spawn(move || {
             let cache = directories::ProjectDirs::from("", "", "poe2-lens")
                 .map(|d| d.cache_dir().to_path_buf())
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let r = poe2_lens::webserver::reference_data(&cache);
-            let ctx = poe2_lens::webserver::Ctx {
-                affixes: r.affixes,
-                items: r.items,
-                uniques: r.uniques,
-                keystones: r.keystones,
-                categories: r.categories,
-                leveling: r.leveling,
-                index_html: poe2_lens::webserver::INDEX_HTML.to_string(),
-                csrf_token: String::new(),
-                port: 0,
-            };
-            match poe2_lens::webserver::start(ctx) {
-                Ok(port) => {
-                    pp.store(port, std::sync::atomic::Ordering::Relaxed);
-                    eprintln!("control panel ready: http://127.0.0.1:{port}");
-                }
-                Err(e) => eprintln!("control panel unavailable: {e}"),
-            }
+            let r = poe2_lens::refcache::reference_data(&cache);
+            eprintln!(
+                "reference data ready: {} affixes, {} items, {} uniques",
+                r.affixes.len(),
+                r.items.len(),
+                r.uniques.len()
+            );
+            let _ = reference.set(r);
         });
     }
     // Trade appraisal worker: rare items parsed from the clipboard get a
@@ -1001,6 +1031,12 @@ fn overlay_mode() -> anyhow::Result<()> {
     // Which filter box is being typed into, and the digits typed so far.
     let mut editing: Option<(usize, poe2_lens::appraise_ui::Field)> = None;
     let mut edit_buf = String::new();
+    // In-overlay reference search panel (F9) and leveling checklist (F10),
+    // each with its placed top-left in global logical coordinates. While
+    // open they join the overlay's input region and take keyboard focus
+    // for search typing / scrolling.
+    let mut ref_panel: Option<(poe2_lens::reference_ui::Panel, (i32, i32))> = None;
+    let mut lvl_panel: Option<(poe2_lens::leveling_ui::Panel, (i32, i32))> = None;
     // An in-progress panel drag: (grab point in surface px, panel's global
     // position when the grab began). Deliberately NOT persisted anywhere, so
     // each new price check reopens the panel at its freshly-placed spot.
@@ -1057,7 +1093,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                 poe2_lens::kwin::KwinEvent::GameGone => {
                     stabilizer.clear();
                     game_present = false;
-                    if apanel.take().is_some() {
+                    let any_panel = apanel.take().is_some()
+                        | ref_panel.take().is_some()
+                        | lvl_panel.take().is_some();
+                    if any_panel {
+                        overlay.set_keyboard(false)?;
                         overlay.set_interactive(None)?;
                     }
                     overlay.hide()?;
@@ -1093,7 +1133,12 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // state, so toggling back on picks up the next one
                     // within one tick on its own.
                     eprintln!("overlay toggled {}", if scanning { "on" } else { "off" });
-                    if apanel.take().is_some() {
+                    let any_panel = apanel.take().is_some()
+                        | ref_panel.take().is_some()
+                        | lvl_panel.take().is_some();
+                    if any_panel {
+                        editing = None;
+                        overlay.set_keyboard(false)?;
                         overlay.set_interactive(None)?;
                     }
                     hover.show_note(if scanning { "overlay on" } else { "overlay off" });
@@ -1123,6 +1168,40 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // window; config changes flow back via the mtime watcher.
                     if id == "settings" {
                         open_settings();
+                        continue;
+                    }
+                    // Reference and leveling panels toggle without a focus
+                    // gate: consulting them from the game menus is the point.
+                    if id == "reference" {
+                        if ref_panel.take().is_none() {
+                            let mut p = poe2_lens::reference_ui::Panel::default();
+                            if let Some(r) = reference.get() {
+                                poe2_lens::reference_ui::refresh(&mut p, r);
+                            }
+                            let pos = (game_pos.0 + (game.w as i32) / 2 - 300, game_pos.1 + 140);
+                            ref_panel = Some((p, pos));
+                        }
+                        overlay.set_keyboard(
+                            editing.is_some() || ref_panel.is_some() || lvl_panel.is_some(),
+                        )?;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                        continue;
+                    }
+                    if id == "leveling" {
+                        if lvl_panel.take().is_none() {
+                            let acts = reference.get().map(|r| r.leveling.clone()).unwrap_or_default();
+                            let done = Config::path()
+                                .parent()
+                                .map(poe2_lens::leveling_ui::load_done)
+                                .unwrap_or_default();
+                            let p = poe2_lens::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
+                            let pos = (game_pos.0 + (game.w as i32) / 2 + 40, game_pos.1 + 140);
+                            lvl_panel = Some((p, pos));
+                        }
+                        overlay.set_keyboard(
+                            editing.is_some() || ref_panel.is_some() || lvl_panel.is_some(),
+                        )?;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                         continue;
                     }
                     // Only act while the game is focused, never into another
@@ -1312,13 +1391,28 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
         }
         // Panel clicks: geometry from the same layout the renderer drew.
+        // The appraisal panel gets first claim on each click (preserving its
+        // drag-grab semantics); clicks outside it spill into
+        // `leftover_clicks` for the reference/leveling panels below.
+        let out_pos = overlay.output_pos();
+        let (sw, sh) = overlay.size();
+        let mut leftover_clicks: Vec<(i32, i32)> = Vec::new();
         if apanel.is_some() {
-            let out_pos = overlay.output_pos();
-            let (sw, sh) = overlay.size();
             for (cx, cy) in overlay.take_clicks() {
-                let Some((panel, query, pos)) = apanel.as_mut() else { break };
+                let Some((panel, query, pos)) = apanel.as_mut() else {
+                    leftover_clicks.push((cx, cy));
+                    continue;
+                };
                 let lay = poe2_lens::appraise_ui::layout(panel, &|s| renderer.appraisal_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
+                let inside = local.0 >= 0
+                    && local.0 < lay.size.0
+                    && local.1 >= 0
+                    && local.1 < lay.size.1;
+                if !inside {
+                    leftover_clicks.push((cx, cy));
+                    continue;
+                }
                 match poe2_lens::appraise_ui::hit(panel, &lay, local.0, local.1) {
                     Some(poe2_lens::appraise_ui::Action::ToggleMod(fi)) => {
                         if let Some(f) = query.filters.get_mut(fi) {
@@ -1370,23 +1464,19 @@ fn overlay_mode() -> anyhow::Result<()> {
                         apanel = None;
                         editing = None;
                         panel_drag = None;
-                        overlay.set_keyboard(false)?;
-                        overlay.set_interactive(None)?;
+                        overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                     }
                     // A press on a non-interactive part of the panel (title
                     // bar, gaps between controls) grabs it for dragging. Widen
                     // the input region to the whole surface so motion keeps
                     // arriving even as the panel slides out from under the
                     // cursor; the region is settled back on release.
+                    // Inside the panel but on no control: grab for dragging
+                    // (bounds were checked before the hit test).
                     None => {
-                        let inside = local.0 >= 0
-                            && local.0 < lay.size.0
-                            && local.1 >= 0
-                            && local.1 < lay.size.1;
-                        if inside {
-                            panel_drag = Some(((cx, cy), *pos));
-                            overlay.set_interactive(Some((0, 0, sw, sh)))?;
-                        }
+                        panel_drag = Some(((cx, cy), *pos));
+                        overlay.set_interactive(Some((0, 0, sw, sh)))?;
                     }
                 }
             }
@@ -1399,16 +1489,82 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                 } else {
                     panel_drag = None;
-                    if let Some((panel, _, pos)) = apanel.as_ref() {
-                        let lay = poe2_lens::appraise_ui::layout(panel, &|s| {
-                            renderer.appraisal_label_width(s)
-                        });
-                        overlay.set_interactive(Some((
-                            pos.0 - out_pos.0,
-                            pos.1 - out_pos.1,
-                            lay.size.0 as u32,
-                            lay.size.1 as u32,
-                        )))?;
+                    sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                }
+            }
+        } else {
+            leftover_clicks = overlay.take_clicks();
+        }
+        // Reference/leveling panel clicks: whatever the appraisal panel did
+        // not claim, in priority order reference then leveling.
+        for (cx, cy) in leftover_clicks {
+            if let Some((p, pos)) = ref_panel.as_mut() {
+                let lay = poe2_lens::reference_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
+                if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
+                    match poe2_lens::reference_ui::hit(p, &lay, local.0, local.1) {
+                        Some(poe2_lens::reference_ui::Action::Close) => {
+                            ref_panel = None;
+                            overlay.set_keyboard(editing.is_some() || lvl_panel.is_some())?;
+                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                        }
+                        Some(poe2_lens::reference_ui::Action::FocusSearch) => p.focused = true,
+                        Some(poe2_lens::reference_ui::Action::SetCat(c)) => {
+                            p.cat = c;
+                            if let Some(r) = reference.get() {
+                                poe2_lens::reference_ui::refresh(p, r);
+                            }
+                            // Result width can change with the category.
+                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                        }
+                        Some(poe2_lens::reference_ui::Action::ScrollUp) => {
+                            p.scroll = p.scroll.saturating_sub(1);
+                        }
+                        Some(poe2_lens::reference_ui::Action::ScrollDown) => {
+                            p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
+                        }
+                        None => {}
+                    }
+                    continue;
+                }
+            }
+            if let Some((p, pos)) = lvl_panel.as_mut() {
+                let lay = poe2_lens::leveling_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
+                if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
+                    match poe2_lens::leveling_ui::hit(p, &lay, local.0, local.1) {
+                        Some(poe2_lens::leveling_ui::Action::Close) => {
+                            lvl_panel = None;
+                            overlay.set_keyboard(editing.is_some() || ref_panel.is_some())?;
+                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                        }
+                        Some(poe2_lens::leveling_ui::Action::PrevAct) => {
+                            p.act = p.act.saturating_sub(1);
+                            p.scroll = 0;
+                        }
+                        Some(poe2_lens::leveling_ui::Action::NextAct) => {
+                            if p.act + 1 < p.acts.len() {
+                                p.act += 1;
+                                p.scroll = 0;
+                            }
+                        }
+                        Some(poe2_lens::leveling_ui::Action::ToggleStep(id)) => {
+                            if !p.done.remove(&id) {
+                                p.done.insert(id);
+                            }
+                            if let Some(dir) = Config::path().parent() {
+                                if let Err(e) = poe2_lens::leveling_ui::save_done(dir, &p.done) {
+                                    eprintln!("leveling: save failed: {e}");
+                                }
+                            }
+                        }
+                        Some(poe2_lens::leveling_ui::Action::ScrollUp) => {
+                            p.scroll = p.scroll.saturating_sub(1);
+                        }
+                        Some(poe2_lens::leveling_ui::Action::ScrollDown) => {
+                            p.scroll += 1; // layout clamps via the visible window
+                        }
+                        None => {}
                     }
                 }
             }
@@ -1473,13 +1629,68 @@ fn overlay_mode() -> anyhow::Result<()> {
                     poe2_lens::overlay::Key::Escape => {
                         editing = None;
                         edit_buf.clear();
-                        overlay.set_keyboard(false)?;
+                        overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
                     }
                     // Text and arrow keys have no meaning in a numeric value
                     // box; they exist for the reference/leveling panels.
                     poe2_lens::overlay::Key::Char(_)
                     | poe2_lens::overlay::Key::Up
                     | poe2_lens::overlay::Key::Down => {}
+                }
+            }
+        } else if ref_panel.is_some() {
+            // Search typing: every edit re-runs the category search so the
+            // list live-filters; panel width can change with the results.
+            let mut changed = false;
+            for key in overlay.take_keys() {
+                let Some((p, _)) = ref_panel.as_mut() else { break };
+                match key {
+                    poe2_lens::overlay::Key::Char(c) => {
+                        p.query.push(c);
+                        changed = true;
+                    }
+                    poe2_lens::overlay::Key::Digit(c) => {
+                        p.query.push(c);
+                        changed = true;
+                    }
+                    poe2_lens::overlay::Key::Dot => {
+                        p.query.push('.');
+                        changed = true;
+                    }
+                    poe2_lens::overlay::Key::Backspace => {
+                        p.query.pop();
+                        changed = true;
+                    }
+                    poe2_lens::overlay::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    poe2_lens::overlay::Key::Down => {
+                        p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
+                    }
+                    poe2_lens::overlay::Key::Escape => {
+                        ref_panel = None;
+                        overlay.set_keyboard(lvl_panel.is_some())?;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                    }
+                    poe2_lens::overlay::Key::Enter => {}
+                }
+            }
+            if changed {
+                if let (Some((p, _)), Some(r)) = (ref_panel.as_mut(), reference.get()) {
+                    poe2_lens::reference_ui::refresh(p, r);
+                }
+                sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+            }
+        } else if lvl_panel.is_some() {
+            for key in overlay.take_keys() {
+                let Some((p, _)) = lvl_panel.as_mut() else { break };
+                match key {
+                    poe2_lens::overlay::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    poe2_lens::overlay::Key::Down => p.scroll += 1,
+                    poe2_lens::overlay::Key::Escape => {
+                        lvl_panel = None;
+                        overlay.set_keyboard(false)?;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1658,9 +1869,26 @@ fn overlay_mode() -> anyhow::Result<()> {
                     Vec::new()
                 };
                 let edit_state = editing.map(|(fi, field)| (fi, field, edit_buf.clone()));
-                // Settings panel render data (surface-local anchor + edit
-                // state), so typed digits repaint live like the appraisal box.
-                Some((placed, rate, stabilizer.stale(), popup, panel, rumour_badges, edit_state))
+                // Reference/leveling panels: cloned into the frame state so
+                // typing, scrolling, and checkbox toggles trigger repaints
+                // through the same equality gate as everything else.
+                let ref_state = ref_panel
+                    .as_ref()
+                    .map(|(p, pos)| (p.clone(), (pos.0 - out_pos.0, pos.1 - out_pos.1)));
+                let lvl_state = lvl_panel
+                    .as_ref()
+                    .map(|(p, pos)| (p.clone(), (pos.0 - out_pos.0, pos.1 - out_pos.1)));
+                Some((
+                    placed,
+                    rate,
+                    stabilizer.stale(),
+                    popup,
+                    panel,
+                    rumour_badges,
+                    edit_state,
+                    ref_state,
+                    lvl_state,
+                ))
             } else {
                 None
             };
@@ -1673,7 +1901,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, rate, stale, popup, panel, rumours, edit_state)) => {
+                    Some((placed, rate, stale, popup, panel, rumours, edit_state, ref_state, lvl_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
                         // Rumour rating badges sit on the cleared frame with
                         // the rows; both are part of the on-panel overlay.
@@ -1689,6 +1917,18 @@ fn overlay_mode() -> anyhow::Result<()> {
                             let ed = edit_state.as_ref().map(|(fi, f, _)| (*fi, *f));
                             let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
                             renderer.draw_appraisal(pm, p, &lay, *anchor, ed, buf);
+                        }
+                        if let Some((p, anchor)) = ref_state {
+                            let lay = poe2_lens::reference_ui::layout(p, &|s| {
+                                renderer.appraisal_label_width(s)
+                            });
+                            renderer.draw_reference(pm, p, &lay, *anchor);
+                        }
+                        if let Some((p, anchor)) = lvl_state {
+                            let lay = poe2_lens::leveling_ui::layout(p, &|s| {
+                                renderer.appraisal_label_width(s)
+                            });
+                            renderer.draw_leveling(pm, p, &lay, *anchor);
                         }
                     }
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),

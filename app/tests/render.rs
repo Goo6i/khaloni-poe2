@@ -1,6 +1,8 @@
 use poe2_lens::hover::{Popup, PopupLine};
 use poe2_lens::pricing::{Denom, Tier};
 use poe2_lens::render::{Placed, Renderer};
+use poe2_lens::{leveling_ui, reference_ui};
+use poe2_lens_core::refdata::{LevelingAct, LevelingStep};
 
 #[test]
 fn draws_nonempty_label_pixels_inside_bounds() {
@@ -117,4 +119,69 @@ fn draw_popup_paints_nonzero_pixels_at_the_anchor() {
         }
     }
     assert_eq!(outside_painted, 0, "popup bled well above its anchor");
+}
+
+#[test]
+fn draw_reference_paints_panel_pixels_at_the_anchor() {
+    let r = Renderer::new().unwrap();
+    let p = reference_ui::Panel {
+        query: "fire".into(),
+        cat: reference_ui::Cat::Affixes,
+        rows: vec!["+#% to Fire Resistance".into(), "Adds # to # Fire Damage".into()],
+        scroll: 0,
+        focused: true,
+    };
+    let lay = reference_ui::layout(&p, &|s: &str| 7 * s.len() as i32);
+    let mut pm = tiny_skia::Pixmap::new(1000, 800).unwrap();
+    r.draw_reference(&mut pm, &p, &lay, (30, 30));
+
+    let mut painted = 0;
+    for yy in 30..(30 + lay.h) as u32 {
+        for xx in 30..(30 + lay.w) as u32 {
+            if pm.pixel(xx, yy).map(|px| px.alpha()).unwrap_or(0) != 0 {
+                painted += 1;
+            }
+        }
+    }
+    assert!(painted > 500, "expected painted reference-panel pixels inside its bounds, got {painted}");
+}
+
+#[test]
+fn draw_leveling_paints_panel_pixels_at_the_anchor() {
+    let r = Renderer::new().unwrap();
+    let steps = vec![
+        LevelingStep {
+            id: "a1-s1".into(),
+            kind: "kill".into(),
+            zone: "The Riverbank".into(),
+            description: "Kill the Bloated Miller".into(),
+            hint: String::new(),
+        },
+        LevelingStep {
+            id: "a1-s2".into(),
+            kind: "travel".into(),
+            zone: "Clearfell".into(),
+            description: "Find the waypoint".into(),
+            hint: String::new(),
+        },
+    ];
+    let p = leveling_ui::Panel {
+        acts: vec![LevelingAct { act: 1, name: "Act 1".into(), steps }],
+        act: 0,
+        done: std::iter::once("a1-s1".to_string()).collect(),
+        scroll: 0,
+    };
+    let lay = leveling_ui::layout(&p, &|s: &str| 7 * s.len() as i32);
+    let mut pm = tiny_skia::Pixmap::new(1000, 800).unwrap();
+    r.draw_leveling(&mut pm, &p, &lay, (30, 30));
+
+    let mut painted = 0;
+    for yy in 30..(30 + lay.h) as u32 {
+        for xx in 30..(30 + lay.w) as u32 {
+            if pm.pixel(xx, yy).map(|px| px.alpha()).unwrap_or(0) != 0 {
+                painted += 1;
+            }
+        }
+    }
+    assert!(painted > 500, "expected painted leveling-panel pixels inside its bounds, got {painted}");
 }

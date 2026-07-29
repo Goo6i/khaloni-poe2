@@ -549,6 +549,199 @@ impl Renderer {
         }
     }
 
+    /// Draws the reference-browser panel from the SAME layout the click
+    /// handler hit-tests against (reference_ui::layout), offset to `anchor`
+    /// (surface-local top-left). All geometry comes from `lay`; nothing is
+    /// recomputed here, so pixels and hitboxes cannot drift apart.
+    pub fn draw_reference(
+        &self,
+        pm: &mut Pixmap,
+        p: &crate::reference_ui::Panel,
+        lay: &crate::reference_ui::Layout,
+        anchor: (i32, i32),
+    ) {
+        let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
+        let ink = rgb(C_INK);
+        let dim = rgb(C_INK2);
+        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+
+        let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: ink };
+        self.draw_text(pm, ax + 12.0, ay + 12.0 + POPUP_TITLE_PX * 0.8, "Reference", &title_style);
+        // Close X.
+        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
+        self.draw_text(
+            pm,
+            ax + lay.close.x as f32 + 4.0,
+            ay + lay.close.y as f32 + 15.0,
+            "x",
+            &x_style,
+        );
+
+        // Search box: a dark inset behind the query text; a trailing
+        // underscore caret shows while the box has keyboard focus.
+        let (sx, sy) = (ax + lay.search.x as f32, ay + lay.search.y as f32);
+        let (sw, sh) = (lay.search.w as f32, lay.search.h as f32);
+        self.pill(pm, sx, sy, sw, sh, rgb(C_LINE));
+        let mut inset = Paint::default();
+        inset.set_color(Color::from_rgba8(0x12, 0x0D, 0x08, 0xFF));
+        if let Some(r) = SkRect::from_xywh(sx + 1.5, sy + 1.5, sw - 3.0, sh - 3.0) {
+            pm.fill_rect(r, &inset, Transform::identity(), None);
+        }
+        let shown = if p.focused { format!("{}_", p.query) } else { p.query.clone() };
+        let q_style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: ink };
+        self.draw_text(pm, sx + 6.0, sy + sh - 7.0, &shown, &q_style);
+
+        // Category pills: the selected one gets the gold border and a
+        // brighter fill; the rest stay muted hairlines.
+        for (rect, cat) in &lay.pills {
+            let selected = *cat == p.cat;
+            let (px_, py) = (ax + rect.x as f32, ay + rect.y as f32);
+            let (pw, ph) = (rect.w as f32, rect.h as f32);
+            self.pill(pm, px_, py, pw, ph, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
+            if selected {
+                let mut lift = Paint::default();
+                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
+                lift.anti_alias = true;
+                if let Some(r) = SkRect::from_xywh(px_ + 1.0, py + 1.0, pw - 2.0, ph - 2.0) {
+                    pm.fill_rect(r, &lift, Transform::identity(), None);
+                }
+            }
+            let style = TextStyle {
+                kind: FontKind::Amount,
+                px: 13.0,
+                color: if selected { ink } else { dim },
+            };
+            self.draw_text(pm, px_ + 8.0, py + ph - 5.0, crate::reference_ui::cat_label(*cat), &style);
+        }
+
+        // Result rows, or the empty-state hint when there is nothing to show.
+        if p.rows.is_empty() {
+            let msg = if p.query.is_empty() { "type to search" } else { "no matches" };
+            let style = TextStyle { kind: FontKind::Annotation, px: 14.0, color: dim };
+            let tw = self.text_width(FontKind::Annotation, msg, 14.0);
+            self.draw_text(pm, ax + (lay.w as f32 - tw) / 2.0, ay + lay.h as f32 - 6.0, msg, &style);
+            return;
+        }
+        let row_style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
+        for (rect, text) in lay.rows.iter().zip(&p.rows[lay.visible.clone()]) {
+            self.draw_text(
+                pm,
+                ax + rect.x as f32,
+                ay + rect.y as f32 + rect.h as f32 - 5.0,
+                text,
+                &row_style,
+            );
+        }
+        // Scroll counter when more results exist than fit the window.
+        if lay.visible.len() < p.rows.len() {
+            let text =
+                format!("{}–{} / {}", lay.visible.start + 1, lay.visible.end, p.rows.len());
+            let tw = self.text_width(FontKind::Annotation, &text, 13.0);
+            let style = TextStyle { kind: FontKind::Annotation, px: 13.0, color: dim };
+            self.draw_text(pm, ax + lay.w as f32 - 12.0 - tw, ay + lay.h as f32 - 4.0, &text, &style);
+        }
+    }
+
+    /// Draws the leveling-checklist panel from the SAME layout the click
+    /// handler hit-tests against (leveling_ui::layout), offset to `anchor`
+    /// (surface-local top-left). Done steps show a gold-filled checkbox and
+    /// muted text; pending steps a hollow box and primary ink.
+    pub fn draw_leveling(
+        &self,
+        pm: &mut Pixmap,
+        p: &crate::leveling_ui::Panel,
+        lay: &crate::leveling_ui::Layout,
+        anchor: (i32, i32),
+    ) {
+        let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
+        let ink = rgb(C_INK);
+        let dim = rgb(C_INK2);
+        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+        // Close X.
+        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
+        self.draw_text(
+            pm,
+            ax + lay.close.x as f32 + 4.0,
+            ay + lay.close.y as f32 + 15.0,
+            "x",
+            &x_style,
+        );
+
+        let Some(act) = p.acts.get(p.act) else {
+            let msg = "leveling data unavailable";
+            let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
+            let tw = self.text_width(FontKind::Annotation, msg, 15.0);
+            self.draw_text(
+                pm,
+                ax + (lay.w as f32 - tw) / 2.0,
+                ay + lay.h as f32 / 2.0 + 15.0 * 0.35,
+                msg,
+                &style,
+            );
+            return;
+        };
+
+        // Act header: prev/next arrow boxes flanking the centered act title.
+        for (rect, glyph) in [(&lay.prev, "<"), (&lay.next, ">")] {
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, rgb(C_LINE));
+            let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: ink };
+            self.draw_text(pm, bx + 6.0, by + rect.h as f32 - 5.0, glyph, &style);
+        }
+        let title = if act.name.is_empty() { format!("Act {}", act.act) } else { act.name.clone() };
+        let title_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
+        let tw = self.text_width(FontKind::Amount, &title, 18.0);
+        self.draw_text(
+            pm,
+            ax + (lay.w as f32 - tw) / 2.0,
+            ay + lay.prev.y as f32 + lay.prev.h as f32 - 4.0,
+            &title,
+            &title_style,
+        );
+
+        for ((rect, (check, id)), i) in lay.rows.iter().zip(&lay.checks).zip(lay.visible.clone()) {
+            let done = p.done.contains(id);
+            let (cx, cy) = (ax + check.x as f32, ay + check.y as f32);
+            let side = check.w as f32;
+            if done {
+                let mut gold = Paint::default();
+                gold.set_color(rgb(C_GOLD));
+                gold.anti_alias = true;
+                if let Some(r) = SkRect::from_xywh(cx, cy, side, side) {
+                    pm.fill_rect(r, &gold, Transform::identity(), None);
+                }
+                // Dark check mark over the gold fill (stroked, not a font
+                // glyph: Fontin has no U+2713).
+                let mut pb = PathBuilder::new();
+                pb.move_to(cx + side * 0.22, cy + side * 0.55);
+                pb.line_to(cx + side * 0.42, cy + side * 0.75);
+                pb.line_to(cx + side * 0.78, cy + side * 0.25);
+                if let Some(path) = pb.finish() {
+                    let mut mark = Paint::default();
+                    mark.set_color(Color::from_rgba8(C_PANEL.0, C_PANEL.1, C_PANEL.2, 0xFF));
+                    mark.anti_alias = true;
+                    let stroke = Stroke { width: 2.0, ..Default::default() };
+                    pm.stroke_path(&path, &mark, &stroke, Transform::identity(), None);
+                }
+            } else {
+                self.pill(pm, cx, cy, side, side, dim);
+            }
+            let style = TextStyle {
+                kind: FontKind::Annotation,
+                px: POPUP_LINE_PX,
+                color: if done { rgb(C_JUNK_LT) } else { ink },
+            };
+            let text = crate::leveling_ui::drawn_step(&act.steps[i]);
+            self.draw_text(
+                pm,
+                cx + side + 8.0,
+                ay + rect.y as f32 + rect.h as f32 - 5.0,
+                &text,
+                &style,
+            );
+        }
+    }
+
     /// Pixel size the popup pill will occupy, for placement and the
     /// move-away inside test. Must mirror draw_popup's layout math.
     pub fn popup_size(popup: &Popup) -> (i32, i32) {
