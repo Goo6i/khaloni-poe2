@@ -13,6 +13,7 @@ pub mod overlay;
 pub mod popup_pos;
 pub mod pricing;
 pub mod prices;
+pub mod refcache;
 pub mod render;
 pub mod rumours;
 pub mod webserver;
