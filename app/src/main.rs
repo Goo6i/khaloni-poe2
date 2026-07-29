@@ -27,6 +27,18 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// slurp prints the dragged region in global logical coordinates.
+/// Windows has no slurp; a native drag-select window is queued work, so
+/// there the region is set by editing `calibration` in config.toml.
+#[cfg(not(target_os = "linux"))]
+fn calibrate() -> anyhow::Result<()> {
+    anyhow::bail!(
+        "interactive calibration is Linux-only for now; set [calibration] in {}",
+        Config::path().display()
+    )
+}
+
+/// slurp prints the dragged region in global logical coordinates.
+#[cfg(target_os = "linux")]
 fn calibrate() -> anyhow::Result<()> {
     let out = std::process::Command::new("slurp")
         .args(["-f", "%x %y %w %h"])
