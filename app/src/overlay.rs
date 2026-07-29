@@ -26,14 +26,19 @@ use wayland_client::{
     Connection, EventQueue, QueueHandle,
 };
 
-/// A keyboard input relevant to editing a value box.
+/// A keyboard input relevant to editing a value box or a search field.
+/// Digits and '.' keep dedicated variants (the appraisal value boxes match
+/// on them); every other printable ASCII arrives as `Char` for text search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
     Digit(char),
+    Char(char),
     Dot,
     Backspace,
     Enter,
     Escape,
+    Up,
+    Down,
 }
 
 struct App {
@@ -382,12 +387,16 @@ impl KeyboardHandler for App {
             Keysym::BackSpace => self.keys.push(Key::Backspace),
             Keysym::Return | Keysym::KP_Enter => self.keys.push(Key::Enter),
             Keysym::Escape => self.keys.push(Key::Escape),
+            Keysym::Up => self.keys.push(Key::Up),
+            Keysym::Down => self.keys.push(Key::Down),
             _ => {
                 if let Some(c) = event.utf8.as_ref().and_then(|s| s.chars().next()) {
                     if c.is_ascii_digit() {
                         self.keys.push(Key::Digit(c));
                     } else if c == '.' {
                         self.keys.push(Key::Dot);
+                    } else if c.is_ascii_graphic() || c == ' ' {
+                        self.keys.push(Key::Char(c));
                     }
                 }
             }

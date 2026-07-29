@@ -151,6 +151,17 @@ fn open_resource(url_template: &str, item_text: &str) {
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
 }
 
+/// Launches the native settings window as its own process; the overlay keeps
+/// running and picks config changes up via the mtime watcher, so no IPC.
+fn open_settings() {
+    match std::env::current_exe() {
+        Ok(exe) => {
+            let _ = std::process::Command::new(exe).arg("--settings").spawn();
+        }
+        Err(e) => eprintln!("settings window: cannot find own binary: {e}"),
+    }
+}
+
 /// Fires a desktop notification (best-effort; ignored if notify-send is absent).
 fn notify(summary: &str, body: &str) {
     let _ = std::process::Command::new("notify-send")
@@ -383,9 +394,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                 .enumerate()
                 .map(|(i, s)| (format!("url-{i}"), s.key.clone())),
         );
-        // The settings panel opens on its own shortcut (id "settings").
+        // The settings window opens on its own shortcut (id "settings"); the
+        // reference and leveling panels toggle on theirs.
         if !cfg.hotkey_settings.is_empty() {
             extra.push(("settings".to_string(), cfg.hotkey_settings.clone()));
+        }
+        if !cfg.hotkey_reference.is_empty() {
+            extra.push(("reference".to_string(), cfg.hotkey_reference.clone()));
+        }
+        if !cfg.hotkey_leveling.is_empty() {
+            extra.push(("leveling".to_string(), cfg.hotkey_leveling.clone()));
         }
         rt.spawn(async move {
             if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay, extra).await {
@@ -1075,18 +1093,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                 }
                 poe2_lens::hotkeys::Hotkey::Extra(id) => {
-                    // The settings hotkey opens the local web control panel in
-                    // the browser (Settings / Reference / Leveling). No focus
-                    // gate: it's an out-of-game window.
+                    // The settings hotkey opens the native settings window in
+                    // its own process. No focus gate: it's an out-of-game
+                    // window; config changes flow back via the mtime watcher.
                     if id == "settings" {
-                        let port = panel_port.load(std::sync::atomic::Ordering::Relaxed);
-                        if port != 0 {
-                            let _ = std::process::Command::new("xdg-open")
-                                .arg(format!("http://127.0.0.1:{port}/"))
-                                .spawn();
-                        } else {
-                            notify("poe2-lens", "control panel still starting, try again in a moment");
-                        }
+                        open_settings();
                         continue;
                     }
                     // Only act while the game is focused, never into another
@@ -1422,6 +1433,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                         edit_buf.clear();
                         overlay.set_keyboard(false)?;
                     }
+                    // Text and arrow keys have no meaning in a numeric value
+                    // box; they exist for the reference/leveling panels.
+                    poe2_lens::overlay::Key::Char(_)
+                    | poe2_lens::overlay::Key::Up
+                    | poe2_lens::overlay::Key::Down => {}
                 }
             }
         }
