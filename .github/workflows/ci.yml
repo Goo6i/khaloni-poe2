@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Full workspace test run on the native Linux target (core + app + spikes).
+  test-linux:
+    name: Linux tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Native libraries the Linux backend crates link against:
+      # pipewire (capture), wayland + xkbcommon (overlay/smithay),
+      # tesseract + leptonica (leptess OCR), all found via pkg-config.
+      # tesseract-ocr-eng supplies the eng traineddata the OCR tests load
+      # at runtime (OcrEngine::new(None, "eng")).
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libtesseract-dev \
+            libleptonica-dev \
+            tesseract-ocr-eng
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+  # Cross-target type-check of the shared code for Windows. Only core and
+  # app are checked (spikes is Linux-only and excluded via default-members);
+  # the Windows backends are compiling stubs until SP3, and leptess/OCR is
+  # Linux-gated (see app/src/platform/windows/mod.rs). ring's build script
+  # compiles C for the target, hence the mingw-w64 cross compiler.
+  windows-check:
+    name: Windows cross-check (x86_64-pc-windows-gnu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mingw-w64 cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check --target x86_64-pc-windows-gnu -p poe2-lens -p poe2-lens-core
