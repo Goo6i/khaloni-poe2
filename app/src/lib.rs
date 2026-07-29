@@ -1,6 +1,7 @@
 pub mod appraise_ui;
 pub mod brightness;
 pub mod capture;
+pub mod clipwatch;
 pub mod config;
 pub mod coord;
 pub mod hotkeys;
@@ -13,5 +14,7 @@ pub mod popup_pos;
 pub mod pricing;
 pub mod prices;
 pub mod render;
+pub mod rumours;
+pub mod webserver;
 pub mod stabilize;
 pub mod template;

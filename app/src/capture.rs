@@ -23,6 +23,11 @@ const THROTTLE_OPEN_MS: u64 = 16;
 /// Capture throttle while the brightness gate is closed: no point spending
 /// CPU on frequent frames nothing will OCR.
 const THROTTLE_CLOSED_MS: u64 = 120;
+/// Full-frame emission cadence for the rumour recognizer (~1.4 Hz). Rumour
+/// tooltips are read at 1-2 Hz (pop-in latency is fine there), and a whole
+/// 4K grayscale conversion is a few ms, so this stays cheap next to the
+/// reward crop that runs every throttle tick.
+const FULL_FRAME_MS: u64 = 700;
 
 pub struct RegionFrame {
     pub gray: GrayImage,
@@ -96,6 +101,7 @@ pub fn consume(
     mut region: Rect,
     tx: SyncSender<RegionFrame>,
     panel_open: Arc<AtomicBool>,
+    full_tx: Option<SyncSender<GrayImage>>,
 ) -> anyhow::Result<()> {
     use pipewire as pw;
     use pw::{properties::properties, spa};
@@ -105,6 +111,7 @@ pub fn consume(
     struct State {
         format: spa::param::video::VideoInfoRaw,
         last_sent: Option<Instant>,
+        last_full: Option<Instant>,
     }
 
     pw::init();
@@ -188,6 +195,35 @@ pub fn consume(
             // The OCR worker only ever wants the latest frame: drop this
             // one on a full channel instead of blocking or queuing.
             let _ = tx.try_send(RegionFrame { gray });
+
+            // Full-frame emission for the rumour recognizer, on its own slow
+            // cadence. The rumour tooltip can be anywhere on screen, so it
+            // needs the whole frame (find_panel scans it) rather than the
+            // reward crop. Same latest-only, drop-on-full contract.
+            if let Some(ft) = &full_tx {
+                let due = state
+                    .last_full
+                    .is_none_or(|t| t.elapsed() >= Duration::from_millis(FULL_FRAME_MS));
+                if due {
+                    let (fw_u, fh_u) = (fw as usize, fh as usize);
+                    let mut fraw = vec![0u8; fw_u * fh_u];
+                    for row in 0..fh_u {
+                        let base = row * stride;
+                        let src_row = &bytes[base..base + fw_u * 4];
+                        let dst_row = &mut fraw[row * fw_u..(row + 1) * fw_u];
+                        for (dst, px) in dst_row.iter_mut().zip(src_row.chunks_exact(4)) {
+                            *dst = (0.114 * px[0] as f32
+                                + 0.587 * px[1] as f32
+                                + 0.299 * px[2] as f32) as u8;
+                        }
+                    }
+                    if let Some(full) = GrayImage::from_raw(fw, fh, fraw) {
+                        if ft.try_send(full).is_ok() {
+                            state.last_full = Some(Instant::now());
+                        }
+                    }
+                }
+            }
         })
         .register()?;
 

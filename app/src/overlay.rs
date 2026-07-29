@@ -1,11 +1,12 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
+        keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
         pointer::{PointerEvent, PointerEventKind, PointerHandler},
         Capability, SeatHandler, SeatState,
     },
@@ -21,9 +22,19 @@ use smithay_client_toolkit::{
 use tiny_skia::Pixmap;
 use wayland_client::{
     globals::registry_queue_init,
-    protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface},
     Connection, EventQueue, QueueHandle,
 };
+
+/// A keyboard input relevant to editing a value box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Digit(char),
+    Dot,
+    Backspace,
+    Enter,
+    Escape,
+}
 
 struct App {
     registry_state: RegistryState,
@@ -34,11 +45,20 @@ struct App {
     layer: Option<LayerSurface>,
     surface_size: (u32, u32),
     pointer: Option<wl_pointer::WlPointer>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
     /// Left-button presses on the overlay surface (surface-local logical
     /// px), drained by the main loop. Only non-empty while an interactive
     /// input region is set: with the default empty region the compositor
     /// never routes pointer input here at all.
     clicks: Vec<(i32, i32)>,
+    /// Latest pointer position (surface-local logical px), updated on every
+    /// motion/press event. Used to drive panel dragging.
+    pointer_pos: (i32, i32),
+    /// Whether the left button is currently held. Turns a press+motion+release
+    /// into a drag without threading individual events through the main loop.
+    button_down: bool,
+    /// Editing keystrokes, drained by the main loop while a box is focused.
+    keys: Vec<Key>,
     exit: bool,
 }
 
@@ -70,7 +90,11 @@ impl Overlay {
             layer: None,
             surface_size: (0, 0),
             pointer: None,
+            keyboard: None,
             clicks: Vec::new(),
+            pointer_pos: (0, 0),
+            button_down: false,
+            keys: Vec::new(),
             exit: false,
         };
 
@@ -144,6 +168,38 @@ impl Overlay {
     /// Drains left-clicks received since the last call (surface-local).
     pub fn take_clicks(&mut self) -> Vec<(i32, i32)> {
         std::mem::take(&mut self.app.clicks)
+    }
+
+    /// Latest pointer position, surface-local logical px.
+    pub fn pointer_pos(&self) -> (i32, i32) {
+        self.app.pointer_pos
+    }
+
+    /// Whether the left mouse button is currently held (for drag tracking).
+    pub fn button_down(&self) -> bool {
+        self.app.button_down
+    }
+
+    /// Drains editing keystrokes received since the last call.
+    pub fn take_keys(&mut self) -> Vec<Key> {
+        std::mem::take(&mut self.app.keys)
+    }
+
+    /// Requests (or releases) keyboard focus for the overlay surface, so a
+    /// focused value box can receive typed digits. On-demand: the compositor
+    /// grants focus on the pointer interaction that opened the box.
+    pub fn set_keyboard(&mut self, on: bool) -> anyhow::Result<()> {
+        let layer = self.app.layer.as_ref().expect("layer created in new()");
+        layer.set_keyboard_interactivity(if on {
+            KeyboardInteractivity::OnDemand
+        } else {
+            KeyboardInteractivity::None
+        });
+        layer.commit();
+        if !on {
+            self.app.keys.clear();
+        }
+        Ok(())
     }
 
     pub fn pump(&mut self) -> anyhow::Result<()> {
@@ -243,6 +299,9 @@ impl SeatHandler for App {
         if capability == Capability::Pointer && self.pointer.is_none() {
             self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
         }
+        if capability == Capability::Keyboard && self.keyboard.is_none() {
+            self.keyboard = self.seat_state.get_keyboard(qh, &seat, None).ok();
+        }
     }
     fn remove_capability(
         &mut self,
@@ -254,6 +313,11 @@ impl SeatHandler for App {
         if capability == Capability::Pointer {
             if let Some(p) = self.pointer.take() {
                 p.release();
+            }
+        }
+        if capability == Capability::Keyboard {
+            if let Some(k) = self.keyboard.take() {
+                k.release();
             }
         }
     }
@@ -270,10 +334,83 @@ impl PointerHandler for App {
     ) {
         const BTN_LEFT: u32 = 0x110;
         for ev in events {
-            if let PointerEventKind::Press { button: BTN_LEFT, .. } = ev.kind {
-                self.clicks.push((ev.position.0 as i32, ev.position.1 as i32));
+            self.pointer_pos = (ev.position.0 as i32, ev.position.1 as i32);
+            match ev.kind {
+                PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                    self.clicks.push((ev.position.0 as i32, ev.position.1 as i32));
+                    self.button_down = true;
+                }
+                PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                    self.button_down = false;
+                }
+                _ => {}
             }
         }
+    }
+}
+
+impl KeyboardHandler for App {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+    }
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+    }
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        match event.keysym {
+            Keysym::BackSpace => self.keys.push(Key::Backspace),
+            Keysym::Return | Keysym::KP_Enter => self.keys.push(Key::Enter),
+            Keysym::Escape => self.keys.push(Key::Escape),
+            _ => {
+                if let Some(c) = event.utf8.as_ref().and_then(|s| s.chars().next()) {
+                    if c.is_ascii_digit() {
+                        self.keys.push(Key::Digit(c));
+                    } else if c == '.' {
+                        self.keys.push(Key::Dot);
+                    }
+                }
+            }
+        }
+    }
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: Modifiers,
+        _: u32,
+    ) {
     }
 }
 
@@ -294,6 +431,7 @@ delegate_compositor!(App);
 delegate_output!(App);
 delegate_shm!(App);
 delegate_seat!(App);
+delegate_keyboard!(App);
 delegate_pointer!(App);
 delegate_layer!(App);
 delegate_registry!(App);

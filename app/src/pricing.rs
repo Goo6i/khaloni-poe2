@@ -89,20 +89,50 @@ pub fn build_vocab(table: &PriceTable) -> Vocab {
     Vocab::new(table.names().map(str::to_string).collect())
 }
 
-/// Rows reading "skill level N ..." map to the poe.ninja uncut skill gem for
-/// that exact level (verified live: ids uncut-skill-gem-N, names
-/// "Uncut Skill Gem (Level N)"). Support/spirit rows carry no level on the
+/// Async price state of a specific cut skill gem, resolved by a background
+/// trade worker (see the app's gem pricer).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GemState {
+    /// Requested; a trade search is in flight.
+    Pending,
+    /// Priced at this many exalted (cheapest live listing).
+    Priced(f64),
+    /// Searched but not priceable (no listings, or the name did not resolve).
+    Unpriced,
+}
+
+/// Prices a specific cut skill gem by name + level. `lookup` both reads the
+/// cached price and lazily kicks off a trade search on a miss.
+pub trait GemPricer {
+    fn lookup(&self, skill_lower: &str, level: u32) -> GemState;
+}
+
+/// Rows reading "skill level N: <Name>" are a SPECIFIC cut skill gem (e.g.
+/// "Skill Level 20: Detonate Living"), each with its own trade price. The
+/// skill name (everything after the level) is captured so a per-gem trade
+/// search can price it, instead of collapsing every level-N skill to the one
+/// fungible Uncut Skill Gem price. Support/spirit rows carry no level on the
 /// panel, so they price as UNKNOWN rather than a guess.
 fn gem_row(unfiltered: &str) -> Option<GemRow> {
-    // Band crops can carry leading icon-glyph junk inside the same OCR
-    // line ("booa vl skill level 20 skyfall"), so the markers are matched
-    // anywhere in the line, not as prefixes. Word-boundary safety comes
-    // from splitting on whitespace below.
+    // Band crops can carry leading icon-glyph junk inside the same OCR line,
+    // so the "skill level N" markers are matched anywhere in the line; the
+    // skill name is whatever follows the level number.
     let words: Vec<&str> = unfiltered.split_whitespace().collect();
-    for w in words.windows(3) {
-        if w[0] == "skill" && w[1] == "level" {
-            if let Ok(level) = w[2].parse::<u32>() {
-                return Some(GemRow::Skill(level));
+    for i in 0..words.len() {
+        if words.get(i) == Some(&"skill") && words.get(i + 1) == Some(&"level") {
+            if let Some(level) = words.get(i + 2).and_then(|t| t.trim_end_matches(':').parse::<u32>().ok())
+            {
+                // Name = words after the level, colons dropped, collapsed.
+                let name = words[i + 3..]
+                    .join(" ")
+                    .replace(':', " ")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !name.is_empty() {
+                    return Some(GemRow::Skill { level, name });
+                }
+                return Some(GemRow::Unleveled);
             }
         }
     }
@@ -113,7 +143,7 @@ fn gem_row(unfiltered: &str) -> Option<GemRow> {
 }
 
 enum GemRow {
-    Skill(u32),
+    Skill { level: u32, name: String },
     Unleveled,
 }
 
@@ -236,7 +266,7 @@ pub fn price_lines(
     lines: &[OcrLine],
     cfg: &Config,
 ) -> (Vec<Priced>, String) {
-    price_lines_with_rumours(table, vocab, lines, cfg, None)
+    price_lines_with_rumours(table, vocab, lines, cfg, None, None)
 }
 
 pub fn price_lines_with_rumours(
@@ -245,6 +275,7 @@ pub fn price_lines_with_rumours(
     lines: &[OcrLine],
     cfg: &Config,
     rumours: Option<&poe2_lens_core::rumour::RumourIndex>,
+    gem: Option<&dyn GemPricer>,
 ) -> (Vec<Priced>, String) {
     let mut rows = Vec::new();
 
@@ -252,22 +283,57 @@ pub fn price_lines_with_rumours(
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
         if let Some(g) = gem_row(&line.unfiltered) {
             let (label, tier, denom, amount, item_key, value_ex) = match g {
-                GemRow::Skill(level) => {
-                    let name = format!("Uncut Skill Gem (Level {level})");
-                    let item_key = format!("gem-skill-{level}");
-                    match table.lookup(&name) {
-                        Some(p) => {
-                            let (denom, amount) = denom_amount(p, 1, cfg.divine_threshold);
+                // A specific cut skill gem, priced individually by trade. The
+                // key carries the gem name so it never templates back to the
+                // uncut price (the OCR path re-prices it each scan).
+                GemRow::Skill { level, name } => {
+                    let item_key = format!("gemx:{name}:{level}");
+                    let state = match gem {
+                        Some(gp) => gp.lookup(&name, level),
+                        // No pricer (tests): fall back to the fungible uncut
+                        // price so behavior degrades rather than blanking.
+                        None => match table.lookup(&format!("Uncut Skill Gem (Level {level})")) {
+                            Some(p) => GemState::Priced(p.exalted),
+                            None => GemState::Unpriced,
+                        },
+                    };
+                    match state {
+                        GemState::Priced(ex) => {
+                            let div = table
+                                .lookup("Divine Orb")
+                                .map(|p| p.exalted)
+                                .filter(|v| *v > 0.0);
+                            let price = poe2_lens_core::ninja::Price {
+                                exalted: ex,
+                                divine: div.map(|r| ex / r).unwrap_or(0.0),
+                                chaos: 0.0,
+                            };
+                            let (denom, amount) = denom_amount(&price, 1, cfg.divine_threshold);
                             (
-                                display_price(p, 1, cfg.divine_threshold),
-                                tier_for(p.exalted, cfg),
+                                display_price(&price, 1, cfg.divine_threshold),
+                                tier_for(ex, cfg),
                                 denom,
                                 amount,
                                 item_key,
-                                p.exalted,
+                                ex,
                             )
                         }
-                        None => (UNKNOWN.to_string(), Tier::Unknown, Denom::None, UNKNOWN.to_string(), item_key, 0.0),
+                        GemState::Pending => (
+                            "…".to_string(),
+                            Tier::Unknown,
+                            Denom::None,
+                            "…".to_string(),
+                            item_key,
+                            0.0,
+                        ),
+                        GemState::Unpriced => (
+                            UNKNOWN.to_string(),
+                            Tier::Unknown,
+                            Denom::None,
+                            UNKNOWN.to_string(),
+                            item_key,
+                            0.0,
+                        ),
                     }
                 }
                 GemRow::Unleveled => (

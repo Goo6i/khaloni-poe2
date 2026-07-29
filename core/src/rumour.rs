@@ -8,6 +8,28 @@ use crate::matcher::normalize;
 
 pub const SHEET_CSV_URL: &str = "https://docs.google.com/spreadsheets/d/16YU8mSS7TdLPdmOunVjiPn_NrKVGfcnMkuMQDy8jgZA/export?format=csv&gid=0";
 
+/// `match_line` constants, from danielmtv2/poe2-expedition-overlay via the
+/// Python spike (`fuzz.ratio` is 0..100). The reference uses 70; this port
+/// runs leptess (in-process libtesseract) rather than the subprocess
+/// tesseract the spike used, and leptess's noisier line grouping lets pure
+/// border-garble graze exactly 70 on real frames. Measured on the 5 real
+/// fixtures: genuine rumour lines score >= 84, garble tops out at 73, so 75
+/// keeps every true match and rejects the noise (see app/tests/rumours.rs).
+const MATCH_THRESHOLD: f64 = 75.0;
+const MATCH_MARGIN: f64 = 5.0;
+const MATCH_MIN_KEY: usize = 4;
+
+/// Tooltip text that shares the rumour region but is not a rumour; a match
+/// is rejected when any of these scores at least as high (chrome guard).
+const CHROME: [&str; 6] = [
+    "ISLAND RUMOURS",
+    "USE A LOGBOOK TO CHART THE AREA",
+    "UNCHARTED WATERS",
+    "EXPEDITION LOGBOOK",
+    "REQUIRES",
+    "CONSUMES",
+];
+
 const FUZZY: f64 = 0.84;
 const FUZZY_LEN_TOL: usize = 3;
 const PREFIX_MIN: usize = 4;
@@ -85,15 +107,64 @@ pub fn skeleton(s: &str) -> String {
         .collect()
 }
 
+/// Class-normalized key mirroring the reference `_cnorm`: lowercase, strip
+/// every non-alphanumeric character (so spacing/punctuation are irrelevant),
+/// then collapse the glyph classes OCR routinely confuses so a garbled read
+/// lands on top of the truth. Distinct from `skeleton` (a different, coarser
+/// class map used by `resolve`); this one matches the danielmtv2 `_CLASS`.
+pub fn cnorm(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| match c.to_ascii_lowercase() {
+            'v' | 'w' => 'u',
+            'm' | 'r' => 'n',
+            'i' | 'j' | 't' | '1' => 'l',
+            '0' | 'e' | 'c' => 'o',
+            '5' => 's',
+            '8' => 'b',
+            other => other,
+        })
+        .collect()
+}
+
+/// `fuzz.ratio`-equivalent similarity (0..100): the normalized indel
+/// (insertion/deletion only) similarity, `200 * LCS / (len_a + len_b)`.
+fn indel_ratio(a: &str, b: &str) -> f64 {
+    let ab: Vec<char> = a.chars().collect();
+    let bb: Vec<char> = b.chars().collect();
+    let total = ab.len() + bb.len();
+    if total == 0 {
+        return 100.0;
+    }
+    // LCS length via rolling DP.
+    let mut prev = vec![0usize; bb.len() + 1];
+    let mut cur = vec![0usize; bb.len() + 1];
+    for &ca in &ab {
+        for (j, &cb) in bb.iter().enumerate() {
+            cur[j + 1] = if ca == cb {
+                prev[j] + 1
+            } else {
+                prev[j + 1].max(cur[j])
+            };
+        }
+        std::mem::swap(&mut prev, &mut cur);
+        cur.iter_mut().for_each(|v| *v = 0);
+    }
+    let lcs = prev[bb.len()];
+    200.0 * lcs as f64 / total as f64
+}
+
 pub struct RumourIndex {
     entries: Vec<RumourEntry>,
     keys: Vec<String>,
+    cnorm_keys: Vec<String>,
 }
 
 impl RumourIndex {
     pub fn new(entries: Vec<RumourEntry>) -> RumourIndex {
         let keys = entries.iter().map(|e| normalize(&e.rumour)).collect();
-        RumourIndex { entries, keys }
+        let cnorm_keys = entries.iter().map(|e| cnorm(&e.rumour)).collect();
+        RumourIndex { entries, keys, cnorm_keys }
     }
 
     pub fn len(&self) -> usize {
@@ -102,6 +173,48 @@ impl RumourIndex {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// Match one OCR line to a rumour with the proven danielmtv2 method
+    /// (verified 8/10 recall, 0 false positives on 5 real 4K frames in the
+    /// Python spike): class-normalize the text, `fuzz.ratio` against the
+    /// class-normalized names, accept only above `MATCH_THRESHOLD` and by
+    /// more than `MATCH_MARGIN` over the runner-up, and reject anything a
+    /// tooltip-chrome phrase matches at least as well. Distinct from
+    /// `resolve` (used by reward-panel pricing); do not conflate them.
+    pub fn match_line(&self, text: &str) -> Option<&RumourEntry> {
+        let key = cnorm(text);
+        if key.chars().count() < MATCH_MIN_KEY {
+            return None;
+        }
+        // Best and runner-up rumour by fuzz.ratio over class-normalized keys.
+        let mut best: Option<(usize, f64)> = None;
+        let mut runner = 0.0;
+        for (i, k) in self.cnorm_keys.iter().enumerate() {
+            let s = indel_ratio(&key, k);
+            match best {
+                Some((_, b)) if s > b => {
+                    runner = b;
+                    best = Some((i, s));
+                }
+                Some((_, b)) if s > runner && s <= b => runner = s,
+                None => best = Some((i, s)),
+                _ => {}
+            }
+        }
+        let (idx, score) = best?;
+        if score < MATCH_THRESHOLD || score - runner < MATCH_MARGIN {
+            return None;
+        }
+        // Chrome guard: reject if any non-rumour tooltip phrase fits as well.
+        let chrome_best = CHROME
+            .iter()
+            .map(|c| indel_ratio(&key, &cnorm(c)))
+            .fold(0.0, f64::max);
+        if chrome_best >= score {
+            return None;
+        }
+        Some(&self.entries[idx])
     }
 
     /// Reference resolution chain: exact normalized -> prefix (>= 4
@@ -163,6 +276,31 @@ mod tests {
     use super::*;
 
     const SHEET: &str = include_str!("../tests/fixtures/rumours.csv");
+
+    #[test]
+    fn match_line_exact_and_glyph_tolerant() {
+        let idx = RumourIndex::new(parse_csv(SHEET));
+        assert_eq!(idx.match_line("Endless Cliffs").unwrap().rumour, "Endless Cliffs");
+        // e/c/o collapse to one glyph class: "ico" reads as "ice".
+        assert_eq!(idx.match_line("Cold as ico").unwrap().rumour, "Cold as ice");
+        // Punctuation in the sheet name is stripped; spacing is irrelevant.
+        assert_eq!(
+            idx.match_line("Wild Roaming Free").unwrap().rumour,
+            "Wild,.Roaming Free"
+        );
+    }
+
+    #[test]
+    fn match_line_rejects_chrome_short_and_garbage() {
+        let idx = RumourIndex::new(parse_csv(SHEET));
+        // Tooltip chrome must never produce a phantom rumour.
+        assert!(idx.match_line("REQUIRES").is_none(), "chrome word");
+        assert!(idx.match_line("UNCHARTED WATERS").is_none(), "title chrome");
+        // Too short to be a rumour name.
+        assert!(idx.match_line("abc").is_none());
+        // Nothing close enough.
+        assert!(idx.match_line("xyzzy plugh").is_none());
+    }
 
     #[test]
     fn parses_the_live_sheet_snapshot() {

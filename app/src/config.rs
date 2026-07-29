@@ -10,6 +10,23 @@ pub struct Rect {
     pub h: u32,
 }
 
+/// A chat macro: pressing `key` opens chat, types `message`, and sends it.
+/// `key` is a portal GlobalShortcut trigger string (e.g. "CTRL+1").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Macro {
+    pub key: String,
+    pub message: String,
+}
+
+/// An external-resource shortcut: pressing `key` copies the hovered item and
+/// opens `url` with `{name}` replaced by the item name (URL-encoded), e.g.
+/// "https://poe2db.tw/us/search?q={name}" or a wiki/scout URL.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceShortcut {
+    pub key: String,
+    pub url: String,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -44,6 +61,9 @@ fn default_hotkey_price_check() -> String {
 fn default_hotkey_overlay() -> String {
     "F8".into()
 }
+fn default_hotkey_settings() -> String {
+    "F12".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -66,6 +86,10 @@ pub struct Config {
     pub hotkey_price_check: String,
     #[serde(default = "default_hotkey_overlay")]
     pub hotkey_overlay: String,
+    /// Hotkey to open the in-overlay settings panel. Changing it triggers one
+    /// KDE re-approval on next launch.
+    #[serde(default = "default_hotkey_settings")]
+    pub hotkey_settings: String,
     #[serde(default = "default_true")]
     pub pause_when_unfocused: bool,
     #[serde(default = "default_font")]
@@ -88,6 +112,32 @@ pub struct Config {
     /// tesseract is skipped in favor of `stabilize::ScanResult::GateEmpty`.
     #[serde(default = "default_panel_close_brightness")]
     pub panel_close_brightness: u8,
+    /// Chat macros, each bound to its own global shortcut. Empty by default
+    /// (feature off). Changing this set triggers one KDE re-approval dialog.
+    #[serde(default)]
+    pub macros: Vec<Macro>,
+    /// External-resource shortcuts (open hovered item on wiki/poedb/scout).
+    /// Empty by default. Changing this set triggers one KDE re-approval.
+    #[serde(default)]
+    pub resource_shortcuts: Vec<ResourceShortcut>,
+    /// Hotkey to analyze the hovered waystone: copies a stash-search regex of
+    /// its reward mods and notifies which mods are dangerous. None = off.
+    #[serde(default)]
+    pub map_hotkey: Option<String>,
+    /// Extra danger/reward mod needles (lowercase substrings) merged with the
+    /// built-in map-mod rules, so the classifier is tunable without a rebuild.
+    #[serde(default)]
+    pub map_danger_needles: Vec<String>,
+    #[serde(default)]
+    pub map_good_needles: Vec<String>,
+    /// Milliseconds to wait after opening chat (Enter) before a macro starts
+    /// typing, so the chat box is ready. Raise if the first characters drop.
+    #[serde(default = "default_macro_open_delay_ms")]
+    pub macro_open_delay_ms: u64,
+}
+
+fn default_macro_open_delay_ms() -> u64 {
+    400
 }
 
 impl Default for Config {

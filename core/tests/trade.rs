@@ -39,11 +39,64 @@ fn resolves_six_verified_stat_ids_from_real_fixtures() {
 }
 
 #[test]
+fn waystone_query_searches_by_base_type_tier_and_reward_props() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let text = "Item Class: Waystones\nRarity: Rare\nAbandoned Carving\n\
+        Waystone (Tier 15)\n--------\nItem Rarity: +24% (augmented)\n\
+        Pack Size: +19% (augmented)\nMonster Effectiveness: +28% (augmented)\n\
+        --------\nItem Level: 81\n--------\n\
+        Monsters have 238% increased Critical Hit Chance\n--------\n";
+    let item = parse_item(text).expect("parses");
+    let mut q = build_query(&item, &stats);
+    assert_eq!(q.type_name.as_deref(), Some("Waystone"), "search by base type");
+    assert_eq!(q.map_tier, Some(15), "tier parsed");
+    // Reward properties are pickable map_ filters, disabled by default.
+    let iir = q.filters.iter().find(|f| f.id == "map_iir").expect("Item Rarity filter");
+    assert!(iir.disabled, "disabled by default so the user picks");
+    assert_eq!(iir.value.min, 24.0);
+    // "Monster Effectiveness" maps to the trade key map_magic_monsters.
+    assert!(q.filters.iter().any(|f| f.id == "map_magic_monsters"), "effectiveness pickable");
+    assert!(q.filters.iter().any(|f| f.id == "map_packsize"), "pack size pickable");
+
+    let body = q.to_body();
+    assert_eq!(body["query"]["type"], "Waystone");
+    let mf = &body["query"]["filters"]["map_filters"]["filters"];
+    assert_eq!(mf["map_tier"]["min"], 15);
+    assert_eq!(mf["map_tier"]["max"], 15);
+    assert!(mf["map_iir"].is_null(), "disabled reward filter is not searched");
+
+    // Picking Item Rarity emits it in the map_filters section.
+    q.filters.iter_mut().find(|f| f.id == "map_iir").unwrap().disabled = false;
+    let body2 = q.to_body();
+    assert_eq!(body2["query"]["filters"]["map_filters"]["filters"]["map_iir"]["min"], 24);
+}
+
+#[test]
 fn unknown_mod_resolves_to_none() {
     let index = StatIndex::from_json(STATS_JSON).unwrap();
     // A fabricated mod must never silently match anything.
     assert!(index.resolve("this is not a real mod at all").is_none());
     assert!(index.resolve("Adds 3 to 82 Voidfire Damage").is_none());
+}
+
+#[test]
+fn parse_exchange_rate_finds_cheapest_offer() {
+    const EXCHANGE: &str = include_str!("fixtures/trade_exchange.json");
+    // Live want=divine/have=exalted fixture: a divine costs several exalted.
+    let rate = poe2_lens_core::trade::parse_exchange_rate(EXCHANGE).expect("offers present");
+    assert!(rate.is_finite() && rate >= 1.0, "plausible divine->exalted rate, got {rate}");
+    // No offers -> None, not a panic.
+    assert!(poe2_lens_core::trade::parse_exchange_rate(r#"{"result":{}}"#).is_none());
+}
+
+#[test]
+fn parse_static_currency_ids_maps_names_to_ids() {
+    let json = r#"{"result":[{"id":"Misc","entries":[
+        {"id":"omen-of-whittling","text":"Omen of Whittling"},
+        {"id":"exalted","text":"Exalted Orb"}]}]}"#;
+    let map = poe2_lens_core::trade::parse_static_currency_ids(json);
+    assert_eq!(map.get("omen of whittling").map(String::as_str), Some("omen-of-whittling"));
+    assert_eq!(map.get("exalted orb").map(String::as_str), Some("exalted"));
 }
 
 #[test]
@@ -53,7 +106,26 @@ fn bad_json_is_an_error() {
 
 // --- rate limiter + query builder (facts verified live 2026-07-21) ---
 
-use poe2_lens_core::trade::{build_query, RateDecision, RateLimiter};
+use poe2_lens_core::trade::{build_query, build_query_with_labels, RateDecision, RateLimiter};
+
+#[test]
+fn build_query_covers_implicit_mods() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    // An item whose only searchable mod is an implicit - like a waystone,
+    // valued on its implicit rarity/pack-size. The old explicits-only
+    // builder produced zero filters for this; implicits must be covered now.
+    let text = "Item Class: Amulets\nRarity: Rare\nTest\nStellar Amulet\n\
+        --------\nItem Level: 82\n--------\n+59 to maximum Mana (implicit)\n--------\n";
+    let item = parse_item(text).expect("parses");
+    assert!(item.explicits.is_empty(), "fixture has no explicit mods");
+    assert!(!item.implicits.is_empty(), "fixture has the implicit");
+    let (q, labels) = build_query_with_labels(&item, &stats);
+    assert!(
+        q.filters.iter().any(|f| f.id == "explicit.stat_1050105434"),
+        "the implicit maximum-mana mod produced a trade filter"
+    );
+    assert!(labels.iter().any(|l| l.text.contains("maximum Mana")));
+}
 
 #[test]
 fn parses_the_real_search_rate_rules() {
@@ -89,7 +161,9 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
     assert_eq!(q.category.as_deref(), Some("weapon.bow"));
     assert!(q.filters.len() >= 4, "most bow mods resolve, got {}", q.filters.len());
     let body = q.to_body();
-    assert_eq!(body["query"]["status"]["option"], "online");
+    // "any" (not "online"): the async marketplace lets you Secure Item from
+    // offline sellers, so their listings are part of the real buy price.
+    assert_eq!(body["query"]["status"]["option"], "any");
     assert_eq!(body["sort"]["price"], "asc");
     assert_eq!(
         body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
@@ -103,6 +177,94 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
     // tier floor of 157(155-169) -> 155
     assert_eq!(phys["value"]["min"], 155); // tier floor of 157(155-169)
     assert_eq!(phys["disabled"], false, "damage mods preselect");
+}
+
+#[test]
+fn parses_gem_types_and_matches_ocr_to_exact_name() {
+    use poe2_lens_core::trade::{match_gem_name, parse_gem_types};
+    let items = r#"{"result":[
+        {"label":"Currency","entries":[{"type":"Exalted Orb"}]},
+        {"label":"Gems","entries":[
+            {"type":"Detonate Living"},
+            {"type":"Fragments Of The Past"},
+            {"type":"Conductive Runes"}
+        ]}
+    ]}"#;
+    let gems = parse_gem_types(items);
+    assert!(gems.contains(&"Detonate Living".to_string()));
+    assert!(!gems.contains(&"Exalted Orb".to_string()), "currency is not a gem");
+    // Exact (case-insensitive) match from lowercased OCR.
+    assert_eq!(match_gem_name("detonate living", &gems).as_deref(), Some("Detonate Living"));
+    // Minor OCR slip still resolves.
+    assert_eq!(
+        match_gem_name("fragments of the pasl", &gems).as_deref(),
+        Some("Fragments Of The Past")
+    );
+    // Nonsense resolves to nothing rather than the wrong gem.
+    assert_eq!(match_gem_name("xyzzy nonsense words", &gems), None);
+}
+
+#[test]
+fn gem_query_searches_by_skill_name_category_and_exact_level() {
+    use poe2_lens_core::trade::build_gem_query;
+    let body = build_gem_query("Detonate Living", 20).to_body();
+    assert_eq!(body["query"]["type"], "Detonate Living");
+    assert_eq!(
+        body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
+        "gem.activegem"
+    );
+    let gl = &body["query"]["filters"]["misc_filters"]["filters"]["gem_level"];
+    assert_eq!(gl["min"], 20);
+    assert_eq!(gl["max"], 20);
+}
+
+#[test]
+fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
+    use poe2_lens_core::trade::{FilterValue, Query, StatFilter};
+    let q = Query {
+        category: None,
+        category_enabled: false,
+        type_name: None,
+        map_tier: None,
+        gem_level: None,
+        filters: vec![
+            StatFilter {
+                id: "explicit.stat_attack_speed".into(),
+                value: FilterValue { min: 3.5, max: Some(4.2) },
+                disabled: false,
+            },
+            StatFilter {
+                id: "explicit.stat_life".into(),
+                value: FilterValue { min: 80.0, max: None },
+                disabled: false,
+            },
+        ],
+    };
+    let body = q.to_body();
+    let filters = body["query"]["stats"][0]["filters"].as_array().unwrap();
+    assert_eq!(filters[0]["value"]["min"], 3.5, "decimal kept as float");
+    assert_eq!(filters[0]["value"]["max"], 4.2);
+    // Whole value stays an integer, not 80.0.
+    assert_eq!(filters[1]["value"]["min"], 80);
+    assert!(filters[1]["value"]["min"].is_i64(), "whole -> integer json");
+}
+
+#[test]
+fn disabling_category_searches_mods_only_across_all_bases() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let item = parse_item(BOW).expect("parse");
+    let mut q = build_query(&item, &stats);
+    // The base is present but the user toggled it off: the body must not
+    // constrain by category, so the same mods price across every base.
+    q.category_enabled = false;
+    let body = q.to_body();
+    assert!(
+        body["query"]["filters"].get("type_filters").is_none(),
+        "category disabled -> no type_filters, got {}",
+        body["query"]["filters"]
+    );
+    // The stat filters (the mods) are still there.
+    assert!(!body["query"]["stats"][0]["filters"].as_array().unwrap().is_empty());
 }
 
 use poe2_lens_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};

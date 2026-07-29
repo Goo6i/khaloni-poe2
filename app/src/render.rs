@@ -20,6 +20,16 @@ pub struct Placed {
     pub best: bool,
 }
 
+/// A rumour rating badge placed in surface-local pixels: `x` is the badge's
+/// left edge (hung off the tooltip panel's right side), `y` the vertical
+/// center of the rumour's text line, `rating` the sheet rating ("S+", "A", ...).
+#[derive(Clone, PartialEq)]
+pub struct RumourBadge {
+    pub x: i32,
+    pub y: i32,
+    pub rating: String,
+}
+
 // Which embedded Fontin face a glyph came from; part of the cache key so the
 // SmallCaps amount glyphs and the Regular annotation glyphs never collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,7 +69,7 @@ const ICON_CHAOS_PNG: &[u8] = include_bytes!("../assets/icons/chaos.png");
 const AMOUNT_PX: f32 = 22.0;
 const OLD_PX: f32 = 13.0;
 const TOTAL_PX: f32 = 20.0;
-const ICON_SIZE: u32 = 24;
+const ICON_SIZE: u32 = 30;
 const ICON_GAP: f32 = 4.0;
 const PILL_PAD_X: f32 = 8.0;
 const PILL_CORNER: f32 = 4.0;
@@ -72,36 +82,78 @@ const POPUP_LINE_PX: f32 = 18.0;
 const POPUP_PAD: f32 = 12.0;
 const POPUP_ROW_GAP: f32 = 6.0;
 
-// Runeshape-panel parchment.
-const PILL_FILL: (u8, u8, u8, u8) = (0xEA, 0xDF, 0xC6, 235);
-const PILL_BORDER: (u8, u8, u8) = (0x6B, 0x56, 0x37);
-const PILL_BORDER_JACKPOT: (u8, u8, u8) = (0x8A, 0x6A, 0x2F);
-const STALE_COLOR: (u8, u8, u8) = (0x8B, 0x3A, 0x2E);
+// Shared design system with the control panel (settings-mockup.html): warm
+// near-black chrome, bronze hairlines, off-white text, grey/blue/gold value
+// tiers. The overlay reads as one tool with the settings window.
+const C_PANEL: (u8, u8, u8, u8) = (0x1C, 0x16, 0x0F, 238); // pill/panel fill (near-opaque over the game)
+const C_INK: (u8, u8, u8) = (0xEA, 0xE0, 0xCB); // primary text
+const C_INK2: (u8, u8, u8) = (0xB3, 0xA3, 0x82); // secondary / descriptions
+const C_LINE: (u8, u8, u8) = (0x37, 0x2C, 0x1E); // subtle hairline
+const C_BRONZE: (u8, u8, u8) = (0x6B, 0x56, 0x37); // default border
+const C_GOLD: (u8, u8, u8) = (0xC9, 0xA2, 0x27); // jackpot / best
+const C_BLUE: (u8, u8, u8) = (0x2E, 0x5A, 0x8A); // decent border
+const C_BLUE_LT: (u8, u8, u8) = (0x7F, 0xA8, 0xD6); // decent text (readable on dark)
+const C_JUNK_LT: (u8, u8, u8) = (0xB7, 0xAB, 0x97); // junk text
+const C_RED: (u8, u8, u8) = (0x8B, 0x3A, 0x2E); // stale / danger
 
+fn rgb(c: (u8, u8, u8)) -> Color {
+    Color::from_rgba8(c.0, c.1, c.2, 0xFF)
+}
+
+/// Price text color per value tier (same grey/blue/gold ladder as settings,
+/// lightened where needed to read on the dark pill).
 fn amount_color(t: Tier) -> Color {
     match t {
-        Tier::Junk | Tier::Unknown => Color::from_rgba8(0x6E, 0x65, 0x5A, 0xFF),
-        Tier::Decent => Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF),
-        Tier::Jackpot => Color::from_rgba8(0x9C, 0x4E, 0x12, 0xFF),
+        Tier::Junk | Tier::Unknown => rgb(C_JUNK_LT),
+        Tier::Decent => rgb(C_BLUE_LT),
+        Tier::Jackpot => rgb(C_GOLD),
     }
 }
 
+/// Pill border per tier: a bronze hairline for junk, the tier accent (blue /
+/// gold) otherwise, mirroring the settings value-tier ladder's accent bars.
 fn border_color(t: Tier) -> Color {
-    let (r, g, b) = if t == Tier::Jackpot { PILL_BORDER_JACKPOT } else { PILL_BORDER };
-    Color::from_rgba8(r, g, b, 0xFF)
+    match t {
+        Tier::Junk | Tier::Unknown => rgb(C_LINE),
+        Tier::Decent => rgb(C_BLUE),
+        Tier::Jackpot => rgb(C_GOLD),
+    }
 }
 
 fn stale_color() -> Color {
-    Color::from_rgba8(STALE_COLOR.0, STALE_COLOR.1, STALE_COLOR.2, 0xFF)
+    rgb(C_RED)
 }
 
 fn best_border_color() -> Color {
-    Color::from_rgba8(0xC9, 0xA2, 0x27, 0xFF)
+    rgb(C_GOLD)
+}
+
+/// Neutral bronze hairline for container panels (popup, appraisal, total),
+/// matching the settings window's chrome rather than a value-tier accent.
+fn panel_border() -> Color {
+    rgb(C_BRONZE)
 }
 
 fn pill_fill_color() -> Color {
-    Color::from_rgba8(PILL_FILL.0, PILL_FILL.1, PILL_FILL.2, PILL_FILL.3)
+    Color::from_rgba8(C_PANEL.0, C_PANEL.1, C_PANEL.2, C_PANEL.3)
 }
+
+/// Rating-tier palette for rumour badges (from the rumour reference):
+/// S=gold, A=green, B=blue, C=grey, D=orange, F=red. Keyed on the first
+/// letter so "S+", "A+", "B+" collapse to their tier.
+fn rating_color(rating: &str) -> Color {
+    match rating.chars().next().map(|c| c.to_ascii_uppercase()) {
+        Some('S') => Color::from_rgba8(0xC9, 0xA2, 0x27, 0xFF),
+        Some('A') => Color::from_rgba8(0x3A, 0x8A, 0x3A, 0xFF),
+        Some('B') => Color::from_rgba8(0x2E, 0x5A, 0x8A, 0xFF),
+        Some('C') => Color::from_rgba8(0x6E, 0x65, 0x5A, 0xFF),
+        Some('D') => Color::from_rgba8(0x9C, 0x4E, 0x12, 0xFF),
+        Some('F') => Color::from_rgba8(0x8B, 0x3A, 0x2E, 0xFF),
+        _ => Color::from_rgba8(0x6E, 0x65, 0x5A, 0xFF),
+    }
+}
+
+const RATING_PX: f32 = 18.0;
 
 impl Renderer {
     pub fn new() -> anyhow::Result<Renderer> {
@@ -138,6 +190,14 @@ impl Renderer {
     fn text_width(&self, kind: FontKind, text: &str, px: f32) -> f32 {
         let font = self.font_for(kind);
         text.chars().map(|c| font.metrics(c, px).advance_width).sum()
+    }
+
+    /// Rendered pixel width of an appraisal row label, so the panel layout can
+    /// size the mod-text column against the exact glyphs it will draw (matching
+    /// `draw_appraisal`'s font and size). Used by both the renderer and the
+    /// main loop's hit-test so their geometry stays identical.
+    pub fn appraisal_label_width(&self, text: &str) -> i32 {
+        self.text_width(FontKind::Annotation, text, POPUP_LINE_PX).ceil() as i32
     }
 
     fn draw_text(&self, pm: &mut Pixmap, x: f32, y_baseline: f32, text: &str, style: &TextStyle) {
@@ -302,12 +362,34 @@ impl Renderer {
                     y as f32 - pill_h / 2.0,
                     tw + PILL_PAD_X * 2.0,
                     pill_h,
-                    border_color(Tier::Decent),
+                    panel_border(),
                 );
-                let color = if stale { stale_color() } else { Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF) };
+                let color = if stale { stale_color() } else { rgb(C_INK) };
                 let total_style = TextStyle { kind: FontKind::Annotation, px: TOTAL_PX, color };
                 self.draw_text(pm, first.x as f32, y as f32 + TOTAL_PX * 0.35, &text, &total_style);
             }
+        }
+    }
+
+    /// Draws rumour rating badges: a parchment pill (same language as the
+    /// reward rows) with the rating text in its tier color, hung off the
+    /// tooltip panel's right edge at each rumour line. Call after
+    /// `draw_frame` so badges sit on the already-cleared frame.
+    pub fn draw_rumours(&self, pm: &mut Pixmap, badges: &[RumourBadge]) {
+        for b in badges {
+            let color = rating_color(&b.rating);
+            let tw = self.text_width(FontKind::Amount, &b.rating, RATING_PX);
+            let pill_h = RATING_PX + 10.0;
+            let pill_w = tw + PILL_PAD_X * 2.0;
+            self.pill(pm, b.x as f32, b.y as f32 - pill_h / 2.0, pill_w, pill_h, color);
+            let style = TextStyle { kind: FontKind::Amount, px: RATING_PX, color };
+            self.draw_text(
+                pm,
+                b.x as f32 + PILL_PAD_X,
+                b.y as f32 + RATING_PX * 0.35,
+                &b.rating,
+                &style,
+            );
         }
     }
 
@@ -319,17 +401,21 @@ impl Renderer {
     /// Draws the interactive appraisal panel from the SAME layout the
     /// click handler hit-tests against (appraise_ui::layout), offset to
     /// `anchor` (surface-local top-left).
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_appraisal(
         &self,
         pm: &mut Pixmap,
         panel: &crate::appraise_ui::Panel,
         lay: &crate::appraise_ui::Layout,
         anchor: (i32, i32),
+        editing: Option<(usize, crate::appraise_ui::Field)>,
+        edit_buf: &str,
     ) {
+        use crate::appraise_ui::Field;
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        let ink = Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF);
-        let dim = Color::from_rgba8(0x8A, 0x7A, 0x60, 0xFF);
-        self.pill(pm, ax, ay, lay.size.0 as f32, lay.size.1 as f32, border_color(Tier::Decent));
+        let ink = rgb(C_INK);
+        let dim = rgb(C_INK2);
+        self.pill(pm, ax, ay, lay.size.0 as f32, lay.size.1 as f32, panel_border());
 
         let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: ink };
         self.draw_text(pm, ax + 12.0, ay + 12.0 + POPUP_TITLE_PX * 0.8, &panel.title, &title_style);
@@ -343,9 +429,51 @@ impl Renderer {
             &x_style,
         );
 
-        for ((check, text_pos), m) in lay.rows.iter().zip(&panel.mods) {
+        // Base-type toggle row: a checkbox + the base name. Unchecked means a
+        // mods-only search across every base.
+        if let (Some(check), Some(base)) = (&lay.base_check, &panel.base) {
             let (cx, cy) = (ax + check.x as f32, ay + check.y as f32);
             let side = check.w as f32;
+            let color = if base.enabled { ink } else { dim };
+            self.pill(pm, cx, cy, side, side, color);
+            if base.enabled {
+                let mut inner = tiny_skia::Paint::default();
+                inner.set_color(ink);
+                if let Some(r) = tiny_skia::Rect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
+                    pm.fill_rect(r, &inner, tiny_skia::Transform::identity(), None);
+                }
+            }
+            let style = TextStyle {
+                kind: FontKind::Annotation,
+                px: POPUP_LINE_PX,
+                color: if base.enabled { ink } else { dim },
+            };
+            self.draw_text(
+                pm,
+                ax + lay.base_label_pos.0 as f32,
+                ay + lay.base_label_pos.1 as f32,
+                &base.label,
+                &style,
+            );
+        }
+
+        // Tag chip abbreviation + colour by group.
+        let chip = |tag: &str| -> (&'static str, Color) {
+            match tag {
+                "implicit" => ("impl", rgb(C_BLUE_LT)),
+                "explicit" => ("expl", rgb(C_INK2)),
+                _ => ("map", Color::from_rgba8(0xD9, 0x9A, 0x4A, 0xFF)),
+            }
+        };
+        let tag_style_px = 13.0;
+        for (g, m) in lay.rows.iter().zip(&panel.mods) {
+            // Separator line above the first row of each group.
+            if g.group_start {
+                let sep = rgb(C_LINE);
+                self.pill(pm, ax + 10.0, ay + g.check.y as f32 - 7.0, lay.size.0 as f32 - 20.0, 1.0, sep);
+            }
+            let (cx, cy) = (ax + g.check.x as f32, ay + g.check.y as f32);
+            let side = g.check.w as f32;
             // Checkbox: outline always, filled square when enabled.
             let color = if m.enabled { ink } else { dim };
             self.pill(pm, cx, cy, side, side, color);
@@ -356,14 +484,47 @@ impl Renderer {
                     pm.fill_rect(r, &inner, tiny_skia::Transform::identity(), None);
                 }
             }
+            // Tag chip.
+            let (chip_txt, chip_col) = chip(&m.tag);
+            let chip_style = TextStyle { kind: FontKind::Amount, px: tag_style_px, color: chip_col };
+            self.draw_text(pm, ax + g.tag_pos.0 as f32, ay + g.tag_pos.1 as f32, chip_txt, &chip_style);
+
             let tier = m.tier.map(|t| format!("T{t} ")).unwrap_or_default();
-            let line = format!("{tier}{} (min {})", m.label, m.min);
-            let style = TextStyle {
+            let label_style = TextStyle {
                 kind: FontKind::Annotation,
                 px: POPUP_LINE_PX,
                 color: if m.enabled { ink } else { dim },
             };
-            self.draw_text(pm, ax + text_pos.0 as f32, ay + text_pos.1 as f32, &line, &style);
+            self.draw_text(
+                pm,
+                ax + g.label_pos.0 as f32,
+                ay + g.label_pos.1 as f32,
+                &format!("{tier}{}", m.label),
+                &label_style,
+            );
+            // Min/max value boxes: outlined, right-aligned; a focused box shows
+            // the live edit buffer and a brighter border.
+            let box_style = TextStyle { kind: FontKind::Amount, px: 14.0, color: ink };
+            for (field, bx, val) in [
+                (Field::Min, &g.min_box, crate::appraise_ui::fmt_num(m.min)),
+                (
+                    Field::Max,
+                    &g.max_box,
+                    m.max.map(crate::appraise_ui::fmt_num).unwrap_or_default(),
+                ),
+            ] {
+                let focused = editing == Some((m.filter_index, field));
+                let border = if focused { rgb(C_GOLD) } else { rgb(C_LINE) };
+                self.pill(pm, ax + bx.x as f32, ay + bx.y as f32, bx.w as f32, bx.h as f32, border);
+                let shown = if focused { edit_buf.to_string() } else { val };
+                self.draw_text(
+                    pm,
+                    ax + bx.x as f32 + 5.0,
+                    ay + bx.y as f32 + bx.h as f32 - 5.0,
+                    &shown,
+                    &box_style,
+                );
+            }
         }
 
         for (rect, _, label) in &lay.buttons {
@@ -406,9 +567,9 @@ impl Renderer {
         let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
         let pill_x = ax as f32;
         let pill_y = ay as f32;
-        self.pill(pm, pill_x, pill_y, POPUP_WIDTH, pill_h, border_color(Tier::Decent));
+        self.pill(pm, pill_x, pill_y, POPUP_WIDTH, pill_h, panel_border());
 
-        let title_color = Color::from_rgba8(0x3A, 0x2C, 0x1A, 0xFF);
+        let title_color = rgb(C_INK);
         let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: title_color };
         let title_baseline = pill_y + POPUP_PAD + POPUP_TITLE_PX * 0.8;
         self.draw_text(pm, pill_x + POPUP_PAD, title_baseline, &popup.title, &title_style);

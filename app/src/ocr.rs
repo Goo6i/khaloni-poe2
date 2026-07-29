@@ -349,6 +349,27 @@ impl OcrEngine {
             .get_tsv_text(0)
             .map_err(|e| anyhow::anyhow!("tsv: {e}"))
     }
+
+    /// Public raw-TSV pass (psm 6) over an arbitrary gray image, for the
+    /// rumour recognizer which does its own line grouping. `None` on any
+    /// tesseract failure, matching the "degrade, never crash" contract.
+    pub fn tsv_of(&mut self, img: &GrayImage) -> Option<String> {
+        self.tsv(img).ok()
+    }
+
+    /// Like `tsv_of` but at a caller-chosen page-segmentation mode. PSM 11
+    /// (sparse text) reads the stylized cursive rumour names that the
+    /// uniform-block PSM 6 garbles; the rumour recognizer unions both.
+    pub fn tsv_of_psm(&mut self, img: &GrayImage, psm: u32) -> Option<String> {
+        let mut png: Vec<u8> = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .ok()?;
+        self.lt.set_image_from_mem(&png).ok()?;
+        self.lt
+            .set_variable(leptess::Variable::TesseditPagesegMode, &psm.to_string())
+            .ok()?;
+        self.lt.get_tsv_text(0).ok()
+    }
 }
 
 

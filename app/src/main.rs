@@ -55,6 +55,123 @@ fn game_window_logical() -> Rect {
     }
 }
 
+/// Percent-encodes a string for use in a URL query (RFC 3986 unreserved
+/// set kept literal; everything else percent-encoded, space as %20).
+/// Prices one specific cut skill gem: resolve the OCR'd name to an exact gem
+/// type, item-search it at the given level, and convert the cheapest listing
+/// to exalted via the currency table. `Unpriced` when the name doesn't resolve
+/// or there are no listings; leaves it for the caller to cache.
+fn price_one_gem(
+    client: &mut poe2_lens_core::trade::TradeClient,
+    skill_lower: &str,
+    level: u32,
+    gem_types: &[String],
+    cur_id_to_name: &std::collections::HashMap<String, String>,
+    table: &poe2_lens_core::ninja::PriceTable,
+) -> poe2_lens::pricing::GemState {
+    use poe2_lens::pricing::GemState;
+    let Some(name) = poe2_lens_core::trade::match_gem_name(skill_lower, gem_types) else {
+        return GemState::Unpriced;
+    };
+    let listings = match client.price_gem(&name, i64::from(level)) {
+        Ok(l) => l,
+        // A transient error (rate limit, network): stay Pending so the next
+        // scan re-requests, rather than caching a wrong "unpriced".
+        Err(_) => return GemState::Pending,
+    };
+    // Cheapest listing that converts to exalted (search is price-asc, so the
+    // first convertible one is the floor).
+    for l in &listings {
+        let ex = if l.price_currency == "exalted" {
+            Some(l.price_amount)
+        } else {
+            cur_id_to_name
+                .get(&l.price_currency)
+                .and_then(|n| table.lookup(n))
+                .map(|p| l.price_amount * p.exalted)
+        };
+        if let Some(ex) = ex {
+            return GemState::Priced(ex);
+        }
+    }
+    GemState::Unpriced
+}
+
+/// Turns a trade category id ("weapon.bow", "armour.helmet") into a readable
+/// label ("Bow", "Helmet") for the panel's base-type toggle.
+fn pretty_category(cat: &str) -> String {
+    let leaf = cat.rsplit('.').next().unwrap_or(cat);
+    let mut out = String::with_capacity(leaf.len());
+    let mut start = true;
+    for ch in leaf.chars() {
+        if ch == '_' {
+            out.push(' ');
+            start = true;
+        } else if start {
+            out.extend(ch.to_uppercase());
+            start = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Opens `url_template` (with `{name}` replaced by the copied item's name,
+/// URL-encoded) in the default browser. Uses the base type when the item has
+/// no distinct name (magic/normal). No-ops on an unparseable/empty item.
+fn open_resource(url_template: &str, item_text: &str) {
+    let name = poe2_lens_core::item::parse_item(item_text)
+        .ok()
+        .and_then(|it| {
+            if it.name.trim().is_empty() {
+                it.base_type
+            } else {
+                Some(it.name)
+            }
+        })
+        .unwrap_or_default();
+    if name.trim().is_empty() {
+        return;
+    }
+    let url = url_template.replace("{name}", &urlencode(name.trim()));
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+}
+
+/// Fires a desktop notification (best-effort; ignored if notify-send is absent).
+fn notify(summary: &str, body: &str) {
+    let _ = std::process::Command::new("notify-send")
+        .arg("-a")
+        .arg("poe2-lens")
+        .arg(summary)
+        .arg(body)
+        .spawn();
+}
+
+#[cfg(test)]
+mod main_tests {
+    use super::urlencode;
+    #[test]
+    fn urlencode_handles_spaces_and_apostrophes() {
+        assert_eq!(urlencode("Cold as ice"), "Cold%20as%20ice");
+        assert_eq!(urlencode("Wanderlust"), "Wanderlust");
+        assert_eq!(urlencode("Kaom's Heart"), "Kaom%27s%20Heart");
+    }
+}
+
 fn headless() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg
@@ -92,7 +209,7 @@ fn headless() -> anyhow::Result<()> {
     // throttles at the closed (300ms) rate here.
     let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     std::thread::spawn(move || {
-        if let Err(e) = capture::consume(start, rrx, region, ftx, panel_open) {
+        if let Err(e) = capture::consume(start, rrx, region, ftx, panel_open, None) {
             eprintln!("capture thread died: {e}");
         }
     });
@@ -129,7 +246,18 @@ type FrameState = (
     bool,
     Option<(hover::Popup, (i32, i32))>,
     Option<(poe2_lens::appraise_ui::Panel, (i32, i32))>,
+    Vec<poe2_lens::render::RumourBadge>,
+    // Focused value box (filter index, field, live edit buffer), so typed
+    // digits repaint even though the committed panel values are unchanged.
+    Option<(usize, poe2_lens::appraise_ui::Field, String)>,
 );
+
+/// What an in-flight copy-hovered request (other than a price check) should
+/// do with the copied item text once it arrives.
+enum PendingAction {
+    /// Open the item in the browser via `Config::resource_shortcuts[i]`.
+    Shortcut(usize),
+}
 
 /// Appraisal worker requests: Auto = fresh item, build the query and
 /// relax until listings appear; Exact = the user's checkbox state, run
@@ -137,6 +265,38 @@ type FrameState = (
 enum AppraiseReq {
     Auto(poe2_lens_core::item::Item),
     Exact { title: String, query: poe2_lens_core::trade::Query },
+    /// Price a stackable currency (e.g. an omen) by its display name via the
+    /// trade exchange; the result comes back on the exchange channel.
+    Currency { name: String },
+    /// Price a specific cut skill gem (reward-panel "Skill Level N: <name>")
+    /// by name + level via item search; the result is written to the shared
+    /// gem cache the OCR pricer reads.
+    Gem { skill: String, level: u32 },
+}
+
+/// Shared cache of specific-gem prices, written by the trade worker and read
+/// (with lazy request) by the reward-panel pricer.
+type GemMap = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String, u32), poe2_lens::pricing::GemState>>>;
+
+/// Reads a gem's cached price and, on a miss, marks it pending and asks the
+/// trade worker to price it.
+struct GemCache {
+    map: GemMap,
+    req_tx: mpsc::Sender<AppraiseReq>,
+}
+
+impl poe2_lens::pricing::GemPricer for GemCache {
+    fn lookup(&self, skill_lower: &str, level: u32) -> poe2_lens::pricing::GemState {
+        let key = (skill_lower.to_string(), level);
+        let mut m = self.map.lock().unwrap();
+        if let Some(state) = m.get(&key) {
+            return *state;
+        }
+        m.insert(key.clone(), poe2_lens::pricing::GemState::Pending);
+        drop(m);
+        let _ = self.req_tx.send(AppraiseReq::Gem { skill: skill_lower.to_string(), level });
+        poe2_lens::pricing::GemState::Pending
+    }
 }
 
 struct AppraiseDone {
@@ -184,6 +344,23 @@ fn overlay_mode() -> anyhow::Result<()> {
     }
 
     let rt = tokio::runtime::Runtime::new()?;
+    // Identify ourselves to xdg-desktop-portal BEFORE any other portal call.
+    // ashpd shares one session-bus connection across all its proxies, and the
+    // FIRST portal request (ScreenCast below) permanently binds that
+    // connection to an app id: for a terminal-launched app that id is empty,
+    // and KDE's GlobalShortcuts portal then refuses it ("An app id is
+    // required"). Registering here claims a real id first, so hotkeys bind.
+    // Best-effort: logged, never fatal.
+    rt.block_on(async {
+        match "dev.goo6i.poe2lens".parse::<ashpd::AppID>() {
+            Ok(app_id) => {
+                if let Err(e) = ashpd::register_host_app(app_id).await {
+                    eprintln!("app-id registration failed (hotkeys may not bind): {e}");
+                }
+            }
+            Err(e) => eprintln!("invalid app id: {e}"),
+        }
+    });
     let start = rt.block_on(capture::portal_session(cfg.restore_token.as_deref()))?;
     if let Some(tok) = &start.new_token {
         cfg.restore_token = Some(tok.clone());
@@ -192,8 +369,26 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (hk_tx, hk_rx) = mpsc::channel();
     {
         let (check, overlay) = (cfg.hotkey_price_check.clone(), cfg.hotkey_overlay.clone());
+        // (id, trigger) for every dynamic action: chat macros as "macro-N",
+        // resource shortcuts as "url-N". The main loop routes by id prefix.
+        let mut extra: Vec<(String, String)> = cfg
+            .macros
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (format!("macro-{i}"), m.key.clone()))
+            .collect();
+        extra.extend(
+            cfg.resource_shortcuts
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (format!("url-{i}"), s.key.clone())),
+        );
+        // The settings panel opens on its own shortcut (id "settings").
+        if !cfg.hotkey_settings.is_empty() {
+            extra.push(("settings".to_string(), cfg.hotkey_settings.clone()));
+        }
         rt.spawn(async move {
-            if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay).await {
+            if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay, extra).await {
                 eprintln!("hotkeys unavailable: {e}");
             }
         });
@@ -214,14 +409,75 @@ fn overlay_mode() -> anyhow::Result<()> {
     // second F7 does not queue another; reset when its result is drained.
     let price_check_in_flight = Arc::new(AtomicBool::new(false));
     let (clip_tx, clip_rx) = mpsc::channel::<anyhow::Result<String>>();
+    // Copy-hovered actions that are not price checks (resource shortcuts,
+    // map analysis) share one reply channel; `pending_action` says what the
+    // in-flight copy was for.
+    let (action_tx, action_rx) = mpsc::channel::<anyhow::Result<String>>();
+    let mut pending_action: Option<PendingAction> = None;
+    // Map-mod rules: built-in seed plus any config-added needles.
+    let map_rules = {
+        let mut r = poe2_lens_core::mapmods::default_rules();
+        for n in &cfg.map_danger_needles {
+            r.push(poe2_lens_core::mapmods::ModRule {
+                needle: n.to_lowercase(),
+                kind: poe2_lens_core::mapmods::ModKind::Danger,
+            });
+        }
+        for n in &cfg.map_good_needles {
+            r.push(poe2_lens_core::mapmods::ModRule {
+                needle: n.to_lowercase(),
+                kind: poe2_lens_core::mapmods::ModKind::Good,
+            });
+        }
+        r
+    };
+    // Control panel: a local web server (Settings, Reference, Leveling) the
+    // browser opens on the settings hotkey. Reference data loads (cached,
+    // fetched once) on a background thread so a cold fetch never blocks
+    // startup; the bound loopback port lands in `panel_port`.
+    let panel_port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
+    {
+        let pp = panel_port.clone();
+        std::thread::spawn(move || {
+            let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+                .map(|d| d.cache_dir().to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            let r = poe2_lens::webserver::reference_data(&cache);
+            let ctx = poe2_lens::webserver::Ctx {
+                affixes: r.affixes,
+                items: r.items,
+                uniques: r.uniques,
+                keystones: r.keystones,
+                categories: r.categories,
+                leveling: r.leveling,
+                index_html: poe2_lens::webserver::INDEX_HTML.to_string(),
+                csrf_token: String::new(),
+                port: 0,
+            };
+            match poe2_lens::webserver::start(ctx) {
+                Ok(port) => {
+                    pp.store(port, std::sync::atomic::Ordering::Relaxed);
+                    eprintln!("control panel ready: http://127.0.0.1:{port}");
+                }
+                Err(e) => eprintln!("control panel unavailable: {e}"),
+            }
+        });
+    }
     // Trade appraisal worker: rare items parsed from the clipboard get a
     // background search+fetch against the official trade API (strictly
     // rate limited inside TradeClient); results return on this channel.
     let (appraise_tx, appraise_rx) = mpsc::channel::<AppraiseDone>();
     let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<AppraiseReq>();
+    // Currency-exchange results: (display name, price in exalted or None).
+    let (exch_tx, exch_rx) = mpsc::channel::<(String, Option<f64>)>();
+    // Specific-gem price cache, shared with the OCR pricer.
+    let gem_map: GemMap = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     {
         let tx = appraise_tx.clone();
+        let exch_tx = exch_tx.clone();
         let league = cfg.league.clone();
+        let gem_map = gem_map.clone();
+        let svc_gem = svc.clone();
         std::thread::spawn(move || {
             let stats_path = directories::ProjectDirs::from("", "", "poe2-lens")
                 .map(|d| d.cache_dir().join("trade_stats.json"));
@@ -251,7 +507,40 @@ fn overlay_mode() -> anyhow::Result<()> {
                 eprintln!("trade stats index unavailable; rare appraisal disabled");
                 return;
             };
+            // Currency name -> trade exchange id (for pricing omens etc. that
+            // poe.ninja doesn't track). Best-effort; empty disables exchange.
+            let currency_ids = client.static_currency_ids().unwrap_or_default();
+            // Reverse map (trade currency id -> display name), for converting a
+            // gem listing's price currency to exalted via the poe.ninja table.
+            let cur_id_to_name: std::collections::HashMap<String, String> =
+                currency_ids.iter().map(|(name, id)| (id.clone(), name.clone())).collect();
+            // Exact gem base-type names, for resolving OCR'd skill names.
+            let gem_types = client.gem_types().unwrap_or_default();
             for req in appraise_req_rx {
+                // Currency exchange is priced separately from item search.
+                if let AppraiseReq::Currency { name } = &req {
+                    let rate = currency_ids
+                        .get(&name.to_lowercase())
+                        .and_then(|id| client.exchange(id, "exalted").ok().flatten());
+                    let _ = exch_tx.send((name.clone(), rate));
+                    continue;
+                }
+                // Specific cut skill gem: resolve name, item-search by level,
+                // convert the cheapest listing to exalted, write the cache.
+                if let AppraiseReq::Gem { skill, level } = &req {
+                    let state = price_one_gem(
+                        &mut client,
+                        skill,
+                        *level,
+                        &gem_types,
+                        &cur_id_to_name,
+                        &svc_gem.snapshot().table,
+                    );
+                    if let Ok(mut m) = gem_map.lock() {
+                        m.insert((skill.clone(), *level), state);
+                    }
+                    continue;
+                }
                 let (title, q, labels, relaxed) = match req {
                     AppraiseReq::Auto(item) => {
                         let title = if item.name.is_empty() {
@@ -264,6 +553,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         (title, q, labels, true)
                     }
                     AppraiseReq::Exact { title, query } => (title, query, Vec::new(), false),
+                    AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
                 let searched = if relaxed {
                     client.search_relaxed(&q).map(|(s, _kept)| s)
@@ -305,6 +595,11 @@ fn overlay_mode() -> anyhow::Result<()> {
     let map = CoordMap::new(game, (3840, 2160), cal);
     // Capacity 1: only the latest frame is ever wanted; see capture::consume.
     let (ftx, frx) = mpsc::sync_channel(1);
+    // Full-frame channel for the rumour recognizer (latest-only, capacity 1).
+    let (full_tx, full_rx) = mpsc::sync_channel::<image::GrayImage>(1);
+    // Recognized rumours flow back to the render loop here (every scan,
+    // including empty, so stale badges clear when the panel closes).
+    let (rumour_tx, rumour_rx) = mpsc::channel::<Vec<poe2_lens::rumours::RumourHit>>();
     let (region_tx, region_rx) = mpsc::channel::<Rect>();
     let region = map.region_px();
     // Shared with the OCR worker below: it owns the BrightnessGate and
@@ -315,7 +610,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let panel_open_capture = panel_open.clone();
     std::thread::spawn(move || {
-        let _ = capture::consume(start, region_rx, region, ftx, panel_open_capture);
+        let _ = capture::consume(start, region_rx, region, ftx, panel_open_capture, Some(full_tx));
     });
 
     // OCR worker: frames in, priced rows out. `pipeline_paused` is toggled by the
@@ -326,7 +621,74 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (rows_tx, rows_rx) = mpsc::channel();
     let svc_ocr = svc.clone();
     let ocr_cfg = cfg.clone();
+    // Rumour recognizer worker (step 1: detect + log; rendering follows).
+    // Full frames arrive on their own slow cadence; find_panel locates the
+    // tooltip and recognize() reads the rumours. Independent of the reward
+    // pipeline and the calibration region (rumours can be anywhere on screen).
+    {
+        let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
+        let paused_rumour = pipeline_paused.clone();
+        std::thread::spawn(move || {
+            let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+            let Some(csv_path) = rumour_csv else { return };
+            let Ok(csv) = std::fs::read_to_string(&csv_path) else {
+                eprintln!("rumour worker: no rumours.csv; rumour overlay off");
+                return;
+            };
+            let idx = poe2_lens_core::rumour::RumourIndex::new(
+                poe2_lens_core::rumour::parse_csv(&csv),
+            );
+            let Ok(mut engine) = ocr::OcrEngine::new() else {
+                eprintln!("rumour worker: tesseract init failed; rumour overlay off");
+                return;
+            };
+            eprintln!("rumour worker: ready ({} entries)", idx.len());
+            for frame in full_rx {
+                if paused_rumour.load(std::sync::atomic::Ordering::Relaxed) {
+                    continue;
+                }
+                let t = std::time::Instant::now();
+                // Debug: dump the exact frame a panel was seen in, so live
+                // misses can be analyzed offline at the true capture resolution.
+                if std::env::var("POE2LENS_RUMOUR_DUMP").is_ok()
+                    && poe2_lens::rumours::find_panel(&frame).is_some()
+                {
+                    let _ = frame.save("/tmp/poe2-live-frame.png");
+                }
+                let hits = poe2_lens::rumours::recognize(&mut engine, &frame, &idx);
+                if !hits.is_empty() {
+                    eprintln!(
+                        "RUMOURS {} in {}ms: {}",
+                        hits.len(),
+                        t.elapsed().as_millis(),
+                        hits.iter()
+                            .map(|h| format!(
+                                "{} [{}] @({},{})",
+                                h.entry.rumour, h.entry.rating, h.line.x0, h.line.y0
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                } else if dbg {
+                    eprintln!(
+                        "rumour scan: {}x{} none in {}ms",
+                        frame.width(),
+                        frame.height(),
+                        t.elapsed().as_millis()
+                    );
+                }
+                // Always forward (even empty) so the render loop clears
+                // badges the instant the tooltip leaves the screen.
+                if rumour_tx.send(hits).is_err() {
+                    break; // main loop gone
+                }
+            }
+        });
+    }
+
     let paused_ocr = pipeline_paused.clone();
+    // The reward-panel pricer's handle to the specific-gem cache + trade worker.
+    let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
     std::thread::spawn(move || {
         let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
@@ -518,6 +880,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 &lines,
                 &ocr_cfg,
                 rumours.as_ref(),
+                Some(&gem_cache),
             );
             // Teach the template store from confidently identified OCR
             // rows aligned to a band (OCR-taught templates then take over
@@ -527,6 +890,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                     || r.item_key == "unpriceable"
                     || r.item_key == "ambiguous"
                     || r.item_key.starts_with("gem-unleveled")
+                    // Specific gems are priced asynchronously via trade and
+                    // must re-OCR each scan to pick up the arriving price, so
+                    // they are never templated (a template would freeze the
+                    // provisional "…" or an early price).
+                    || r.item_key.starts_with("gemx:")
                 {
                     continue;
                 }
@@ -603,6 +971,13 @@ fn overlay_mode() -> anyhow::Result<()> {
         poe2_lens_core::trade::Query,
         (i32, i32),
     )> = None;
+    // Which filter box is being typed into, and the digits typed so far.
+    let mut editing: Option<(usize, poe2_lens::appraise_ui::Field)> = None;
+    let mut edit_buf = String::new();
+    // An in-progress panel drag: (grab point in surface px, panel's global
+    // position when the grab began). Deliberately NOT persisted anywhere, so
+    // each new price check reopens the panel at its freshly-placed spot.
+    let mut panel_drag: Option<((i32, i32), (i32, i32))> = None;
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
     // What was actually drawn+presented last tick: `Some((placed, stale,
     // popup))` while visible, `None` while hidden/blank. Compared each tick
@@ -613,10 +988,35 @@ fn overlay_mode() -> anyhow::Result<()> {
     // expiry (which changes nothing else about the frame) still forces the
     // repaint that clears it.
     let mut last_frame: Option<FrameState> = None;
+    // Latest rumours from the recognizer worker (capture-physical px boxes).
+    let mut latest_rumours: Vec<poe2_lens::rumours::RumourHit> = Vec::new();
     let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+    // Live config reload: the web control panel writes config.toml; polling its
+    // mtime (once a second) lets main-loop-read settings (pause-when-unfocused,
+    // divine threshold) take effect without a relaunch. Worker-thread settings
+    // still need a restart (they hold clones), as the panel notes.
+    let mut cfg_mtime = std::fs::metadata(Config::path()).and_then(|m| m.modified()).ok();
+    let mut last_cfg_poll = std::time::Instant::now();
 
     loop {
         overlay.pump()?;
+
+        if last_cfg_poll.elapsed() >= Duration::from_secs(1) {
+            last_cfg_poll = std::time::Instant::now();
+            if let Ok(m) = std::fs::metadata(Config::path()).and_then(|md| md.modified()) {
+                if cfg_mtime != Some(m) {
+                    cfg_mtime = Some(m);
+                    if let Ok(new_cfg) = Config::load() {
+                        cfg = new_cfg;
+                    }
+                }
+            }
+        }
+
+        // Latest rumour scan wins; empty vec clears badges when the panel closes.
+        while let Ok(r) = rumour_rx.try_recv() {
+            latest_rumours = r;
+        }
 
         while let Ok(ev) = kwin.rx.try_recv() {
             match ev {
@@ -670,9 +1070,55 @@ fn overlay_mode() -> anyhow::Result<()> {
                         // a second press from queueing another copy while
                         // one is running on the injector thread.
                         if game_focused && !price_check_in_flight.swap(true, Ordering::AcqRel) {
-                            inj.submit(clip_tx.clone());
+                            inj.submit(clip_tx.clone(), 0);
                         }
                     }
+                }
+                poe2_lens::hotkeys::Hotkey::Extra(id) => {
+                    // The settings hotkey opens the local web control panel in
+                    // the browser (Settings / Reference / Leveling). No focus
+                    // gate: it's an out-of-game window.
+                    if id == "settings" {
+                        let port = panel_port.load(std::sync::atomic::Ordering::Relaxed);
+                        if port != 0 {
+                            let _ = std::process::Command::new("xdg-open")
+                                .arg(format!("http://127.0.0.1:{port}/"))
+                                .spawn();
+                        } else {
+                            notify("poe2-lens", "control panel still starting, try again in a moment");
+                        }
+                        continue;
+                    }
+                    // Only act while the game is focused, never into another
+                    // window. "macro-N" types a chat message; "url-N" copies
+                    // the hovered item and opens it in a browser.
+                    if !game_focused {
+                        continue;
+                    }
+                    if let Some(i) = id.strip_prefix("macro-").and_then(|n| n.parse::<usize>().ok()) {
+                        if let (Some(inj), Some(m)) = (&injector, cfg.macros.get(i)) {
+                            inj.type_text(m.message.clone(), cfg.macro_open_delay_ms);
+                        }
+                    } else if let Some(i) =
+                        id.strip_prefix("url-").and_then(|n| n.parse::<usize>().ok())
+                    {
+                        if let Some(inj) = &injector {
+                            if i < cfg.resource_shortcuts.len() && pending_action.is_none() {
+                                pending_action = Some(PendingAction::Shortcut(i));
+                                inj.submit(action_tx.clone(), 300);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Drain copy-hovered action results (resource shortcuts, map analysis).
+        while let Ok(result) = action_rx.try_recv() {
+            let action = pending_action.take();
+            if let (Some(PendingAction::Shortcut(i)), Ok(text)) = (action, result) {
+                if let Some(sc) = cfg.resource_shortcuts.get(i) {
+                    open_resource(&sc.url, &text);
                 }
             }
         }
@@ -689,12 +1135,29 @@ fn overlay_mode() -> anyhow::Result<()> {
                 Ok(text) => {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
+                    // Waystone hovered: also flag its dangerous mods (folded
+                    // in from the old map hotkey; no clipboard write here so
+                    // F7's copy is never clobbered).
+                    if text.to_lowercase().contains("waystone") {
+                        let lines: Vec<&str> = text.lines().collect();
+                        let dangers: Vec<String> = poe2_lens_core::mapmods::analyze(&lines, &map_rules)
+                            .into_iter()
+                            .filter(|(_, k)| *k == poe2_lens_core::mapmods::ModKind::Danger)
+                            .map(|(l, _)| l)
+                            .collect();
+                        if !dangers.is_empty() {
+                            notify("poe2-lens: map dangers", &dangers.join(" | "));
+                        }
+                    }
                     if let Some(item) = hover.pending_appraisal.take() {
                         // A fresh check replaces any open panel.
                         if apanel.take().is_some() {
                             overlay.set_interactive(None)?;
                         }
                         let _ = appraise_req_tx.send(AppraiseReq::Auto(item));
+                    }
+                    if let Some(name) = hover.pending_currency.take() {
+                        let _ = appraise_req_tx.send(AppraiseReq::Currency { name });
                     }
                 }
                 Err(e) => eprintln!("price check: {e}"),
@@ -705,6 +1168,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let (px, py) = poe2_lens::popup_pos::place(cursor_pos, size, game_rect);
                 (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
             });
+        }
+        // Currency-exchange results replace the "checking exchange..." popup
+        // in place (the anchor from the F7 press still applies).
+        while let Ok((name, rate)) = exch_rx.try_recv() {
+            hover.show_exchange(&name, rate);
         }
         while let Ok(done) = appraise_rx.try_recv() {
             let listings_of = |outcome: &Result<Vec<poe2_lens_core::trade::Listing>, String>| match outcome {
@@ -723,27 +1191,43 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // "searching trade..." popup was anchored.
                 (Some(query), _) => {
                     let (listings, status) = listings_of(&done.outcome);
-                    let mods = done
+                    let mut mods: Vec<poe2_lens::appraise_ui::ModRow> = done
                         .labels
                         .iter()
                         .enumerate()
                         .map(|(i, l)| poe2_lens::appraise_ui::ModRow {
                             label: l.text.clone(),
                             tier: l.tier,
-                            min: l.min,
+                            min: query.filters[i].value.min,
+                            max: query.filters[i].value.max,
                             enabled: !query.filters[i].disabled,
                             filter_index: i,
+                            tag: l.tag.to_string(),
                         })
                         .collect();
+                    // Group implicits first, then explicits, then map (EE2 order).
+                    mods.sort_by_key(|m| poe2_lens::appraise_ui::tag_rank(&m.tag));
+                    // Gear carries a base-type toggle so the user can search
+                    // mods-only; items priced by their base (waystones, whose
+                    // category is None) get no toggle.
+                    let base = query.category.as_deref().map(|c| {
+                        poe2_lens::appraise_ui::BaseToggle {
+                            label: format!("Base: {}", pretty_category(c)),
+                            enabled: query.category_enabled,
+                        }
+                    });
                     let panel = poe2_lens::appraise_ui::Panel {
                         title: done.title,
+                        base,
                         mods,
                         listings,
                         status,
                         search_id: done.search_id,
                     };
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
-                    let lay = poe2_lens::appraise_ui::layout(&panel);
+                    let lay = poe2_lens::appraise_ui::layout(&panel, &|s| {
+                        renderer.appraisal_label_width(s)
+                    });
                     let pos = poe2_lens::popup_pos::place(origin, lay.size, game_rect);
                     hover.current = None;
                     popup_at = None;
@@ -754,6 +1238,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                         lay.size.0 as u32,
                         lay.size.1 as u32,
                     )))?;
+                    // Fresh check: forget any earlier drag so the panel opens
+                    // at its placed position, never where it was last dragged.
+                    panel_drag = None;
+                    editing = None;
+                    overlay.set_keyboard(false)?;
                     apanel = Some((panel, query, pos));
                 }
                 // Exact response: update the open panel in place.
@@ -772,12 +1261,10 @@ fn overlay_mode() -> anyhow::Result<()> {
         // Panel clicks: geometry from the same layout the renderer drew.
         if apanel.is_some() {
             let out_pos = overlay.output_pos();
+            let (sw, sh) = overlay.size();
             for (cx, cy) in overlay.take_clicks() {
-                if dbg {
-                    eprintln!("panel click at surface ({cx},{cy})");
-                }
                 let Some((panel, query, pos)) = apanel.as_mut() else { break };
-                let lay = poe2_lens::appraise_ui::layout(panel);
+                let lay = poe2_lens::appraise_ui::layout(panel, &|s| renderer.appraisal_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 match poe2_lens::appraise_ui::hit(panel, &lay, local.0, local.1) {
                     Some(poe2_lens::appraise_ui::Action::ToggleMod(fi)) => {
@@ -788,6 +1275,19 @@ fn overlay_mode() -> anyhow::Result<()> {
                             m.enabled = !m.enabled;
                         }
                     }
+                    // Dropping the base searches the mods across every base.
+                    Some(poe2_lens::appraise_ui::Action::ToggleBase) => {
+                        query.category_enabled = !query.category_enabled;
+                        if let Some(b) = panel.base.as_mut() {
+                            b.enabled = query.category_enabled;
+                        }
+                    }
+                    // Clicking a value box focuses it for keyboard entry.
+                    Some(poe2_lens::appraise_ui::Action::Edit(fi, field)) => {
+                        editing = Some((fi, field));
+                        edit_buf.clear();
+                        overlay.set_keyboard(true)?;
+                    }
                     Some(poe2_lens::appraise_ui::Action::Search) => {
                         panel.status = "searching...".into();
                         let _ = appraise_req_tx.send(AppraiseReq::Exact {
@@ -796,29 +1296,148 @@ fn overlay_mode() -> anyhow::Result<()> {
                         });
                     }
                     Some(poe2_lens::appraise_ui::Action::OpenSite) => {
-                        if let Some(id) = &panel.search_id {
-                            let url = format!(
-                                "https://www.pathofexile.com/trade2/search/poe2/{}/{}",
-                                cfg.league.replace(' ', "%20"),
-                                id
-                            );
-                            let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+                        // Feedback in the status line, since opening the browser
+                        // gives no in-overlay cue on its own.
+                        match &panel.search_id {
+                            Some(id) => {
+                                let url = format!(
+                                    "https://www.pathofexile.com/trade2/search/poe2/{}/{}",
+                                    cfg.league.replace(' ', "%20"),
+                                    id
+                                );
+                                panel.status = match std::process::Command::new("xdg-open").arg(&url).spawn() {
+                                    Ok(_) => "opened in browser".into(),
+                                    Err(e) => format!("open failed: {e}"),
+                                };
+                            }
+                            None => panel.status = "run a search first".into(),
                         }
                     }
                     Some(poe2_lens::appraise_ui::Action::Close) => {
                         apanel = None;
+                        editing = None;
+                        panel_drag = None;
+                        overlay.set_keyboard(false)?;
                         overlay.set_interactive(None)?;
                     }
-                    None => {}
+                    // A press on a non-interactive part of the panel (title
+                    // bar, gaps between controls) grabs it for dragging. Widen
+                    // the input region to the whole surface so motion keeps
+                    // arriving even as the panel slides out from under the
+                    // cursor; the region is settled back on release.
+                    None => {
+                        let inside = local.0 >= 0
+                            && local.0 < lay.size.0
+                            && local.1 >= 0
+                            && local.1 < lay.size.1;
+                        if inside {
+                            panel_drag = Some(((cx, cy), *pos));
+                            overlay.set_interactive(Some((0, 0, sw, sh)))?;
+                        }
+                    }
+                }
+            }
+            // Advance or finish an in-progress drag.
+            if let Some((grab, orig)) = panel_drag {
+                if overlay.button_down() {
+                    let (px, py) = overlay.pointer_pos();
+                    if let Some((_, _, pos)) = apanel.as_mut() {
+                        *pos = (orig.0 + (px - grab.0), orig.1 + (py - grab.1));
+                    }
+                } else {
+                    panel_drag = None;
+                    if let Some((panel, _, pos)) = apanel.as_ref() {
+                        let lay = poe2_lens::appraise_ui::layout(panel, &|s| {
+                            renderer.appraisal_label_width(s)
+                        });
+                        overlay.set_interactive(Some((
+                            pos.0 - out_pos.0,
+                            pos.1 - out_pos.1,
+                            lay.size.0 as u32,
+                            lay.size.1 as u32,
+                        )))?;
+                    }
                 }
             }
         }
-        // Losing the game (focus with pause, or presence) closes the
-        // panel: a stale input region would silently eat desktop clicks.
-        if apanel.is_some() && (!game_present || (!game_focused && cfg.pause_when_unfocused)) {
+        // Typed digits into a focused value box (EE2-style numeric entry):
+        // digits append, Backspace deletes, Enter commits the parsed number
+        // to both the query filter and the panel row, Escape cancels.
+        if editing.is_some() {
+            for key in overlay.take_keys() {
+                let Some((fi, field)) = editing else { break };
+                let Some((panel, query, _)) = apanel.as_mut() else {
+                    editing = None;
+                    overlay.set_keyboard(false)?;
+                    break;
+                };
+                match key {
+                    poe2_lens::overlay::Key::Digit(c) => {
+                        if edit_buf.len() < 8 {
+                            edit_buf.push(c);
+                        }
+                    }
+                    // One decimal point, so values like 3.5 are typeable.
+                    poe2_lens::overlay::Key::Dot => {
+                        if edit_buf.len() < 8 && !edit_buf.contains('.') {
+                            if edit_buf.is_empty() {
+                                edit_buf.push('0');
+                            }
+                            edit_buf.push('.');
+                        }
+                    }
+                    poe2_lens::overlay::Key::Backspace => {
+                        edit_buf.pop();
+                    }
+                    poe2_lens::overlay::Key::Enter => {
+                        // Trailing "." (e.g. "3.") parses fine after trimming.
+                        let cleaned = edit_buf.trim_end_matches('.');
+                        let parsed: Option<f64> = if cleaned.is_empty() {
+                            None
+                        } else {
+                            cleaned.parse().ok()
+                        };
+                        if let Some(f) = query.filters.get_mut(fi) {
+                            match field {
+                                poe2_lens::appraise_ui::Field::Min => {
+                                    f.value.min = parsed.unwrap_or(0.0);
+                                }
+                                poe2_lens::appraise_ui::Field::Max => {
+                                    f.value.max = parsed;
+                                }
+                            }
+                        }
+                        if let Some(m) = panel.mods.iter_mut().find(|m| m.filter_index == fi) {
+                            match field {
+                                poe2_lens::appraise_ui::Field::Min => m.min = parsed.unwrap_or(0.0),
+                                poe2_lens::appraise_ui::Field::Max => m.max = parsed,
+                            }
+                        }
+                        editing = None;
+                        edit_buf.clear();
+                        overlay.set_keyboard(false)?;
+                    }
+                    poe2_lens::overlay::Key::Escape => {
+                        editing = None;
+                        edit_buf.clear();
+                        overlay.set_keyboard(false)?;
+                    }
+                }
+            }
+        }
+        // The panel is a deliberate, sticky action: it stays put until the
+        // user closes it (X or a new price check) so they can alt-tab, click a
+        // value box (which itself steals focus from the game to type), and edit
+        // without it vanishing. Only a fully-gone game tears it down, since
+        // then the overlay hides and its input region must not linger.
+        if apanel.is_some() && !game_present {
             apanel = None;
+            editing = None;
+            panel_drag = None;
+            overlay.set_keyboard(false)?;
             overlay.set_interactive(None)?;
         }
+
         hover.tick();
         match (&hover.current, popup_at) {
             (Some(_), Some((origin, rect))) => {
@@ -883,7 +1502,12 @@ fn overlay_mode() -> anyhow::Result<()> {
         // hotkeys read as dead keys (live finding, 2026-07-23).
         let on_screen = game_present && (game_focused || !cfg.pause_when_unfocused);
         let show_rows = scanning && on_screen;
-        let show = show_rows || (on_screen && (hover.current.is_some() || apanel.is_some()));
+        // The appraisal panel renders whenever it is open and the game is
+        // present, even while unfocused: editing a value box steals keyboard
+        // focus from the game, and the panel must not blink out mid-edit.
+        let show = show_rows
+            || (on_screen && hover.current.is_some())
+            || (game_present && apanel.is_some());
         let size = overlay.size();
         if size.0 > 0 && size.1 > 0 {
             let mut resized = false;
@@ -956,7 +1580,29 @@ fn overlay_mode() -> anyhow::Result<()> {
                     .lookup("Divine Orb")
                     .map(|p| format!("1 div = {} ex", p.exalted.round() as i64))
                     .unwrap_or_default();
-                Some((placed, rate, stabilizer.stale(), popup, panel))
+                // Rumour badges: capture-physical box -> global logical (game
+                // origin + phys/scale) -> surface-local. Hung off the tooltip
+                // panel's right edge at each rumour line's vertical center.
+                let rumour_badges: Vec<poe2_lens::render::RumourBadge> = if show_rows {
+                    latest_rumours
+                        .iter()
+                        .map(|h| {
+                            let phys_x = f64::from(h.panel.x1);
+                            let phys_y = f64::from(h.line.y0 + h.line.y1) / 2.0;
+                            poe2_lens::render::RumourBadge {
+                                x: game_pos.0 + (phys_x / map.scale) as i32 - out_pos.0 + 12,
+                                y: game_pos.1 + (phys_y / map.scale) as i32 - out_pos.1,
+                                rating: h.entry.rating.clone(),
+                            }
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let edit_state = editing.map(|(fi, field)| (fi, field, edit_buf.clone()));
+                // Settings panel render data (surface-local anchor + edit
+                // state), so typed digits repaint live like the appraisal box.
+                Some((placed, rate, stabilizer.stale(), popup, panel, rumour_badges, edit_state))
             } else {
                 None
             };
@@ -969,15 +1615,22 @@ fn overlay_mode() -> anyhow::Result<()> {
             // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, rate, stale, popup, panel)) => {
+                    Some((placed, rate, stale, popup, panel, rumours, edit_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
+                        // Rumour rating badges sit on the cleared frame with
+                        // the rows; both are part of the on-panel overlay.
+                        renderer.draw_rumours(pm, rumours);
                         // Popup drawn after the rows so it sits on top.
                         if let Some((p, anchor)) = popup {
                             renderer.draw_popup(pm, p, *anchor);
                         }
                         if let Some((p, anchor)) = panel {
-                            let lay = poe2_lens::appraise_ui::layout(p);
-                            renderer.draw_appraisal(pm, p, &lay, *anchor);
+                            let lay = poe2_lens::appraise_ui::layout(p, &|s| {
+                                renderer.appraisal_label_width(s)
+                            });
+                            let ed = edit_state.as_ref().map(|(fi, f, _)| (*fi, *f));
+                            let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
+                            renderer.draw_appraisal(pm, p, &lay, *anchor, ed, buf);
                         }
                     }
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),

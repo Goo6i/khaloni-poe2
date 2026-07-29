@@ -28,6 +28,9 @@ pub struct HoverState {
     /// A rare item parsed by `trigger`, waiting for the trade worker to
     /// appraise it (the popup shows "searching..." meanwhile).
     pub pending_appraisal: Option<item::Item>,
+    /// A stackable currency (e.g. an omen) not in the local price table,
+    /// waiting for a trade-exchange price lookup by this display name.
+    pub pending_currency: Option<String>,
 }
 
 const POPUP_TTL: Duration = Duration::from_secs(6);
@@ -120,6 +123,13 @@ impl HoverState {
                     let (denom, amount) = crate::pricing::denom_amount(price, count, divine_threshold);
                     vec![PopupLine { text: amount, denom }]
                 }
+                // Stackable currency the local table doesn't carry (omens and
+                // other exchange items poe.ninja doesn't track): price it via
+                // the trade exchange instead of showing "?".
+                None if parsed.stack_size.is_some() => {
+                    self.pending_currency = Some(title.clone());
+                    vec![PopupLine { text: "checking exchange...".into(), denom: Denom::None }]
+                }
                 None => vec![PopupLine {
                     text: value::UNKNOWN.into(),
                     denom: Denom::None,
@@ -155,6 +165,27 @@ impl HoverState {
             title: title.to_string(),
             lines,
             expires: Instant::now() + APPRAISAL_TTL,
+        });
+    }
+
+    /// Shows a currency's trade-exchange price (in exalted), or a not-found
+    /// note, replacing the "checking exchange..." popup.
+    pub fn show_exchange(&mut self, title: &str, exalted: Option<f64>) {
+        let line = match exalted {
+            Some(ex) if ex >= 1.0 => PopupLine {
+                text: format!("{} exalted", (ex * 10.0).round() / 10.0),
+                denom: Denom::None,
+            },
+            Some(ex) => PopupLine {
+                text: format!("{:.2} exalted", ex),
+                denom: Denom::None,
+            },
+            None => PopupLine { text: "no exchange price".into(), denom: Denom::None },
+        };
+        self.current = Some(Popup {
+            title: title.to_string(),
+            lines: vec![line],
+            expires: Instant::now() + POPUP_TTL,
         });
     }
 

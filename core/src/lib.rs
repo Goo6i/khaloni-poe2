@@ -1,7 +1,11 @@
+pub mod gamelog;
 pub mod item;
+pub mod mapmods;
 pub mod matcher;
 pub mod ninja;
+pub mod refdata;
 pub mod rumour;
+pub mod rumour_scan;
 pub mod scout;
 pub mod trade;
 pub mod value;

@@ -79,6 +79,45 @@ fn maps_skill_gem_rows_by_level_and_never_guesses_support() {
 }
 
 #[test]
+fn specific_gems_price_individually_via_the_gem_pricer() {
+    use poe2_lens::pricing::{price_lines_with_rumours, GemPricer, GemState};
+    // A pricer that gives each named gem its own price, proving rows no longer
+    // collapse to one uncut value.
+    struct Mock;
+    impl GemPricer for Mock {
+        fn lookup(&self, skill: &str, level: u32) -> GemState {
+            assert_eq!(level, 20);
+            match skill {
+                "detonate living" => GemState::Priced(1.0),
+                "conductive runes" => GemState::Pending,
+                _ => GemState::Unpriced,
+            }
+        }
+    }
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (rows, _) = price_lines_with_rumours(
+        &t,
+        &v,
+        &[
+            line("skill level 20: detonate living", 0),
+            line("skill level 20: conductive runes", 0),
+        ],
+        &cfg,
+        None,
+        Some(&Mock),
+    );
+    assert_eq!(rows.len(), 2);
+    // Priced gem: its own trade price, keyed by name so it never templates back.
+    assert_eq!(rows[0].item_key, "gemx:detonate living:20");
+    assert!((rows[0].value_ex - 1.0).abs() < 1e-9, "got {}", rows[0].value_ex);
+    // Pending gem shows a placeholder, not a stale/wrong price.
+    assert_eq!(rows[1].item_key, "gemx:conductive runes:20");
+    assert_eq!(rows[1].value_ex, 0.0);
+}
+
+#[test]
 fn unmatched_rows_are_dropped_not_guessed() {
     let t = table();
     let v = build_vocab(&t);
@@ -172,6 +211,7 @@ fn unmatched_line_resolves_as_a_rumour_annotation() {
         &[line("fallen stars", 10)],
         &cfg,
         Some(&idx),
+        None,
     );
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].item_key, "rumour:Fallen Stars|Moor|S+");

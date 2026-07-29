@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf" content="%%CSRF%%">
+<title>poe2-lens — Control Panel</title>
+<style>
+  @font-face { font-family:"Fontin"; src:url("/fonts/Fontin-Regular.ttf") format("truetype"); font-weight:400; font-display:swap; }
+  @font-face { font-family:"Fontin SmallCaps"; src:url("/fonts/Fontin-SmallCaps.ttf") format("truetype"); font-weight:400; font-display:swap; }
+  :root{
+    --void:#141009; --void-2:#0f0b06; --panel:#1c160f; --rail:#17110a;
+    --input:#241d13; --input-2:#2b2217; --line:#372c1e; --line-soft:#281f15;
+    --bronze:#6b5637; --bronze-bright:#8a6a2f;
+    --gold:#c9a227; --gold-glow:rgba(201,162,39,.16); --orange:#9c4e12;
+    --green:#3a8a3a; --blue:#2e5a8a; --red:#8b3a2e;
+    --ink:#eae0cb; --ink-2:#b3a382; --ink-3:#7c7161;
+    --tier-junk:#6e655a; --tier-decent:#2e5a8a; --tier-jackpot:#c9a227;
+    --serif:"Fontin","Palatino Linotype","Book Antiqua",Georgia,serif;
+    --smallcaps:"Fontin SmallCaps","Fontin","Palatino Linotype",Georgia,serif;
+    --sans:"Inter","Segoe UI",Roboto,system-ui,sans-serif;
+    --mono:"JetBrains Mono","Cascadia Code",ui-monospace,"DejaVu Sans Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:radial-gradient(1200px 700px at 50% -10%, #1a140c 0%, #0b0805 70%), #0b0805;
+    color:var(--ink); font-family:var(--sans); font-size:14px; line-height:1.45;
+    -webkit-font-smoothing:antialiased; display:flex; align-items:center; justify-content:center; padding:28px;
+  }
+  .window{
+    width:min(1040px,100%); height:min(800px,calc(100vh - 56px));
+    display:flex; flex-direction:column; background:var(--void);
+    border:1px solid #000; border-radius:8px;
+    box-shadow:0 0 0 1px rgba(201,162,39,.06), 0 40px 90px -30px rgba(0,0,0,.9), 0 8px 24px -10px rgba(0,0,0,.7);
+    overflow:hidden;
+  }
+  .titlebar{
+    height:44px; flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:0 14px;
+    background:linear-gradient(#1a140c,#120d07); border-bottom:1px solid #000; user-select:none;
+  }
+  .titlebar .mark{font-family:var(--smallcaps); font-size:16px; letter-spacing:.06em; color:var(--ink)}
+  .titlebar .mark b{color:var(--gold); font-weight:400}
+  .titlebar .crumb{font-family:var(--sans); font-size:12px; color:var(--ink-3); letter-spacing:.02em}
+  .titlebar .grip{margin-left:auto; display:flex; gap:16px; align-items:center; color:var(--ink-3); font-size:11px; letter-spacing:.04em}
+  .body{flex:1 1 auto; display:flex; min-height:0}
+  nav.rail{
+    flex:0 0 212px; background:var(--rail); border-right:1px solid var(--line-soft);
+    padding:14px 10px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;
+  }
+  .rail .eyebrow{font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3); padding:12px 10px 8px}
+  .navitem{
+    position:relative; display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:6px;
+    color:var(--ink-2); cursor:pointer; border:1px solid transparent; text-decoration:none; transition:background .12s,color .12s;
+  }
+  .navitem svg{width:17px; height:17px; flex:0 0 auto; stroke:currentColor; fill:none; stroke-width:1.6}
+  .navitem .lbl{font-size:13.5px}
+  .navitem .count{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3); background:var(--input); border:1px solid var(--line-soft); padding:1px 6px; border-radius:20px}
+  .navitem:hover{background:rgba(201,162,39,.05); color:var(--ink)}
+  .navitem.active{background:linear-gradient(90deg, var(--gold-glow), transparent 85%); color:var(--ink); border-color:rgba(201,162,39,.18)}
+  .navitem.active svg{color:var(--gold)}
+  .navitem.active::before{content:""; position:absolute; left:0; width:3px; height:20px; background:var(--gold); border-radius:0 3px 3px 0}
+  main.content{flex:1 1 auto; overflow-y:auto; padding:8px 34px 40px; scroll-behavior:smooth}
+  main.content::-webkit-scrollbar{width:12px}
+  main.content::-webkit-scrollbar-thumb{background:#2a2116; border:3px solid var(--void); border-radius:8px}
+  .view{display:none}
+  .view.active{display:block}
+  section.group{padding-top:30px}
+  section.group:first-child{padding-top:22px}
+  .grouphead{display:flex; align-items:baseline; gap:14px; margin-bottom:2px}
+  .grouphead h2{font-family:var(--serif); font-weight:400; font-size:22px; letter-spacing:.01em; color:var(--ink); margin:0}
+  .grouphead .idx{font-family:var(--mono); font-size:11px; color:var(--gold); opacity:.7; letter-spacing:.1em}
+  .groupnote{color:var(--ink-3); font-size:12px; margin:6px 0 0}
+  .rule{height:1px; border:0; margin:14px 0 6px; background:linear-gradient(90deg, var(--bronze), transparent 70%)}
+  .row{display:grid; grid-template-columns:1fr minmax(220px,360px); gap:24px 28px; align-items:center; padding:18px 2px; border-bottom:1px solid var(--line-soft)}
+  .row:last-child{border-bottom:0}
+  .row.stack{grid-template-columns:1fr}
+  .row.stack .control{margin-top:14px}
+  .rlabel .name{font-size:14.5px; color:var(--ink); font-weight:500}
+  .rlabel .desc{font-size:12.5px; color:var(--ink-2); margin-top:3px; max-width:54ch}
+  .rlabel .example{font-size:12px; color:var(--ink-3); margin-top:6px; font-family:var(--mono)}
+  .rlabel .example em{color:var(--gold); font-style:normal}
+  .control{display:flex; justify-content:flex-end; align-items:center; gap:10px; flex-wrap:wrap}
+  .afterrestart{font-size:11px; color:var(--ink-3); font-style:italic; margin-top:4px}
+  .keycap{font-family:var(--mono); font-size:13px; color:var(--ink); min-width:58px; text-align:center; padding:7px 12px 8px;
+    background:linear-gradient(#2c2419,#221b12); border:1px solid #100c07; border-bottom:3px solid #0c0905; border-radius:6px;
+    box-shadow:inset 0 1px 0 rgba(255,240,200,.06); cursor:pointer; user-select:none; transition:transform .05s,border-color .12s}
+  .keycap:hover{border-color:var(--bronze)}
+  .keycap:active{transform:translateY(1px); border-bottom-width:2px}
+  .keycap.listening{color:var(--gold); border-color:var(--gold); box-shadow:0 0 0 1px var(--gold), 0 0 16px var(--gold-glow); animation:pulse 1.1s ease-in-out infinite}
+  .keycap.unbound{color:var(--ink-3); border-bottom-color:#0c0905; font-style:italic; font-family:var(--sans); min-width:auto}
+  @keyframes pulse{50%{box-shadow:0 0 0 1px var(--gold), 0 0 4px var(--gold-glow)}}
+  .keywrap{display:flex; align-items:center; gap:7px}
+  .keyclear{width:22px; height:22px; border-radius:5px; cursor:pointer; background:var(--input); border:1px solid var(--line); color:var(--ink-3); font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center}
+  .keyclear:hover{color:var(--red); border-color:var(--red)}
+  .switch{--w:46px; --h:26px; width:var(--w); height:var(--h); flex:0 0 auto; background:var(--input-2); border:1px solid var(--line); border-radius:20px; position:relative; cursor:pointer; transition:background .15s,border-color .15s}
+  .switch .knob{position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#7a6f5d; transition:left .15s,background .15s; box-shadow:0 1px 2px rgba(0,0,0,.5)}
+  .switch.on{background:rgba(201,162,39,.22); border-color:var(--gold)}
+  .switch.on .knob{left:22px; background:var(--gold)}
+  select.select{appearance:none; min-width:200px; background:var(--input); border:1px solid var(--line); border-radius:6px; padding:9px 34px 9px 12px; color:var(--ink); font-size:13.5px; cursor:pointer; font-family:var(--sans)}
+  select.select:hover{border-color:var(--bronze)}
+  .selwrap{position:relative}
+  .selwrap .chev{position:absolute; right:13px; top:50%; width:9px; height:9px; border-right:1.6px solid var(--ink-3); border-bottom:1.6px solid var(--ink-3); rotate:45deg; margin-top:-6px; pointer-events:none}
+  .stepper{display:flex; align-items:stretch; border:1px solid var(--line); border-radius:6px; overflow:hidden; background:var(--input)}
+  .stepper button{width:32px; background:var(--input-2); border:0; color:var(--ink-2); font-size:16px; cursor:pointer; line-height:1}
+  .stepper button:hover{color:var(--gold)}
+  .stepper .val{font-family:var(--mono); font-size:13.5px; color:var(--ink); min-width:64px; text-align:center; padding:8px; border-left:1px solid var(--line); border-right:1px solid var(--line); display:flex; align-items:center; justify-content:center; gap:4px}
+  .stepper .val .unit{color:var(--ink-3); font-size:11px}
+  .slider{width:100%; max-width:340px; display:flex; align-items:center; gap:14px}
+  .track{position:relative; flex:1; height:6px; border-radius:6px; background:var(--input-2); border:1px solid var(--line-soft); cursor:pointer}
+  .track .fill{position:absolute; left:0; top:-1px; bottom:-1px; border-radius:6px; background:linear-gradient(90deg,var(--bronze),var(--gold)); pointer-events:none}
+  .track .knob{position:absolute; top:50%; width:16px; height:16px; border-radius:50%; background:var(--gold); border:2px solid #1a140c; transform:translate(-50%,-50%); box-shadow:0 1px 3px rgba(0,0,0,.6); pointer-events:none}
+  .bubble{font-family:var(--mono); font-size:13px; color:var(--ink); min-width:66px; text-align:right}
+  .bubble .unit{color:var(--ink-3); font-size:11px}
+  .field{font-family:var(--mono); font-size:13px; color:var(--ink); background:var(--input); border:1px solid var(--line); border-radius:6px; padding:9px 12px; width:100%}
+  .field::placeholder{color:var(--ink-3)}
+  .field:focus{outline:none; border-color:var(--gold); box-shadow:0 0 0 1px var(--gold-glow)}
+  .btn{font-family:var(--sans); font-size:13px; color:var(--ink); background:var(--input-2); border:1px solid var(--bronze); border-radius:6px; padding:9px 14px; cursor:pointer; white-space:nowrap}
+  .btn:hover{border-color:var(--gold); color:var(--gold)}
+  .btn.ghost{border-style:dashed; border-color:var(--line); color:var(--ink-2)}
+  .btn.ghost:hover{border-color:var(--bronze); color:var(--ink)}
+  .chips{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  .chip-ro{font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--input); border:1px solid var(--line-soft); border-radius:6px; padding:7px 11px}
+  .chip-ro span{color:var(--ink-3)}
+  .list{display:flex; flex-direction:column; gap:10px; width:100%}
+  .listrow{display:flex; gap:10px; align-items:center; background:var(--panel); border:1px solid var(--line-soft); border-radius:8px; padding:10px}
+  .listrow .field{flex:1}
+  .del{width:34px; height:34px; flex:0 0 auto; border-radius:6px; background:var(--input); border:1px solid var(--line); color:var(--ink-3); cursor:pointer; font-size:15px}
+  .del:hover{color:var(--red); border-color:var(--red)}
+  .listhint{font-family:var(--mono); font-size:11.5px; color:var(--ink-3); margin:8px 2px 0}
+  .listhint b{color:var(--gold); font-weight:400}
+  /* Reference */
+  .searchbar{display:flex; gap:12px 14px; align-items:center; flex-wrap:wrap; margin:18px 0 14px}
+  .searchbar .field{flex:1 1 280px; font-family:var(--sans)}
+  .pills{display:flex; gap:6px; flex-wrap:wrap}
+  .pill{padding:7px 13px; border-radius:20px; border:1px solid var(--line); background:var(--input); color:var(--ink-2); cursor:pointer; font-size:12.5px}
+  .pill.active{border-color:var(--gold); color:var(--gold); background:var(--gold-glow)}
+  .reslist{display:flex; flex-direction:column; gap:1px; border:1px solid var(--line-soft); border-radius:8px; overflow:hidden}
+  .resrow{display:flex; align-items:baseline; gap:12px; padding:11px 14px; background:var(--panel); border-bottom:1px solid var(--line-soft)}
+  .resrow:last-child{border-bottom:0}
+  .resrow:hover{background:var(--input)}
+  .resrow .rn{color:var(--ink); font-size:13.5px}
+  .resrow .rt{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3)}
+  .resrow .rc{color:var(--ink-3); font-size:12px}
+  .resrow2{padding:11px 14px; background:var(--panel); border-bottom:1px solid var(--line-soft)}
+  .resrow2:last-child{border-bottom:0}
+  .resrow2:hover{background:var(--input)}
+  .rhead{display:flex; align-items:baseline; gap:12px}
+  .rhead .rn{color:var(--ink); font-size:14px}
+  .rhead .rc{color:var(--ink-3); font-size:12px}
+  .rhead .rt{margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--ink-3)}
+  .rdetail{margin-top:7px; padding-left:2px; display:flex; flex-direction:column; gap:3px}
+  .rmod{color:var(--ink-2); font-size:12.5px; line-height:1.4}
+  .empty{color:var(--ink-3); text-align:center; padding:40px; font-size:13px}
+  /* Leveling */
+  .lvl-act{margin-bottom:22px}
+  .lvl-acthead{display:flex; align-items:baseline; gap:12px; margin-bottom:8px}
+  .lvl-acthead h3{font-family:var(--serif); font-weight:400; font-size:18px; color:var(--ink); margin:0}
+  .lvl-acthead .prog{font-family:var(--mono); font-size:11px; color:var(--ink-3)}
+  .lvl-step{display:flex; gap:12px; align-items:flex-start; padding:9px 12px; background:var(--panel); border:1px solid var(--line-soft); border-radius:8px; margin-bottom:6px; cursor:pointer}
+  .lvl-step:hover{background:var(--input)}
+  .lvl-step .box{width:16px; height:16px; flex:0 0 auto; margin-top:2px; border-radius:4px; border:1px solid var(--bronze); background:var(--input)}
+  .lvl-step.done .box{background:var(--gold); border-color:var(--gold)}
+  .lvl-step.done .desc{text-decoration:line-through; color:var(--ink-3)}
+  .lvl-body{flex:1}
+  .lvl-body .desc{color:var(--ink); font-size:13.5px}
+  .lvl-body .zone{color:var(--ink-3); font-size:11.5px; margin-top:1px}
+  .lvl-body .hint{color:var(--ink-2); font-size:12px; margin-top:3px; font-style:italic}
+  .lvl-kind{font-family:var(--mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); background:var(--input); border:1px solid var(--line-soft); border-radius:20px; padding:2px 7px; flex:0 0 auto; margin-top:1px}
+  .status{flex:0 0 auto; height:36px; display:flex; align-items:center; gap:16px; padding:0 14px; background:linear-gradient(#120d07,#0d0905); border-top:1px solid #000; font-size:12px; color:var(--ink-3)}
+  .status .saved{display:flex; align-items:center; gap:7px; color:var(--ink-2)}
+  .status .dot{width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 6px rgba(58,138,58,.6)}
+  .status .dot.err{background:var(--red)}
+  .status .sep{margin-left:auto}
+  .status .path{color:var(--ink-3); font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="window" role="dialog" aria-label="poe2-lens control panel">
+  <div class="titlebar">
+    <span class="mark">poe2<b>-</b>lens</span>
+    <span class="crumb" id="crumb">Settings</span>
+    <div class="grip"><span id="leagueTag">—</span></div>
+  </div>
+  <div class="body">
+    <nav class="rail" id="rail">
+      <div class="eyebrow">Control panel</div>
+      <a class="navitem active" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/></svg><span class="lbl">Settings</span></a>
+      <a class="navitem" data-view="reference"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16M9 9v10"/></svg><span class="lbl">Reference</span></a>
+      <a class="navitem" data-view="leveling"><svg viewBox="0 0 24 24"><path d="M6 4v16M6 5h11l-2 3 2 3H6"/></svg><span class="lbl">Leveling</span></a>
+    </nav>
+    <main class="content">
+      <!-- SETTINGS -->
+      <div class="view active" id="view-settings"></div>
+      <!-- REFERENCE -->
+      <div class="view" id="view-reference">
+        <div class="grouphead"><span class="idx">R</span><h2>Reference</h2></div>
+        <hr class="rule">
+        <div class="searchbar">
+          <input class="field" id="refq" placeholder="Search affixes, bases, uniques, gems…">
+          <div class="pills" id="refpills">
+            <div class="pill active" data-kind="affix">Affixes</div>
+            <div class="pill" data-kind="ITEM">Bases</div>
+            <div class="pill" data-kind="unique">Uniques</div>
+            <div class="pill" data-kind="GEM">Gems</div>
+            <div class="pill" data-kind="keystone">Keystones</div>
+            <div class="pill" data-kind="cat:essences">Essences</div>
+            <div class="pill" data-kind="cat:omens">Omens</div>
+            <div class="pill" data-kind="cat:catalysts">Catalysts</div>
+            <div class="pill" data-kind="cat:currency">Currency</div>
+            <div class="pill" data-kind="cat:annoints">Annoints</div>
+            <div class="pill" data-kind="cat:ascendancy">Ascendancy</div>
+            <div class="pill" data-kind="cat:emotions">Emotions</div>
+            <div class="pill" data-kind="cat:atlas">Atlas</div>
+          </div>
+        </div>
+        <div id="refresults"></div>
+      </div>
+      <!-- LEVELING -->
+      <div class="view" id="view-leveling">
+        <div class="grouphead"><span class="idx">L</span><h2>Leveling</h2></div>
+        <p class="groupnote">Act-by-act guide. Click a step to mark it done; progress is saved on this machine.</p>
+        <hr class="rule">
+        <div id="levelinglist"></div>
+      </div>
+    </main>
+  </div>
+  <div class="status">
+    <span class="saved"><span class="dot" id="savedot"></span><span id="savedtext">Loading…</span></span>
+    <span class="sep"></span>
+    <span class="path" id="cfgpath">~/.config/poe2-lens/config.toml</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (s, r=document) => r.querySelector(s);
+const CSRF = document.querySelector('meta[name=csrf]')?.content || "";
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+let cfg = null;               // the live config object
+let saveTimer = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(path + " → " + r.status);
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
+}
+function setSaved(text, err=false) {
+  $("#savedtext").textContent = text;
+  $("#savedot").classList.toggle("err", err);
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setSaved("Saving…");
+  saveTimer = setTimeout(async () => {
+    try { await api("/api/config", { method:"POST", headers:{"Content-Type":"application/json","X-CSRF-Token":CSRF}, body:JSON.stringify(cfg) });
+          setSaved("Saved " + new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})); }
+    catch (e) { setSaved("Save failed: " + e.message, true); }
+  }, 250);
+}
+
+/* ---- control factories -------------------------------------------------- */
+function keycapRow(name, desc, key, restart) {
+  const row = el("div","row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  if (restart) l.append(el("div","afterrestart","Active after restart"));
+  const wrap = el("div","keywrap"), cap = el("span","keycap"); cap.tabIndex = 0;
+  const val = cfg[key];
+  if (val) cap.textContent = val; else { cap.textContent = "Click to bind"; cap.classList.add("unbound"); }
+  cap.addEventListener("click", () => beginCapture(cap, cfg[key] || "Click to bind", combo => { cfg[key] = combo; }));
+  const clr = el("span","keyclear","×"); clr.title = "Unbind";
+  clr.addEventListener("click", () => { cfg[key] = ""; cap.textContent = "Click to bind"; cap.classList.add("unbound"); scheduleSave(); });
+  wrap.append(cap, clr); c.append(wrap); row.append(l,c); return row;
+}
+let capturing = null;
+function beginCapture(cap, restoreText, apply) {
+  if (capturing) { capturing.cap.classList.remove("listening"); capturing.cap.textContent = capturing.restoreText; }
+  cap.classList.remove("unbound"); cap.classList.add("listening"); cap.textContent = "Press a key…";
+  capturing = { cap, restoreText, apply };
+}
+window.addEventListener("keydown", (e) => {
+  if (!capturing) return;
+  e.preventDefault();
+  if (e.key === "Escape") { capturing.cap.classList.remove("listening"); capturing.cap.textContent = capturing.restoreText; capturing = null; return; }
+  let k = e.key;
+  if (["Control","Alt","Shift","Meta"].includes(k)) return; // wait for the real key
+  const parts = [];
+  if (e.ctrlKey) parts.push("CTRL"); if (e.altKey) parts.push("ALT"); if (e.shiftKey) parts.push("SHIFT");
+  if (k === " ") k = "SPACE"; else if (k.length === 1) k = k.toUpperCase();
+  parts.push(k);
+  const combo = parts.join("+");
+  capturing.apply(combo);
+  capturing.cap.classList.remove("listening"); capturing.cap.textContent = combo;
+  capturing = null; scheduleSave();
+});
+
+function switchRow(name, desc, key) {
+  const row = el("div","row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  const sw = el("div","switch"); sw.append(el("span","knob"));
+  if (cfg[key]) sw.classList.add("on");
+  sw.addEventListener("click", () => { cfg[key] = !cfg[key]; sw.classList.toggle("on", cfg[key]); scheduleSave(); });
+  c.append(sw); row.append(l,c); return row;
+}
+function stepperRow(name, desc, key, unit, step, min, max, example) {
+  const row = el("div","row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  if (example) { const ex = el("div","example"); ex.innerHTML = example; l.append(ex); }
+  const st = el("div","stepper"), dec = el("button",null,"−"), inc = el("button",null,"+"), v = el("div","val");
+  const render = () => { v.innerHTML = ""; v.append(document.createTextNode(fmt(cfg[key]))); if (unit) v.append(el("span","unit",unit)); };
+  const clamp = x => Math.min(max ?? 1e9, Math.max(min ?? 0, x));
+  dec.addEventListener("click", () => { cfg[key] = round(clamp(cfg[key]-step)); render(); scheduleSave(); });
+  inc.addEventListener("click", () => { cfg[key] = round(clamp(cfg[key]+step)); render(); scheduleSave(); });
+  render(); st.append(dec,v,inc); c.append(st); row.append(l,c); return row;
+}
+function sliderRow(name, desc, key, unit, min, max) {
+  const row = el("div","row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  const sl = el("div","slider"), track = el("div","track"), fill = el("div","fill"), knob = el("div","knob"), bub = el("div","bubble");
+  track.append(fill, knob); sl.append(track, bub);
+  const render = () => { const pct = (cfg[key]-min)/(max-min)*100; fill.style.width = pct+"%"; knob.style.left = pct+"%"; bub.innerHTML = ""; bub.append(document.createTextNode(fmt(cfg[key]))); bub.append(el("span","unit",unit)); };
+  const setFromX = (clientX) => { const r = track.getBoundingClientRect(); let pct = (clientX-r.left)/r.width; pct = Math.min(1,Math.max(0,pct)); cfg[key] = Math.round(min+pct*(max-min)); render(); scheduleSave(); };
+  let dragging = false;
+  track.addEventListener("pointerdown", e => { dragging = true; track.setPointerCapture(e.pointerId); setFromX(e.clientX); });
+  track.addEventListener("pointermove", e => { if (dragging) setFromX(e.clientX); });
+  track.addEventListener("pointerup", () => dragging = false);
+  render(); c.append(sl); row.append(l,c); return row;
+}
+function selectRow(name, desc, key, options) {
+  const row = el("div","row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  const wrap = el("div","selwrap"), sel = el("select","select");
+  for (const o of options) { const opt = el("option",null,o.label); opt.value = o.value; if (String(cfg[key]) === String(o.value)) opt.selected = true; sel.append(opt); }
+  sel.addEventListener("change", () => { const raw = sel.value; cfg[key] = (typeof cfg[key] === "number") ? Number(raw) : raw; scheduleSave(); });
+  wrap.append(sel, el("span","chev")); c.append(wrap); row.append(l,c); return row;
+}
+function fieldRow(name, desc, key, stack=true) {
+  const row = el("div", stack ? "row stack" : "row"), l = el("div","rlabel"), c = el("div","control");
+  l.append(el("div","name",name), el("div","desc",desc));
+  if (stack) c.style.display = "block";
+  const f = el("input","field"); f.value = cfg[key] ?? "";
+  f.addEventListener("input", () => { cfg[key] = f.value; scheduleSave(); });
+  c.append(f); row.append(l,c); return row;
+}
+function calibRow() {
+  const row = el("div","row stack"), l = el("div","rlabel"), c = el("div","control");
+  c.style.justifyContent = "flex-start";
+  l.append(el("div","name","Reward-list region"), el("div","desc","The screen area scanned for the reward list. Set it with the drag tool in-game."));
+  const chips = el("div","chips"); const cal = cfg.calibration || {x:"—",y:"—",w:"—",h:"—"};
+  for (const k of ["x","y","w","h"]) { const ch = el("div","chip-ro"); ch.append(el("span",null,k+" "), document.createTextNode(cal[k])); chips.append(ch); }
+  c.append(chips); row.append(l,c); return row;
+}
+function listRow(name, desc, arrKey, keyField, valField, valPlaceholder, hint) {
+  const row = el("div","row stack"), l = el("div","rlabel"), c = el("div","control");
+  c.style.display = "block";
+  l.append(el("div","name",name), el("div","desc",desc));
+  const list = el("div","list");
+  const rebuild = () => {
+    list.innerHTML = "";
+    cfg[arrKey].forEach((entry, i) => {
+      const lr = el("div","listrow");
+      const cap = el("span","keycap", entry[keyField] || "Click to bind"); if (!entry[keyField]) cap.classList.add("unbound");
+      cap.addEventListener("click", () => startCaptureEntry(cap, entry, keyField));
+      const f = el("input","field"); f.value = entry[valField] || ""; f.placeholder = valPlaceholder;
+      f.addEventListener("input", () => { entry[valField] = f.value; scheduleSave(); });
+      const del = el("button","del","×"); del.title = "Remove";
+      del.addEventListener("click", () => { cfg[arrKey].splice(i,1); rebuild(); scheduleSave(); });
+      lr.append(cap, f, del); list.append(lr);
+    });
+    const add = el("button","btn ghost","+ Add"); add.style.alignSelf = "flex-start";
+    add.addEventListener("click", () => { cfg[arrKey].push({[keyField]:"", [valField]:""}); rebuild(); scheduleSave(); });
+    list.append(add);
+  };
+  rebuild(); c.append(list);
+  if (hint) { const h = el("div","listhint"); h.innerHTML = hint; c.append(h); }
+  row.append(l,c); return row;
+}
+function startCaptureEntry(cap, entry, field) {
+  beginCapture(cap, entry[field] || "Click to bind", combo => { entry[field] = combo; });
+}
+
+function fmt(n){ return (Math.round(n*100)/100).toString(); }
+function round(n){ return Math.round(n*100)/100; }
+
+/* ---- build the settings view ------------------------------------------- */
+function group(idx, title, note) {
+  const s = el("section","group"); const h = el("div","grouphead");
+  h.append(el("span","idx",idx), Object.assign(el("h2"),{textContent:title})); s.append(h);
+  if (note) s.append(el("p","groupnote",note));
+  s.append(el("hr","rule")); return s;
+}
+function buildSettings() {
+  const v = $("#view-settings"); v.innerHTML = "";
+  const hk = group("01","Hotkeys","KDE approves new bindings once, on the next launch.");
+  hk.append(
+    keycapRow("Price check","Copy the item under the cursor and show its price.","hotkey_price_check",true),
+    keycapRow("Toggle overlay","Show or hide the reward-list price overlay.","hotkey_overlay",true),
+    keycapRow("Open control panel","Open this window from in-game.","hotkey_settings",true),
+    keycapRow("Analyze waystone","Copy the hovered waystone's mods and flag the dangerous ones.","map_hotkey",true),
+  ); v.append(hk);
+
+  const disp = group("02","Display");
+  disp.append(
+    switchRow("Pause when the game loses focus","Stop scanning and hide the overlay when PoE2 is not the active window.","pause_when_unfocused"),
+    stepperRow("Show prices in Divine above","Below this many Exalted, prices stay in Exalted; above it they switch to Divine.","divine_threshold","ex",0.5,0,null,'1,250 ex reads as <em>2.4 div</em>'),
+    stepperRow("Decent tier from","Rows worth at least this (Exalted) read as Decent (blue).","tier_decent_ex","ex",0.5,0),
+    stepperRow("Jackpot tier from","Rows worth at least this (Exalted) read as Jackpot (gold).","tier_good_ex","ex",1,0),
+  ); v.append(disp);
+
+  const pr = group("03","Pricing");
+  pr.append(
+    fieldRow("League","poe.ninja prices are pulled for this league.","league",false),
+    selectRow("Refresh prices","How often to re-fetch prices from poe.ninja.","refresh_minutes",
+      [5,10,15,30,60].map(m => ({label:"Every "+m+" minutes", value:m}))),
+  ); v.append(pr);
+
+  const cap = group("04","Capture & OCR");
+  cap.append(
+    calibRow(),
+    sliderRow("Panel-open brightness","Start reading once the captured area is at least this bright. Parchment reads about 168; the game world about 40.","panel_open_brightness","/255",0,255),
+    sliderRow("Panel-close brightness","Stop reading once brightness drops below this.","panel_close_brightness","/255",0,255),
+  ); v.append(cap);
+
+  const mac = group("05","Macros & Shortcuts");
+  mac.append(
+    listRow("Chat macros","Send a fixed chat line with one key.","macros","key","message","Message to send"),
+    listRow("Item shortcuts","Open the hovered item on a site. Put {name} where the item name goes.","resource_shortcuts","key","url","https://…{name}",'Template: <b>https://poe2db.tw/us/search?q={name}</b>'),
+    sliderRow("Chat open delay","Wait this long after opening chat before typing, so the first letters aren't dropped.","macro_open_delay_ms","ms",0,2000),
+  ); v.append(mac);
+
+  const adv = group("06","Advanced");
+  adv.append(
+    fieldRow("Overlay font","Font used to draw overlay labels.","font_path"),
+    fieldRow("Tesseract command","Path or name of the tesseract binary used for OCR.","tesseract_cmd"),
+  ); v.append(adv);
+}
+
+/* ---- reference view ----------------------------------------------------- */
+let refKind = "affix";
+async function runRefSearch() {
+  const q = encodeURIComponent($("#refq").value.trim());
+  const box = $("#refresults");
+  try {
+    let rows;
+    if (refKind === "affix") {
+      rows = (await api("/api/affixes?q="+q)).map(a => ({title:a.text, meta:(a.trade_ids[0]||"")}));
+    } else if (refKind === "unique") {
+      rows = (await api("/api/uniques?q="+q)).map(u => ({title:u.name, sub:u.base, lines:u.mods}));
+    } else if (refKind === "keystone") {
+      // Descriptions concatenate stat lines with no separator; split at a
+      // lowercase/digit -> uppercase boundary (each stat line starts capital).
+      const splitStat = s => s.split("\n").flatMap(seg => seg.split(/(?<=[a-z0-9%)\]])(?=[A-Z])/)).filter(Boolean);
+      rows = (await api("/api/keystones?q="+q)).map(k => ({title:k.name, lines:splitStat(k.description||"")}));
+    } else if (refKind.startsWith("cat:")) {
+      const cat = refKind.slice(4);
+      rows = (await api("/api/ref?cat="+cat+"&q="+q)).map(e => ({title:e.name, lines:e.lines}));
+    } else {
+      rows = (await api("/api/items?ns="+refKind+"&q="+q)).map(i => ({title:i.name, sub:i.category||""}));
+    }
+    renderRef(box, rows);
+  } catch (e) { box.innerHTML = ""; box.append(el("div","empty","Search failed: "+e.message)); }
+}
+function renderRef(box, rows) {
+  box.innerHTML = "";
+  if (!rows.length) { box.append(el("div","empty","No matches.")); return; }
+  const list = el("div","reslist");
+  for (const r of rows.slice(0,300)) {
+    const row = el("div","resrow2");
+    const head = el("div","rhead");
+    head.append(el("span","rn",r.title));
+    if (r.sub) head.append(el("span","rc",r.sub));
+    if (r.meta) head.append(el("span","rt",r.meta));
+    row.append(head);
+    if (r.lines && r.lines.length) {
+      const d = el("div","rdetail");
+      for (const line of r.lines) d.append(el("div","rmod",line));
+      row.append(d);
+    }
+    list.append(row);
+  }
+  box.append(list);
+}
+
+/* ---- leveling view ------------------------------------------------------ */
+let levelingLoaded = false;
+function lvlDone(id) { return localStorage.getItem("lvl:"+id) === "1"; }
+async function loadLeveling() {
+  if (levelingLoaded) { return; }
+  const box = $("#levelinglist");
+  try {
+    const acts = await api("/api/leveling");
+    box.innerHTML = "";
+    if (!acts.length) { box.append(el("div","empty","No leveling data.")); return; }
+    for (const a of acts) {
+      const wrap = el("div","lvl-act");
+      const head = el("div","lvl-acthead");
+      head.append(el("h3",null,`Act ${a.act} — ${a.name}`), el("span","prog"));
+      wrap.append(head);
+      for (const st of a.steps) {
+        const row = el("div","lvl-step"); if (lvlDone(st.id)) row.classList.add("done");
+        row.append(el("div","box"));
+        const body = el("div","lvl-body");
+        body.append(el("div","desc", st.description || st.zone));
+        if (st.zone && st.description) body.append(el("div","zone", st.zone));
+        if (st.hint) body.append(el("div","hint", st.hint));
+        row.append(body);
+        if (st.kind) row.append(el("div","lvl-kind", st.kind.replace(/_/g," ")));
+        row.addEventListener("click", () => {
+          const now = !row.classList.contains("done");
+          row.classList.toggle("done", now);
+          localStorage.setItem("lvl:"+st.id, now ? "1" : "0");
+          updateProg(wrap);
+        });
+        wrap.append(row);
+      }
+      box.append(wrap);
+      updateProg(wrap);
+    }
+    levelingLoaded = true;
+  } catch (e) { box.innerHTML = ""; box.append(el("div","empty","Failed to load: "+e.message)); }
+}
+function updateProg(wrap) {
+  const steps = wrap.querySelectorAll(".lvl-step");
+  const done = wrap.querySelectorAll(".lvl-step.done").length;
+  wrap.querySelector(".prog").textContent = `${done}/${steps.length}`;
+}
+
+/* ---- view switching ----------------------------------------------------- */
+function showView(name) {
+  document.querySelectorAll(".navitem").forEach(n => n.classList.toggle("active", n.dataset.view === name));
+  document.querySelectorAll(".view").forEach(vv => vv.classList.toggle("active", vv.id === "view-"+name));
+  $("#crumb").textContent = name[0].toUpperCase()+name.slice(1);
+  if (name === "reference") runRefSearch();
+  if (name === "leveling") loadLeveling();
+}
+document.querySelectorAll(".navitem").forEach(n => n.addEventListener("click", () => showView(n.dataset.view)));
+$("#refq").addEventListener("input", () => { clearTimeout(window._rt); window._rt = setTimeout(runRefSearch, 150); });
+$("#refpills").addEventListener("click", e => { const p = e.target.closest(".pill"); if (!p) return;
+  document.querySelectorAll("#refpills .pill").forEach(x => x.classList.remove("active")); p.classList.add("active"); refKind = p.dataset.kind; runRefSearch(); });
+
+/* ---- boot --------------------------------------------------------------- */
+(async function init() {
+  try {
+    cfg = await api("/api/config");
+    // Ensure array fields exist so the list editors work.
+    cfg.macros = cfg.macros || []; cfg.resource_shortcuts = cfg.resource_shortcuts || [];
+    $("#leagueTag").textContent = cfg.league || "";
+    buildSettings();
+    setSaved("Loaded");
+  } catch (e) { setSaved("Failed to load config: "+e.message, true); }
+})();
+</script>
+</body>
+</html>

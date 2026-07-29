@@ -345,29 +345,112 @@ pub struct StatFilter {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FilterValue {
-    pub min: i64,
+    /// Search bound. Float so decimal rolls (attack speed 1.35, crit 3.5%)
+    /// are searchable; whole values serialize back as integers (see
+    /// `ser_num`), so the body still reads `155`, not `155.0`.
+    #[serde(serialize_with = "ser_num")]
+    pub min: f64,
+    /// Optional upper bound; omitted from the request when `None`.
+    #[serde(skip_serializing_if = "Option::is_none", serialize_with = "ser_opt_num")]
+    pub max: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// A search bound as JSON: an integer when whole (`155`), else a float
+/// (`3.5`). The trade site sends whole values as integers, and the verified
+/// body shape asserts on integers, so we preserve that.
+fn num_json(v: f64) -> serde_json::Value {
+    if v.is_finite() && v.fract() == 0.0 {
+        serde_json::json!(v as i64)
+    } else {
+        serde_json::json!(v)
+    }
+}
+
+fn ser_num<S: serde::Serializer>(v: &f64, s: S) -> Result<S::Ok, S::Error> {
+    if v.is_finite() && v.fract() == 0.0 {
+        s.serialize_i64(*v as i64)
+    } else {
+        s.serialize_f64(*v)
+    }
+}
+
+fn ser_opt_num<S: serde::Serializer>(v: &Option<f64>, s: S) -> Result<S::Ok, S::Error> {
+    match v {
+        Some(x) => ser_num(x, s),
+        None => s.serialize_none(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Query {
     pub category: Option<String>,
+    /// Whether the gear `category` constraint is applied. Off means a
+    /// mods-only search across every base (the common "what do these rolls
+    /// sell for" check); the category rides along dormant so it can be
+    /// re-enabled without rebuilding the query.
+    pub category_enabled: bool,
+    /// Exact base type to search (`query.type`), e.g. "Waystone" - used for
+    /// items priced by base + a map filter rather than by gear category.
+    pub type_name: Option<String>,
+    /// Waystone/map tier -> `filters.map_filters.filters.map_tier` (searched
+    /// as an exact tier: `{min: t, max: t}`), the dominant price driver.
+    pub map_tier: Option<i64>,
+    /// Skill/support gem level -> `filters.misc_filters.filters.gem_level`
+    /// (exact: `{min: n, max: n}`). Set with category "gem.activegem" and the
+    /// gem's skill name as `type_name` to price a specific cut gem.
+    pub gem_level: Option<i64>,
     pub filters: Vec<StatFilter>,
 }
 
 impl Query {
-    /// Serializes to the exact body shape verified live.
+    /// Serializes to the exact trade-search body shape (verified live, and
+    /// against EE2's builder for the map_filters/type paths).
     pub fn to_body(&self) -> serde_json::Value {
+        // Filters whose id starts with "map_" (waystone rarity/pack-size/
+        // effectiveness/etc.) go in the map_filters section, not stats; and
+        // only enabled ones (map filters have no disabled flag). Everything
+        // else is a stat filter (disabled ones ride along with disabled:true).
+        let stat_filters: Vec<&StatFilter> =
+            self.filters.iter().filter(|f| !f.id.starts_with("map_")).collect();
         let mut query = serde_json::json!({
-            "status": {"option": "online"},
-            "stats": [{
-                "type": "and",
-                "filters": self.filters,
-            }],
+            // "any" includes offline sellers: with the 0.5 asynchronous
+            // marketplace their items are securable without them being online,
+            // so they belong in the price just like online listings.
+            "status": {"option": "any"},
+            "stats": [{"type": "and", "filters": stat_filters}],
         });
-        if let Some(cat) = &self.category {
-            query["filters"] = serde_json::json!({
-                "type_filters": {"filters": {"category": {"option": cat}}}
-            });
+        if let Some(t) = &self.type_name {
+            query["type"] = serde_json::json!(t);
+        }
+        let mut filters = serde_json::Map::new();
+        if let (true, Some(cat)) = (self.category_enabled, &self.category) {
+            filters.insert(
+                "type_filters".into(),
+                serde_json::json!({"filters": {"category": {"option": cat}}}),
+            );
+        }
+        let mut mapf = serde_json::Map::new();
+        if let Some(tier) = self.map_tier {
+            mapf.insert("map_tier".into(), serde_json::json!({"min": tier, "max": tier}));
+        }
+        for f in self.filters.iter().filter(|f| f.id.starts_with("map_") && !f.disabled) {
+            let mut val = serde_json::json!({"min": num_json(f.value.min)});
+            if let Some(mx) = f.value.max {
+                val["max"] = num_json(mx);
+            }
+            mapf.insert(f.id.clone(), val);
+        }
+        if !mapf.is_empty() {
+            filters.insert("map_filters".into(), serde_json::json!({"filters": mapf}));
+        }
+        if let Some(level) = self.gem_level {
+            filters.insert(
+                "misc_filters".into(),
+                serde_json::json!({"filters": {"gem_level": {"min": level, "max": level}}}),
+            );
+        }
+        if !filters.is_empty() {
+            query["filters"] = serde_json::Value::Object(filters);
         }
         serde_json::json!({"query": query, "sort": {"price": "asc"}})
     }
@@ -414,14 +497,31 @@ fn first_number(text: &str) -> Option<f64> {
     }
 }
 
-/// The value to search a mod on: the low end of its tier's roll range.
-/// Item text annotates each rolled value with the tier range it came from
-/// in parentheses, e.g. `157(155-169)% increased Physical Damage` or
-/// `Adds 3(1-4) to 82(63-82) Lightning Damage`; searching on the tier
-/// floor (155, or 1 for the added-damage example) matches every item of
-/// that tier or better, which is what a price check wants. A mod with no
-/// range annotation (a fixed implicit like `+5 to all Attributes`) is
-/// searched on its own value.
+/// Builds the default appraisal query for a parsed rare: every resolvable
+/// explicit mod becomes a stat filter with min = the mod's tier floor
+/// (see `tier_floor`), so the search is by tier range rather than the
+/// exact roll; pricing-dominant mods start enabled, the rest disabled.
+/// A filter's human-facing description, index-aligned with
+/// Query::filters: the cleaned mod text, its tier (when annotated), and
+/// the search floor. This is what an interactive panel renders next to
+/// each checkbox.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterLabel {
+    pub text: String,
+    pub tier: Option<u8>,
+    pub min: i64,
+    /// Mod group for panel grouping/tagging: "implicit", "explicit", "map".
+    pub tag: &'static str,
+}
+
+pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
+    build_query_with_labels(item, stats).0
+}
+
+/// The value to search a mod on: the low end of its tier's roll range (from
+/// the item text's `157(155-169)%` annotation), matching every item of that
+/// tier or better - what a price check wants. A mod with no range annotation
+/// (a fixed implicit) is searched on its own value.
 fn tier_floor(text: &str) -> Option<i64> {
     if let Some(open) = text.find('(') {
         let rest = &text[open + 1..];
@@ -437,25 +537,14 @@ fn tier_floor(text: &str) -> Option<i64> {
     first_number(text).map(|v| v.floor() as i64)
 }
 
-/// Builds the default appraisal query for a parsed rare: every resolvable
-/// explicit mod becomes a stat filter with min = the mod's tier floor
-/// (see `tier_floor`), so the search is by tier range rather than the
-/// exact roll; pricing-dominant mods start enabled, the rest disabled.
-/// A filter's human-facing description, index-aligned with
-/// Query::filters: the cleaned mod text, its tier (when annotated), and
-/// the search floor. This is what an interactive panel renders next to
-/// each checkbox.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FilterLabel {
-    pub text: String,
-    pub tier: Option<u8>,
-    pub min: i64,
-}
-
-pub fn build_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
-    build_query_with_labels(item, stats).0
-}
-
+/// Builds a trade query covering EVERY modifier on the item, the way EE2
+/// does: one stat filter per explicit AND implicit mod (so a waystone's
+/// implicit rarity/pack-size/etc. and a rare's affixes are all searchable),
+/// each with a value-based minimum. Explicit mods are enabled by default
+/// only for the high-signal stats (`preselect`); implicit mods, which are an
+/// item's defining stats, are enabled by default. `search_relaxed` drops
+/// enabled filters until listings appear, so a fully-filtered query never
+/// dead-ends.
 pub fn build_query_with_labels(
     item: &crate::item::Item,
     stats: &StatIndex,
@@ -463,30 +552,239 @@ pub fn build_query_with_labels(
     let mut filters: Vec<StatFilter> = Vec::new();
     let mut labels: Vec<FilterLabel> = Vec::new();
     for m in &item.explicits {
-        // Rune-socket mods are gear, not the item's own explicits; the
-        // trade site treats them separately, and mapping one onto an
-        // explicit filter (same stat id, lower roll) both duplicates the
-        // filter and drags the min value down.
+        // Rune-socket mods are gear, not the item's own explicits; the trade
+        // site treats them separately, and mapping one onto an explicit
+        // filter duplicates it and drags the min down.
         if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
             continue;
         }
-        let Some(entry) = stats.resolve(&m.text) else { continue };
-        if filters.iter().any(|f| f.id == entry.id) {
+        push_filter(m, stats, !preselect(&m.text), "explicit", &mut filters, &mut labels);
+    }
+    for m in &item.implicits {
+        push_filter(m, stats, false, "implicit", &mut filters, &mut labels);
+    }
+    // Waystones/maps are priced by base type + tier (their danger mods above
+    // ride along disabled). Their reward properties (Item Rarity, Pack Size,
+    // Monster Effectiveness, etc.) become pickable map_filters, disabled by
+    // default so the user chooses which to search by.
+    let (type_name, map_tier) = if item.item_class.eq_ignore_ascii_case("waystones") {
+        for (id, label, min) in waystone_reward_filters(item) {
+            filters.push(StatFilter {
+                id,
+                value: FilterValue { min: min as f64, max: None },
+                disabled: true,
+            });
+            labels.push(FilterLabel { text: label, tier: None, min, tag: "map" });
+        }
+        let (base, tier) = item.base_type.as_deref().map(split_waystone).unwrap_or_default();
+        (Some(base).filter(|b| !b.is_empty()), tier)
+    } else {
+        (None, None)
+    };
+    (
+        Query {
+            category: category_for(&item.item_class),
+            category_enabled: true,
+            type_name,
+            map_tier,
+            gem_level: None,
+            filters,
+        },
+        labels,
+    )
+}
+
+/// Query for a specific cut skill gem at an exact level, e.g. "Detonate
+/// Living" (Level 20): category `gem.activegem`, the skill name as the base
+/// `type`, and an exact `gem_level` filter. This is how the reward panel
+/// prices its "Skill Level N: <name>" rows individually instead of collapsing
+/// them all to the fungible Uncut Skill Gem price.
+pub fn build_gem_query(skill: &str, level: i64) -> Query {
+    Query {
+        category: Some("gem.activegem".into()),
+        category_enabled: true,
+        type_name: Some(skill.to_string()),
+        map_tier: None,
+        gem_level: Some(level),
+        filters: Vec::new(),
+    }
+}
+
+/// Parses the currency-exchange response into the cheapest rate: how many
+/// units of the `have` currency one unit of the `want` currency costs
+/// (`exchange.amount / item.amount`, minimized across all offers). `None`
+/// when there are no offers. This is how EE2 prices stackable currency
+/// (omens, essences, catalysts) that poe.ninja does not track for PoE2.
+pub fn parse_exchange_rate(body: &str) -> Option<f64> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let result = v.get("result")?.as_object()?;
+    let mut best: Option<f64> = None;
+    for listing in result.values() {
+        let Some(offers) = listing.pointer("/listing/offers").and_then(|o| o.as_array()) else {
+            continue;
+        };
+        for offer in offers {
+            let item_amt = offer.pointer("/item/amount").and_then(serde_json::Value::as_f64);
+            let exch_amt = offer.pointer("/exchange/amount").and_then(serde_json::Value::as_f64);
+            if let (Some(item_amt), Some(exch_amt)) = (item_amt, exch_amt) {
+                if item_amt > 0.0 {
+                    let rate = exch_amt / item_amt;
+                    best = Some(best.map_or(rate, |b: f64| b.min(rate)));
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Maps each currency item's display name (lowercased) to its trade currency
+/// id, from the `/api/trade2/data/static` response (e.g. "omen of whittling"
+/// -> "omen-of-whittling", "exalted orb" -> "exalted").
+pub fn parse_static_currency_ids(body: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return map;
+    };
+    let Some(groups) = v.get("result").and_then(|r| r.as_array()) else {
+        return map;
+    };
+    for g in groups {
+        let Some(entries) = g.get("entries").and_then(|e| e.as_array()) else {
+            continue;
+        };
+        for e in entries {
+            let id = e.get("id").and_then(|i| i.as_str());
+            let text = e.get("text").and_then(|t| t.as_str());
+            if let (Some(id), Some(text)) = (id, text) {
+                map.insert(text.to_lowercase(), id.to_string());
+            }
+        }
+    }
+    map
+}
+
+/// Exact gem base-type names from the `/api/trade2/data/items` "Gems" group
+/// (e.g. "Detonate Living", "Fragments Of The Past"). The trade `type` field
+/// is case-sensitive, so these are matched against OCR text to recover the
+/// exact spelling before searching.
+pub fn parse_gem_types(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return out;
+    };
+    let Some(groups) = v.get("result").and_then(|r| r.as_array()) else {
+        return out;
+    };
+    for g in groups {
+        if g.get("label").and_then(|l| l.as_str()) != Some("Gems") {
             continue;
         }
-        let Some(min) = tier_floor(&m.text) else { continue };
-        filters.push(StatFilter {
-            id: entry.id.clone(),
-            value: FilterValue { min },
-            disabled: !preselect(&m.text),
-        });
-        labels.push(FilterLabel {
-            text: strip_range_annotations(&m.text),
-            tier: m.header.as_ref().and_then(|h| h.tier),
-            min,
-        });
+        if let Some(entries) = g.get("entries").and_then(|e| e.as_array()) {
+            for e in entries {
+                if let Some(t) = e.get("type").and_then(|t| t.as_str()) {
+                    out.push(t.to_string());
+                }
+            }
+        }
     }
-    (Query { category: category_for(&item.item_class), filters }, labels)
+    out
+}
+
+/// Recovers the exact gem name for OCR text (lowercased, whitespace-collapsed)
+/// by matching against `gems`: an exact case-insensitive hit first, else the
+/// closest fuzzy match above a confidence floor (tolerates minor OCR slips).
+/// `None` when nothing is close enough, so a misread never prices the wrong gem.
+pub fn match_gem_name(ocr: &str, gems: &[String]) -> Option<String> {
+    let norm = |s: &str| s.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    let q = norm(ocr);
+    if q.is_empty() {
+        return None;
+    }
+    if let Some(g) = gems.iter().find(|g| norm(g) == q) {
+        return Some(g.clone());
+    }
+    let mut best: Option<(f64, &String)> = None;
+    for g in gems {
+        let sim = strsim::normalized_levenshtein(&q, &norm(g));
+        if best.as_ref().map_or(true, |(b, _)| sim > *b) {
+            best = Some((sim, g));
+        }
+    }
+    best.filter(|(s, _)| *s >= 0.82).map(|(_, g)| g.clone())
+}
+
+/// Parses a waystone's reward property lines into (trade map_filter id,
+/// display label, min value). Keys verified live against trade2 data/filters:
+/// "Item Rarity: +24%" -> ("map_iir","Item Rarity",24); Monster Effectiveness
+/// is the trade key `map_magic_monsters`.
+fn waystone_reward_filters(item: &crate::item::Item) -> Vec<(String, String, i64)> {
+    const MAP: [(&str, &str); 6] = [
+        ("Item Rarity", "map_iir"),
+        ("Pack Size", "map_packsize"),
+        ("Monster Effectiveness", "map_magic_monsters"),
+        ("Monster Rarity", "map_rare_monsters"),
+        ("Waystone Drop Chance", "map_bonus"),
+        ("Revives Available", "map_revives"),
+    ];
+    let mut out = Vec::new();
+    for sec in &item.sections {
+        for line in sec {
+            for (prop, id) in MAP {
+                if let Some(rest) = line.strip_prefix(&format!("{prop}: ")) {
+                    if let Some(v) = first_number(rest) {
+                        out.push((id.to_string(), prop.to_string(), v.floor() as i64));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Splits a waystone base type into its bare base and tier:
+/// "Waystone (Tier 15)" -> ("Waystone", Some(15)).
+fn split_waystone(base_type: &str) -> (String, Option<i64>) {
+    if let Some(open) = base_type.find(" (Tier ") {
+        let base = base_type[..open].trim().to_string();
+        let tier = base_type[open..]
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .ok();
+        (base, tier)
+    } else {
+        (base_type.trim().to_string(), None)
+    }
+}
+
+/// Resolves `m` to a trade stat and appends a filter + label, unless the stat
+/// is unknown, already filtered, or has no numeric roll. `disabled` sets the
+/// filter's default-enabled state.
+fn push_filter(
+    m: &crate::item::ItemMod,
+    stats: &StatIndex,
+    disabled: bool,
+    tag: &'static str,
+    filters: &mut Vec<StatFilter>,
+    labels: &mut Vec<FilterLabel>,
+) {
+    let Some(entry) = stats.resolve(&m.text) else { return };
+    if filters.iter().any(|f| f.id == entry.id) {
+        return;
+    }
+    let Some(min) = tier_floor(&m.text) else { return };
+    filters.push(StatFilter {
+        id: entry.id.clone(),
+        value: FilterValue { min: min as f64, max: None },
+        disabled,
+    });
+    labels.push(FilterLabel {
+        text: strip_range_annotations(&m.text),
+        tier: m.header.as_ref().and_then(|h| h.tier),
+        min,
+        tag,
+    });
 }
 
 /// Removes the advanced-format "(min-max)" roll annotations for display:
@@ -522,7 +820,13 @@ impl TradeClient {
             .filter(|(_, f)| !f.disabled)
             .map(|(i, _)| i)
             .collect();
-        enabled.sort_by_key(|&i| std::cmp::Reverse(query.filters[i].value.min));
+        // Keep the highest-floor mods longest (they discriminate price most).
+        // f64 has no total Ord, so compare directly; NaN never occurs here.
+        enabled.sort_by(|&a, &b| {
+            query.filters[b].value.min
+                .partial_cmp(&query.filters[a].value.min)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut last: Option<SearchResult> = None;
         for keep in (1..=enabled.len()).rev() {
@@ -541,7 +845,14 @@ impl TradeClient {
                     f
                 })
                 .collect();
-            let trimmed = Query { category: query.category.clone(), filters };
+            let trimmed = Query {
+                category: query.category.clone(),
+                category_enabled: query.category_enabled,
+                type_name: query.type_name.clone(),
+                map_tier: query.map_tier,
+                gem_level: query.gem_level,
+                filters,
+            };
             let result = self.search(&trimmed)?;
             if !result.hashes.is_empty() {
                 return Ok((result, keep));
@@ -713,6 +1024,81 @@ impl TradeClient {
             return Err(TradeError::Http(format!("search status {}", resp.status())));
         }
         parse_search(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
+    }
+
+    /// Fetches the trade static-data currency map (display name -> currency
+    /// id) once, for resolving an item's name to its exchange `want` id.
+    pub fn static_currency_ids(&self) -> Result<HashMap<String, String>, TradeError> {
+        let url = format!("{}/api/trade2/data/static", self.base);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("static status {}", resp.status())));
+        }
+        let text = resp.text().map_err(|e| TradeError::Http(e.to_string()))?;
+        Ok(parse_static_currency_ids(&text))
+    }
+
+    /// Prices a stackable currency (e.g. an omen) via the trade exchange:
+    /// returns how many `have` currency one `want` unit costs, or `None` when
+    /// there are no live offers. Covers the currency-exchange items poe.ninja
+    /// does not track for PoE2.
+    pub fn exchange(&mut self, want_id: &str, have_id: &str) -> Result<Option<f64>, TradeError> {
+        if let RateDecision::Wait(d) = self.search_limiter.check() {
+            return Err(TradeError::Cooldown(d));
+        }
+        self.search_limiter.record();
+        let url = format!("{}/api/trade2/exchange/{}", self.base, self.league);
+        let body = serde_json::json!({
+            "engine": "new",
+            "query": {"status": {"option": "online"}, "have": [have_id], "want": [want_id]},
+            "sort": {"have": "asc"},
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .json(&body)
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Self::absorb_headers(&mut self.search_limiter, &resp);
+        if resp.status().as_u16() == 429 {
+            return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
+        }
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("exchange status {}", resp.status())));
+        }
+        let text = resp.text().map_err(|e| TradeError::Http(e.to_string()))?;
+        Ok(parse_exchange_rate(&text))
+    }
+
+    /// Fetches the exact gem base-type names once (from data/items), for
+    /// matching OCR'd skill names to a searchable `type`.
+    pub fn gem_types(&self) -> Result<Vec<String>, TradeError> {
+        let url = format!("{}/api/trade2/data/items", self.base);
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("items status {}", resp.status())));
+        }
+        let text = resp.text().map_err(|e| TradeError::Http(e.to_string()))?;
+        Ok(parse_gem_types(&text))
+    }
+
+    /// Prices a specific cut skill gem at an exact level: searches by gem name
+    /// + level, then fetches the cheapest listings. Returns them (price amount
+    /// + currency); the caller converts to exalted via its currency table.
+    pub fn price_gem(&mut self, skill: &str, level: i64) -> Result<Vec<Listing>, TradeError> {
+        let sr = self.search(&build_gem_query(skill, level))?;
+        if sr.hashes.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.fetch(&sr.id, &sr.hashes)
     }
 
     pub fn fetch(&mut self, search_id: &str, hashes: &[String]) -> Result<Vec<Listing>, TradeError> {
