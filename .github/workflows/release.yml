@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libpipewire-0.3-dev libwayland-dev libxkbcommon-dev \
+            libtesseract-dev libleptonica-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p poe2-lens
+
+      - name: Package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist/poe2-lens
+          cp target/release/poe2-lens dist/poe2-lens/
+          cp app/poe2-lens-launch dist/poe2-lens/
+          cp app/assets/org.poe2lens.App.desktop dist/poe2-lens/
+          cp README.md dist/poe2-lens/
+          tar -C dist -czf "poe2-lens-${TAG}-linux-x86_64.tar.gz" poe2-lens
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: poe2-lens-*.tar.gz
+          draft: false
+
+  windows:
+    name: Windows zip
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # leptess links tesseract + leptonica; on MSVC the *-sys crates
+      # resolve them through vcpkg (static, so the zip stays self-contained).
+      - name: Install tesseract via vcpkg
+        run: |
+          vcpkg install tesseract:x64-windows-static-md
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p poe2-lens
+        env:
+          VCPKGRS_TRIPLET: x64-windows-static-md
+
+      - name: Fetch eng traineddata
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/poe2-lens | Out-Null
+          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata -OutFile dist/poe2-lens/eng.traineddata
+
+      - name: Package
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          Copy-Item target/release/poe2-lens.exe dist/poe2-lens/
+          Copy-Item README.md dist/poe2-lens/
+          Compress-Archive -Path dist/poe2-lens -DestinationPath "poe2-lens-$env:TAG-windows-x86_64.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: poe2-lens-*.zip
+          draft: false

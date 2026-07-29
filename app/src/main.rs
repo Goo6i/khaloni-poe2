@@ -155,7 +155,18 @@ fn open_resource(url_template: &str, item_text: &str) {
         return;
     }
     let url = url_template.replace("{name}", &urlencode(name.trim()));
+    open_url(&url);
+}
+
+/// Opens a URL in the default browser, per-OS. Detached spawn: the overlay
+/// must never block on a browser starting up.
+fn open_url(url: &str) {
+    #[cfg(target_os = "linux")]
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    #[cfg(target_os = "windows")]
+    // `start` is a cmd builtin; the empty "" is its window-title slot so a
+    // URL containing spaces is not mistaken for the title.
+    let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
 }
 
 /// Sets the overlay's pointer input region to the union bounding box of
@@ -1453,10 +1464,8 @@ fn overlay_mode() -> anyhow::Result<()> {
                                     cfg.league.replace(' ', "%20"),
                                     id
                                 );
-                                panel.status = match std::process::Command::new("xdg-open").arg(&url).spawn() {
-                                    Ok(_) => "opened in browser".into(),
-                                    Err(e) => format!("open failed: {e}"),
-                                };
+                                open_url(&url);
+                                panel.status = "opened in browser".into();
                             }
                             None => panel.status = "run a search first".into(),
                         }
