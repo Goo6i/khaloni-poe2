@@ -84,6 +84,7 @@ pub const UPSCALE: u32 = 3;
 /// ambiguous ("1x" read as "Ix"); 4x resolves it. Kept separate from
 /// UPSCALE so this can be tuned for OCR accuracy without touching the
 /// coordinate contract the rest of the pipeline depends on.
+#[cfg(target_os = "linux")]
 const BAND_OCR_SCALE: u32 = 3;
 const MIN_CONF: f32 = 40.0;
 /// A line's unfiltered text must contain a run of at least this many
@@ -290,6 +291,7 @@ pub fn band_crop(gray: &GrayImage, y0: u32, y1: u32) -> Option<GrayImage> {
     Some(imageops::crop_imm(gray, x0, cy0, x1 - x0, cy1 - cy0).to_image())
 }
 
+#[cfg(target_os = "linux")]
 fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> Option<OcrLine> {
     let crop = band_crop(gray, y0, y1)?;
     let up = imageops::resize(
@@ -306,6 +308,7 @@ fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> O
 /// Runs the persistent engine over all detected bands sequentially (a
 /// strip takes ~5-30 ms in-process, so sequential still finishes well
 /// under one old CLI spawn) and returns a single y-ordered Vec<OcrLine>.
+#[cfg(target_os = "linux")]
 pub fn ocr_bands(engine: &mut OcrEngine, gray: &GrayImage, bands: &[(u32, u32)]) -> Vec<OcrLine> {
     let mut lines: Vec<OcrLine> = bands
         .iter()
@@ -323,10 +326,12 @@ pub fn ocr_bands(engine: &mut OcrEngine, gray: &GrayImage, bands: &[(u32, u32)])
 /// closest comparable tool, holds a persistent TessBaseAPI for the same
 /// reason. One engine per OCR worker thread; scans run sequentially on
 /// it, which at in-process speeds still beats concurrent process spawns.
+#[cfg(target_os = "linux")]
 pub struct OcrEngine {
     lt: leptess::LepTess,
 }
 
+#[cfg(target_os = "linux")]
 impl OcrEngine {
     pub fn new() -> anyhow::Result<OcrEngine> {
         let lt = leptess::LepTess::new(None, "eng")
@@ -450,6 +455,7 @@ pub fn parse_band_tsv(tsv: &str, y0: u32, y1: u32) -> Option<OcrLine> {
 /// sampled strip than a single whole-panel OCR pass ever was, so the two
 /// were split when band OCR was introduced. 0.25 is the original
 /// milestone-0 value this restores.
+#[cfg(target_os = "linux")]
 const WHOLE_ICON_CUT: f32 = 0.25;
 
 /// Crops the icon column, upscales by UPSCALE, and min-max normalizes.
@@ -460,6 +466,7 @@ const WHOLE_ICON_CUT: f32 = 0.25;
 /// on-brightness strip; the whole panel's much wider brightness range
 /// benefits from being stretched to full contrast before tesseract sees
 /// it).
+#[cfg(target_os = "linux")]
 fn whole_preprocess(region: &GrayImage) -> GrayImage {
     let cut = (region.width() as f32 * WHOLE_ICON_CUT) as u32;
     let text = imageops::crop_imm(region, cut, 0, region.width() - cut, region.height()).to_image();
@@ -472,6 +479,7 @@ fn whole_preprocess(region: &GrayImage) -> GrayImage {
     whole_normalize(up)
 }
 
+#[cfg(target_os = "linux")]
 fn whole_normalize(mut img: GrayImage) -> GrayImage {
     let (mut lo, mut hi) = (255u8, 0u8);
     for p in img.pixels() {
@@ -491,6 +499,7 @@ fn whole_normalize(mut img: GrayImage) -> GrayImage {
 /// the result into rows. `None` on any tesseract failure (missing binary,
 /// non-zero exit), same "one bad pass never kills the pipeline" contract
 /// as `ocr_one_band`.
+#[cfg(target_os = "linux")]
 fn run_whole_tesseract(engine: &mut OcrEngine, pre: &GrayImage) -> anyhow::Result<Vec<OcrLine>> {
     Ok(parse_whole_tsv(&engine.tsv(pre)?))
 }
@@ -555,6 +564,7 @@ pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
 /// parse. `Vec::new()` on any tesseract failure rather than propagating an
 /// error, matching `ocr_bands`' "OCR problems degrade to fewer rows, never
 /// a crash" contract.
+#[cfg(target_os = "linux")]
 pub fn ocr_whole_panel(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
     let pre = whole_preprocess(gray);
     run_whole_tesseract(engine, &pre).unwrap_or_default()
@@ -679,6 +689,7 @@ pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> V
 /// unions the results. See `union_ocr_lines` and the evidence block above
 /// `ocr_whole_panel` for why both passes run unconditionally rather than
 /// picking one.
+#[cfg(target_os = "linux")]
 pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
     ocr_scan_gated(engine, gray, &mut WholePanelGate::always())
 }
@@ -690,11 +701,13 @@ pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
 /// structure exists the whole-panel pass always runs (the union needs
 /// it); without bars it runs at most once per interval, which still
 /// catches an under-threshold panel within a second.
+#[cfg(target_os = "linux")]
 pub struct WholePanelGate {
     last: Option<std::time::Instant>,
     interval: std::time::Duration,
 }
 
+#[cfg(target_os = "linux")]
 impl WholePanelGate {
     pub fn new(interval: std::time::Duration) -> WholePanelGate {
         WholePanelGate { last: None, interval }
@@ -715,6 +728,7 @@ impl WholePanelGate {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub fn ocr_scan_gated(
     engine: &mut OcrEngine,
     gray: &GrayImage,

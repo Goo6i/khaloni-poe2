@@ -1,3 +1,8 @@
+// On non-Linux targets the overlay/headless pipelines are compiled out
+// (they need the Linux OCR stack; see platform/windows/mod.rs), which
+// leaves their helpers and imports dead there. Linux lints are unaffected.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
@@ -202,6 +207,14 @@ fn open_settings() {
     }
 }
 
+/// Headless one-shot needs the Linux capture + OCR stack; the Windows
+/// backend lands in SP3 (see platform/windows/mod.rs).
+#[cfg(not(target_os = "linux"))]
+fn headless() -> anyhow::Result<()> {
+    anyhow::bail!("windows backend lands in SP3")
+}
+
+#[cfg(target_os = "linux")]
 fn headless() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg
@@ -342,6 +355,14 @@ struct AppraiseDone {
     search_id: Option<String>,
 }
 
+/// The live overlay drives the Linux backends (and the Linux OCR stack)
+/// directly; the Windows backend lands in SP3 (see platform/windows/mod.rs).
+#[cfg(not(target_os = "linux"))]
+fn overlay_mode() -> anyhow::Result<()> {
+    anyhow::bail!("windows backend lands in SP3")
+}
+
+#[cfg(target_os = "linux")]
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg

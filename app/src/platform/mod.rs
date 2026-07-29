@@ -14,6 +14,11 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::*;
 
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+pub use windows::*;
+
 /// A keyboard input relevant to editing a value box or a search field.
 /// Digits and '.' keep dedicated variants (the appraisal value boxes match
 /// on them); every other printable ASCII arrives as `Char` for text search.

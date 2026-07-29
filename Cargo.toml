@@ -1,3 +1,6 @@
 [workspace]
 members = ["core", "spikes", "app"]
+# spikes is Linux-only experiment bins; keep it out of default builds so
+# cross-target checks of core+app aren't blocked by it.
+default-members = ["core", "app"]
 resolver = "2"

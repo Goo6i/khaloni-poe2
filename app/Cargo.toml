@@ -7,12 +7,7 @@ default-run = "poe2-lens"
 
 [dependencies]
 poe2-lens-core = { path = "../core" }
-smithay-client-toolkit = "0.19"
-wayland-client = "0.31"
-pipewire = "0.10"
-ashpd = { version = "0.11", features = ["tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-zbus = "5"
 image = "0.25"
 tiny-skia = "0.11"
 fontdue = "0.9"
@@ -20,10 +15,7 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 directories = "6"
 anyhow = "1"
-leptess = "0.14"
 futures-util = "0.3"
-evdev = "0.12"
-x11rb = { version = "0.13", features = ["xfixes"] }
 serde_json = "1"
 eframe = "0.35.0"
 
@@ -38,5 +30,17 @@ path = "src/lib.rs"
 name = "poe2-lens"
 path = "src/main.rs"
 
+# The Linux backend stack (Wayland overlay, pipewire/portal capture, uinput
+# injection, portal hotkeys, KWin feed, X11 clipboard probe, SNI tray) plus
+# leptess: tesseract/leptonica link natively, so OCR is Linux-only until the
+# SP3 packaging task (see app/src/platform/windows/mod.rs).
 [target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+pipewire = "0.10"
+ashpd = { version = "0.11", features = ["tokio"] }
+zbus = "5"
+evdev = "0.12"
+x11rb = { version = "0.13", features = ["xfixes"] }
+leptess = "0.14"
 ksni = "0.3.6"
