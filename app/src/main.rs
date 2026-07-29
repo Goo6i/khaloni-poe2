@@ -201,27 +201,6 @@ fn open_settings() {
     }
 }
 
-/// Fires a desktop notification (best-effort; ignored if notify-send is absent).
-fn notify(summary: &str, body: &str) {
-    let _ = std::process::Command::new("notify-send")
-        .arg("-a")
-        .arg("poe2-lens")
-        .arg(summary)
-        .arg(body)
-        .spawn();
-}
-
-#[cfg(test)]
-mod main_tests {
-    use super::urlencode;
-    #[test]
-    fn urlencode_handles_spaces_and_apostrophes() {
-        assert_eq!(urlencode("Cold as ice"), "Cold%20as%20ice");
-        assert_eq!(urlencode("Wanderlust"), "Wanderlust");
-        assert_eq!(urlencode("Kaom's Heart"), "Kaom%27s%20Heart");
-    }
-}
-
 fn headless() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
     let cal = cfg
@@ -1950,4 +1929,15 @@ fn mean_gray_brightness(img: &image::GrayImage) -> u64 {
         return 0;
     }
     raw.iter().map(|&p| p as u64).sum::<u64>() / raw.len() as u64
+}
+
+#[cfg(test)]
+mod main_tests {
+    use super::urlencode;
+    #[test]
+    fn urlencode_handles_spaces_and_apostrophes() {
+        assert_eq!(urlencode("Cold as ice"), "Cold%20as%20ice");
+        assert_eq!(urlencode("Wanderlust"), "Wanderlust");
+        assert_eq!(urlencode("Kaom's Heart"), "Kaom%27s%20Heart");
+    }
 }

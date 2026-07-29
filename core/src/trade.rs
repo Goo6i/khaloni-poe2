@@ -706,7 +706,7 @@ pub fn match_gem_name(ocr: &str, gems: &[String]) -> Option<String> {
     let mut best: Option<(f64, &String)> = None;
     for g in gems {
         let sim = strsim::normalized_levenshtein(&q, &norm(g));
-        if best.as_ref().map_or(true, |(b, _)| sim > *b) {
+        if best.as_ref().is_none_or(|(b, _)| sim > *b) {
             best = Some((sim, g));
         }
     }
