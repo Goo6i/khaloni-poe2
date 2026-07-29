@@ -26,20 +26,7 @@ use wayland_client::{
     Connection, EventQueue, QueueHandle,
 };
 
-/// A keyboard input relevant to editing a value box or a search field.
-/// Digits and '.' keep dedicated variants (the appraisal value boxes match
-/// on them); every other printable ASCII arrives as `Char` for text search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Key {
-    Digit(char),
-    Char(char),
-    Dot,
-    Backspace,
-    Enter,
-    Escape,
-    Up,
-    Down,
-}
+pub use crate::platform::Key;
 
 struct App {
     registry_state: RegistryState,

@@ -80,7 +80,7 @@ impl Injector {
             // Distinguishes a real copy from a misclick via X11 CLIPBOARD
             // ownership events. None if X/XFIXES is unavailable, in which case
             // copy_hovered falls back to content-change detection.
-            let watcher = crate::clipwatch::ClipboardWatcher::new();
+            let watcher = crate::platform::clipwatch::ClipboardWatcher::new();
             if watcher.is_none() {
                 eprintln!("clipboard watcher unavailable; F7 uses content detection only");
             }
@@ -138,7 +138,7 @@ fn is_poe_item(text: &str) -> bool {
 fn copy_hovered(
     dev: &mut evdev::uinput::VirtualDevice,
     pre_delay_ms: u64,
-    watcher: Option<&crate::clipwatch::ClipboardWatcher>,
+    watcher: Option<&crate::platform::clipwatch::ClipboardWatcher>,
 ) -> anyhow::Result<String> {
     // Let a held hotkey modifier (Ctrl for CTRL+N actions) release before we
     // inject Ctrl+C; otherwise the held Ctrl collides with the injection and

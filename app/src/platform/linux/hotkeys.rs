@@ -1,18 +1,7 @@
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
 use futures_util::StreamExt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Hotkey {
-    /// Master switch: hides the overlay and pauses the whole pipeline.
-    /// Everything else (panel detection, focus pause, price freshness) is
-    /// automatic, so this is the only state key a user needs.
-    OverlayToggle,
-    PriceCheck,
-    /// A dynamically-registered action fired, identified by its id string
-    /// (e.g. "macro-0", "url-1"). The main loop routes by id prefix, so new
-    /// hotkey-bound features add an id namespace without touching this enum.
-    Extra(String),
-}
+pub use crate::platform::Hotkey;
 
 /// `price_check` and `overlay` are preferred triggers from the config
 /// ("F7"/"F8" by default); the portal treats them as suggestions the user

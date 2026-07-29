@@ -12,6 +12,8 @@ use image::GrayImage;
 
 use crate::config::Rect;
 
+pub use crate::platform::RegionFrame;
+
 /// Capture throttle while the brightness gate is open (the panel is
 /// probably on screen): effectively compositor rate. Motion tracking runs
 /// per captured frame and needs this cadence to keep correlation locked
@@ -28,10 +30,6 @@ const THROTTLE_CLOSED_MS: u64 = 120;
 /// 4K grayscale conversion is a few ms, so this stays cheap next to the
 /// reward crop that runs every throttle tick.
 const FULL_FRAME_MS: u64 = 700;
-
-pub struct RegionFrame {
-    pub gray: GrayImage,
-}
 
 pub struct CaptureStart {
     pub node_id: u32,
