@@ -1146,18 +1146,35 @@ fn overlay_mode() -> anyhow::Result<()> {
                 Ok(text) => {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
-                    // Waystone hovered: also flag its dangerous mods (folded
-                    // in from the old map hotkey; no clipboard write here so
-                    // F7's copy is never clobbered).
+                    // Waystone hovered: flag dangerous and rewarding mods in
+                    // the overlay popup itself (a desktop notification is
+                    // invisible over a fullscreen game). No clipboard write
+                    // here so F7's copy is never clobbered.
                     if text.to_lowercase().contains("waystone") {
                         let lines: Vec<&str> = text.lines().collect();
-                        let dangers: Vec<String> = poe2_lens_core::mapmods::analyze(&lines, &map_rules)
-                            .into_iter()
-                            .filter(|(_, k)| *k == poe2_lens_core::mapmods::ModKind::Danger)
-                            .map(|(l, _)| l)
-                            .collect();
-                        if !dangers.is_empty() {
-                            notify("poe2-lens: map dangers", &dangers.join(" | "));
+                        let classified = poe2_lens_core::mapmods::analyze(&lines, &map_rules);
+                        let mut mod_lines: Vec<hover::PopupLine> = Vec::new();
+                        for (l, k) in classified {
+                            let prefix = match k {
+                                poe2_lens_core::mapmods::ModKind::Danger => "!! ",
+                                poe2_lens_core::mapmods::ModKind::Good => "+ ",
+                            };
+                            mod_lines.push(hover::PopupLine {
+                                text: format!("{prefix}{l}"),
+                                denom: poe2_lens::pricing::Denom::None,
+                            });
+                        }
+                        if !mod_lines.is_empty() {
+                            if let Some(p) = &mut hover.current {
+                                p.lines.extend(mod_lines);
+                            } else {
+                                hover.current = Some(hover::Popup {
+                                    title: "waystone mods".into(),
+                                    lines: mod_lines,
+                                    expires: std::time::Instant::now()
+                                        + std::time::Duration::from_secs(8),
+                                });
+                            }
                         }
                     }
                     if let Some(item) = hover.pending_appraisal.take() {
