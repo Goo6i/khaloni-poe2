@@ -1,5 +1,6 @@
-//! System tray icon. Linux-only for now (StatusNotifierItem over D-Bus via
-//! ksni); the Windows tray (tray-icon crate) arrives in SP3.
+//! System tray icon: StatusNotifierItem over D-Bus (ksni) on Linux, a
+//! notification-area icon (tray-icon) elsewhere. Same TrayEvent contract
+//! and menu on both.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
@@ -14,11 +15,137 @@ pub fn spawn(tx: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<()> {
     linux::spawn(tx)
 }
 
-/// Windows tray (tray-icon crate) arrives in SP3; until then the app simply
-/// runs without a tray on non-Linux targets.
 #[cfg(not(target_os = "linux"))]
-pub fn spawn(_tx: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<()> {
-    Ok(())
+pub fn spawn(tx: std::sync::mpsc::Sender<TrayEvent>) -> anyhow::Result<()> {
+    win::spawn(tx)
+}
+
+// Named `win` (not `windows`) so `use windows::Win32::...` inside keeps
+// resolving to the extern crate without ambiguity.
+#[cfg(not(target_os = "linux"))]
+mod win {
+    use std::sync::mpsc::Sender;
+    use std::time::Duration;
+
+    use anyhow::{anyhow, Context};
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+    use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, TranslateMessage, MSG,
+    };
+
+    use super::TrayEvent;
+
+    // Same embedded exalted-orb PNG the ksni half ships; tray-icon wants
+    // plain RGBA, no channel shuffle needed.
+    static ICON_PNG: &[u8] = include_bytes!("../assets/icons/exalted.png");
+
+    // Menu ids double as the routing keys in drain_events.
+    const ID_SETTINGS: &str = "open-settings";
+    const ID_OVERLAY: &str = "toggle-overlay";
+    const ID_PAUSE: &str = "pause-pricing";
+    const ID_QUIT: &str = "quit";
+
+    pub fn spawn(tx: Sender<TrayEvent>) -> anyhow::Result<()> {
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<anyhow::Result<()>>();
+
+        // tray-icon on Windows hangs its hidden window off the creating
+        // thread's message queue, so the icon must be built and pumped on
+        // one dedicated thread (the win32 analogue of the ksni runtime
+        // thread on the Linux side).
+        std::thread::Builder::new()
+            .name("tray".into())
+            .spawn(move || match build_tray() {
+                Ok(tray) => {
+                    let _ = ready_tx.send(Ok(()));
+                    // Dropping the TrayIcon removes the icon; keep it alive
+                    // for the pump's (= process') lifetime.
+                    let _tray = tray;
+                    pump(&tx);
+                }
+                Err(e) => {
+                    let _ = ready_tx.send(Err(e));
+                }
+            })
+            .context("tray: failed to spawn thread")?;
+
+        // Creation is a few Win32 calls; the timeout only guards against a
+        // wedged thread so startup can't hang on it.
+        match ready_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(result) => result,
+            Err(_) => Err(anyhow!("tray: timed out waiting for icon creation")),
+        }
+    }
+
+    fn build_tray() -> anyhow::Result<tray_icon::TrayIcon> {
+        let img = image::load_from_memory_with_format(ICON_PNG, image::ImageFormat::Png)
+            .context("tray: bad embedded icon PNG")?
+            .into_rgba8();
+        let (width, height) = img.dimensions();
+        let icon = Icon::from_rgba(img.into_vec(), width, height)
+            .context("tray: icon rejected by tray-icon")?;
+
+        // Menu mirrors the ksni half. The check item's visual state is
+        // muda's (it auto-toggles on click); main owns the real pause flag
+        // and flips it on TogglePause, same split as on Linux.
+        let menu = Menu::with_items(&[
+            &MenuItem::with_id(ID_SETTINGS, "Open Settings", true, None),
+            &MenuItem::with_id(ID_OVERLAY, "Toggle Overlay", true, None),
+            &CheckMenuItem::with_id(ID_PAUSE, "Pause Pricing", true, false, None),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(ID_QUIT, "Quit", true, None),
+        ])
+        .context("tray: menu build failed")?;
+
+        TrayIconBuilder::new()
+            .with_tooltip("poe2-lens")
+            .with_icon(icon)
+            .with_menu(Box::new(menu))
+            // Left click opens settings (ksni's activate); menu stays on
+            // right click only, so keep the crate from also popping it.
+            .with_menu_on_left_click(false)
+            .build()
+            .context("tray: icon creation failed")
+    }
+
+    // Classic message pump. Menu/tray WndProcs push into the crates'
+    // channels during DispatchMessageW, so draining right after each
+    // dispatched message never lags and never needs a busy-wait.
+    fn pump(tx: &Sender<TrayEvent>) {
+        let mut msg = MSG::default();
+        unsafe {
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+                drain_events(tx);
+            }
+        }
+    }
+
+    fn drain_events(tx: &Sender<TrayEvent>) {
+        while let Ok(ev) = MenuEvent::receiver().try_recv() {
+            let event = match ev.id().as_ref() {
+                ID_SETTINGS => TrayEvent::OpenSettings,
+                ID_OVERLAY => TrayEvent::ToggleOverlay,
+                ID_PAUSE => TrayEvent::TogglePause,
+                ID_QUIT => TrayEvent::Quit,
+                _ => continue,
+            };
+            let _ = tx.send(event);
+        }
+        while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+            // Left click on the icon = ksni's activate. Fire on release so
+            // a click reads as one event, not one per button transition.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = ev
+            {
+                let _ = tx.send(TrayEvent::OpenSettings);
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
