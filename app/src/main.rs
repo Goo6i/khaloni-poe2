@@ -15,6 +15,7 @@ fn main() -> anyhow::Result<()> {
     match args.get(1).map(String::as_str).unwrap_or("") {
         "--calibrate" => calibrate(),
         "--headless" => headless(),
+        "--settings" => poe2_lens::settings_ui::run(),
         _ => overlay_mode(),
     }
 }
@@ -405,11 +406,19 @@ fn overlay_mode() -> anyhow::Result<()> {
         if !cfg.hotkey_leveling.is_empty() {
             extra.push(("leveling".to_string(), cfg.hotkey_leveling.clone()));
         }
+        let hk_tx = hk_tx.clone();
         rt.spawn(async move {
             if let Err(e) = poe2_lens::hotkeys::listen(hk_tx, check, overlay, extra).await {
                 eprintln!("hotkeys unavailable: {e}");
             }
         });
+    }
+
+    // System tray: quick actions without a hotkey. A missing tray host
+    // (no StatusNotifier) is not fatal — everything works without it.
+    let (tray_tx, tray_rx) = mpsc::channel();
+    if let Err(e) = poe2_lens::tray::spawn(tray_tx) {
+        eprintln!("tray unavailable: {e}");
     }
 
     // Hover price check: the Injector runs a uinput virtual keyboard on
@@ -1054,6 +1063,22 @@ fn overlay_mode() -> anyhow::Result<()> {
                     overlay.hide()?;
                 }
                 poe2_lens::kwin::KwinEvent::Cursor(x, y) => cursor_pos = (x, y),
+            }
+        }
+        // Tray menu actions reuse the hotkey paths where one exists, so the
+        // two entry points cannot drift apart.
+        while let Ok(ev) = tray_rx.try_recv() {
+            match ev {
+                poe2_lens::tray::TrayEvent::OpenSettings => open_settings(),
+                poe2_lens::tray::TrayEvent::ToggleOverlay => {
+                    let _ = hk_tx.send(poe2_lens::hotkeys::Hotkey::OverlayToggle);
+                }
+                poe2_lens::tray::TrayEvent::TogglePause => {
+                    let v = !pipeline_paused.load(Ordering::Relaxed);
+                    pipeline_paused.store(v, Ordering::Relaxed);
+                    hover.show_note(if v { "pricing paused" } else { "pricing resumed" });
+                }
+                poe2_lens::tray::TrayEvent::Quit => return Ok(()),
             }
         }
         while let Ok(hk) = hk_rx.try_recv() {
