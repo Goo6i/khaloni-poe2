@@ -17,7 +17,11 @@ directories = "6"
 anyhow = "1"
 futures-util = "0.3"
 serde_json = "1"
-eframe = "0.35.0"
+# accesskit is deliberately OFF: its AT-SPI bridge opens a zbus connection
+# on its own executor thread, and our workspace compiles zbus in tokio mode
+# (ashpd), which panics there without a reactor. No a11y tree until that
+# upstream combination is fixed.
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "wayland", "wgpu", "x11"] }
 
 [dev-dependencies]
 serde_json = "1"

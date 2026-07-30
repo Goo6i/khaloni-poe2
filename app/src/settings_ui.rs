@@ -84,6 +84,12 @@ impl EditModel {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    // eframe's accessibility layer (accesskit) speaks AT-SPI over zbus, and
+    // our dependency graph compiles zbus in tokio mode (ashpd's portal
+    // stack), which panics without an ambient tokio reactor. Entering a
+    // runtime context here gives every thread spawned under it a reactor.
+    let rt = tokio::runtime::Runtime::new()?;
+    let _guard = rt.enter();
     let cfg = Config::load()?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
