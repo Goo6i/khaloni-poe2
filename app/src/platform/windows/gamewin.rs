@@ -29,8 +29,9 @@ use windows::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowTextW,
-    IsIconic, IsWindowVisible, WindowFromPoint, GA_ROOT,
+    EnumWindows, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, WindowFromPoint,
+    GA_ROOT,
 };
 
 use crate::config::Rect;
@@ -145,7 +146,20 @@ fn window_visible(hwnd: HWND, r: Rect) -> bool {
         .iter()
         .filter(|(x, y)| {
             let at = unsafe { WindowFromPoint(POINT { x: *x, y: *y }) };
-            !at.is_invalid() && unsafe { GetAncestor(at, GA_ROOT) } == hwnd
+            if at.is_invalid() {
+                return false;
+            }
+            let root = unsafe { GetAncestor(at, GA_ROOT) };
+            if root == hwnd {
+                return true;
+            }
+            // Our own overlay window sits topmost over the game; while its
+            // hit-testing is enabled (a panel is open) probes land on it.
+            // Anything from this process counts as "not covering" — same
+            // self-occlusion guard as the KWin script's class filter.
+            let mut pid = 0u32;
+            let _ = unsafe { GetWindowThreadProcessId(root, Some(&mut pid)) };
+            pid == std::process::id()
         })
         .count();
     ours >= 3
