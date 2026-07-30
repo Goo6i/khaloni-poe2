@@ -434,9 +434,18 @@ fn overlay_mode() -> anyhow::Result<()> {
 #[cfg(ocr)]
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
-    let cal = cfg
-        .calibration
-        .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
+    // Calibration gates ONLY the reward-panel scan region. Without it that
+    // scanner stays off but everything else (F7 price check, rumours,
+    // appraisal, reference/leveling panels, tray, settings) runs — so a
+    // fresh install works out of the box, and so does Windows, where the
+    // interactive calibrator doesn't exist yet.
+    let have_cal = cfg.calibration.is_some();
+    if !have_cal {
+        eprintln!(
+            "no calibration: reward-panel pricing off, everything else active \
+             (set it via Recalibrate in Settings, or [calibration] in config.toml)"
+        );
+    }
 
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
     let svc = prices::PriceService::start_with_interval(
@@ -705,6 +714,12 @@ fn overlay_mode() -> anyhow::Result<()> {
         });
     }
 
+    // Uncalibrated: a tiny corner rect keeps CoordMap total (its scale and
+    // window mapping still serve rumour badges); the region it describes is
+    // never OCR'd because the scan worker below drains instead of scanning.
+    let cal = cfg
+        .calibration
+        .unwrap_or(Rect { x: game.x, y: game.y, w: 64, h: 64 });
     let map = CoordMap::new(game, (3840, 2160), cal);
     // Capacity 1: only the latest frame is ever wanted; see capture::consume.
     let (ftx, frx) = mpsc::sync_channel(1);
@@ -803,6 +818,13 @@ fn overlay_mode() -> anyhow::Result<()> {
     // The reward-panel pricer's handle to the specific-gem cache + trade worker.
     let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
     std::thread::spawn(move || {
+        // No calibrated region: nothing to scan. Drain the frames so the
+        // capture side's try_send never meets a dropped receiver, and skip
+        // engine/template/dataset setup entirely.
+        if !have_cal {
+            for _ in frx {}
+            return;
+        }
         let dbg = std::env::var("KHALONI_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
         let Ok(mut engine) = ocr::OcrEngine::new() else {
