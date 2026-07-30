@@ -29,8 +29,8 @@ use windows::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowTextW,
-    IsWindowVisible,
+    EnumWindows, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowTextW,
+    IsIconic, IsWindowVisible, WindowFromPoint, GA_ROOT,
 };
 
 use crate::config::Rect;
@@ -90,10 +90,14 @@ impl GameWindowFeed {
                 // GameGone, so don't report it focused either.
                 let focused =
                     rect.is_some() && hwnd.is_some_and(|h| unsafe { GetForegroundWindow() } == h);
+                let visible = match (hwnd, rect) {
+                    (Some(h), Some(r)) => window_visible(h, r),
+                    _ => false,
+                };
                 let mut pt = POINT::default();
                 let _ = unsafe { GetCursorPos(&mut pt) };
 
-                let sample = WindowSample { rect, focused, cursor: (pt.x, pt.y) };
+                let sample = WindowSample { rect, focused, visible, cursor: (pt.x, pt.y) };
                 for ev in diff.diff(&sample) {
                     if tx.send(ev).is_err() {
                         // Main loop dropped the feed: stop polling.
@@ -117,6 +121,34 @@ impl GameWindowFeed {
 struct FoundWindows {
     exact: Option<isize>,
     partial: Option<isize>,
+}
+
+/// On-screen check mirroring the KWin script's visibility heuristic: not
+/// minimized, and a majority of probe points across the client rect resolve
+/// to the game's own top-level window (WindowFromPoint sees whatever is
+/// topmost there, so a covering window flips the probes). Five probes —
+/// center + the four quarter points — so a partial overlap (chat window on
+/// one edge) keeps the overlay while real coverage hides it.
+fn window_visible(hwnd: HWND, r: Rect) -> bool {
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        return false;
+    }
+    let (qx, qy) = ((r.w / 4) as i32, (r.h / 4) as i32);
+    let probes = [
+        (r.x + 2 * qx, r.y + 2 * qy),
+        (r.x + qx, r.y + qy),
+        (r.x + 3 * qx, r.y + qy),
+        (r.x + qx, r.y + 3 * qy),
+        (r.x + 3 * qx, r.y + 3 * qy),
+    ];
+    let ours = probes
+        .iter()
+        .filter(|(x, y)| {
+            let at = unsafe { WindowFromPoint(POINT { x: *x, y: *y }) };
+            !at.is_invalid() && unsafe { GetAncestor(at, GA_ROOT) } == hwnd
+        })
+        .count();
+    ours >= 3
 }
 
 fn find_game_window() -> Option<HWND> {

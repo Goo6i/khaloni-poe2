@@ -11,6 +11,8 @@ fn script_reports_geometry_focus_and_close() {
         "Active",
         "Math.round",
         "frameGeometryChanged",
+        "Visible",
+        "stackingOrder",
         "windowActivated",
         "closed",
         "path of exile",

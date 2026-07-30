@@ -9,7 +9,7 @@ fn roundtrips_through_toml() {
     let back: Config = toml::from_str(&text).unwrap();
     assert_eq!(back.league, "Runes of Aldur");
     assert_eq!(back.restore_token.as_deref(), Some("tok"));
-    assert!(back.pause_when_unfocused);
+    assert!(back.pause_when_hidden);
     assert!((back.divine_threshold - 1.0).abs() < f64::EPSILON);
 }
 
@@ -57,4 +57,11 @@ fn hotkeys_are_remappable() {
             .unwrap();
     assert_eq!(c.hotkey_price_check, "F2");
     assert_eq!(c.hotkey_overlay, "F3");
+}
+
+#[test]
+fn old_pause_key_still_loads() {
+    // Pre-rename configs say pause_when_unfocused; the serde alias maps it.
+    let c: Config = toml::from_str("league = \"X\"\npause_when_unfocused = false").unwrap();
+    assert!(!c.pause_when_hidden);
 }

@@ -418,7 +418,7 @@ fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Cap
 fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
     ui.heading("Display");
     ui.add_space(6.0);
-    ui.checkbox(&mut cfg.pause_when_unfocused, "Pause pricing when the game is unfocused");
+    ui.checkbox(&mut cfg.pause_when_hidden, "Hide overlay when the game is minimized or covered");
     ui.horizontal(|ui| {
         ui.label("Show divine values above");
         ui.add(

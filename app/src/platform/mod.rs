@@ -50,8 +50,9 @@ pub enum Hotkey {
     Extra(String),
 }
 
-/// An event from the game-window feed (KWin scripting on Linux; the
-/// Windows equivalent lands in SP3).
+/// An event from the game-window feed (KWin scripting on Linux; Win32
+/// polling through `gamewin_diff` on Windows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameWindowEvent {
     Geometry(Rect),
     /// True when the game window currently holds focus.
@@ -60,6 +61,10 @@ pub enum GameWindowEvent {
     /// Live pointer position in global logical coordinates (throttled to
     /// 100ms and >4px moves by the feed).
     Cursor(i32, i32),
+    /// True while the game is actually on screen: not minimized and not
+    /// covered by other windows. Focus is deliberately NOT part of this —
+    /// an unfocused-but-visible game keeps its overlay.
+    Visible(bool),
 }
 
 pub struct RegionFrame {

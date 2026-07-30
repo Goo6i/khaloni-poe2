@@ -11,22 +11,24 @@ fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
 }
 
 fn sample(rect: Option<Rect>, focused: bool, cursor: (i32, i32)) -> WindowSample {
-    WindowSample { rect, focused, cursor }
+    WindowSample { rect, focused, visible: true, cursor }
 }
 
 #[test]
 fn first_sample_emits_geometry_and_active() {
     let mut st = DiffState::new();
     let evs = st.diff(&sample(Some(rect(10, 20, 800, 600)), true, (0, 0)));
-    // Geometry with the sampled rect, initial focus state, and the initial
-    // cursor position (the KWin script's first timer tick does the same).
-    assert_eq!(evs.len(), 3);
+    // Geometry with the sampled rect, initial focus + visibility states,
+    // and the initial cursor position (the KWin script's first timer tick
+    // does the same).
+    assert_eq!(evs.len(), 4);
     assert!(matches!(
         evs[0],
         GameWindowEvent::Geometry(Rect { x: 10, y: 20, w: 800, h: 600 })
     ));
     assert!(matches!(evs[1], GameWindowEvent::Active(true)));
-    assert!(matches!(evs[2], GameWindowEvent::Cursor(0, 0)));
+    assert!(matches!(evs[2], GameWindowEvent::Visible(true)));
+    assert!(matches!(evs[3], GameWindowEvent::Cursor(0, 0)));
 }
 
 #[test]
@@ -124,4 +126,19 @@ fn reappearance_after_gone_emits_geometry_again() {
         GameWindowEvent::Geometry(Rect { x: 10, y: 20, w: 800, h: 600 })
     ));
     assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(true))));
+}
+
+#[test]
+fn visibility_flips_emit_edges_only() {
+    let mut d = DiffState::new();
+    let r = Some(Rect { x: 0, y: 0, w: 100, h: 100 });
+    // First sample reports the initial visible state.
+    let evs = d.diff(&WindowSample { rect: r, focused: true, visible: true, cursor: (0, 0) });
+    assert!(evs.contains(&GameWindowEvent::Visible(true)));
+    // Unchanged visibility emits nothing for it.
+    let evs = d.diff(&WindowSample { rect: r, focused: true, visible: true, cursor: (0, 0) });
+    assert!(!evs.iter().any(|e| matches!(e, GameWindowEvent::Visible(_))));
+    // A covering window flips it exactly once.
+    let evs = d.diff(&WindowSample { rect: r, focused: false, visible: false, cursor: (0, 0) });
+    assert!(evs.contains(&GameWindowEvent::Visible(false)));
 }

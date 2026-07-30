@@ -1119,6 +1119,9 @@ fn overlay_mode() -> anyhow::Result<()> {
 
     let mut scanning = true;
     let mut game_focused = true;
+    // On-screen state from the tracker (minimized/covered detection);
+    // optimistic until the first Visible event arrives.
+    let mut game_visible = true;
     let mut game_present = true;
     let mut stabilizer = khaloni_poe2::stabilize::Stabilizer::new();
     let mut hover = hover::HoverState::default();
@@ -1203,6 +1206,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     game_present = true;
                 }
                 khaloni_poe2::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
+                khaloni_poe2::platform::GameWindowEvent::Visible(v) => game_visible = v,
                 khaloni_poe2::platform::GameWindowEvent::GameGone => {
                     stabilizer.clear();
                     game_present = false;
@@ -1830,7 +1834,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             _ => {}
         }
 
-        let paused = !scanning || !game_present || (!game_focused && cfg.pause_when_unfocused);
+        let paused = !scanning || !game_present || (!game_visible && cfg.pause_when_hidden);
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
 
         while let Ok(msg) = rows_rx.try_recv() {
@@ -1880,7 +1884,10 @@ fn overlay_mode() -> anyhow::Result<()> {
         // on screen. An explicit F7 (or the F8 toggle note itself) must
         // stay visible while the overlay is toggled off, otherwise the
         // hotkeys read as dead keys (live finding, 2026-07-23).
-        let on_screen = game_present && (game_focused || !cfg.pause_when_unfocused);
+        // VISIBILITY, not focus, decides hiding: an unfocused game that is
+        // still on screen keeps its overlay; a minimized or covered game
+        // does not (the always-on-top layer would draw over the coverer).
+        let on_screen = game_present && (game_visible || !cfg.pause_when_hidden);
         let show_rows = scanning && on_screen;
         // The appraisal panel renders whenever it is open and the game is
         // present, even while unfocused: editing a value box steals keyboard

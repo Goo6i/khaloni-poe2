@@ -92,8 +92,12 @@ pub struct Config {
     pub hotkey_reference: String,
     #[serde(default = "default_hotkey_leveling")]
     pub hotkey_leveling: String,
-    #[serde(default = "default_true")]
-    pub pause_when_unfocused: bool,
+    /// Hide the overlay and pause scanning while the game is not actually
+    /// on screen (minimized or covered by other windows). Focus alone does
+    /// NOT hide: an unfocused-but-visible game keeps its overlay. The old
+    /// key name is accepted so pre-rename configs load unchanged.
+    #[serde(default = "default_true", alias = "pause_when_unfocused")]
+    pub pause_when_hidden: bool,
     /// Value tier thresholds in exalts: below decent = junk, above good = jackpot.
     #[serde(default = "default_tier_decent")]
     pub tier_decent_ex: f64,

@@ -30,6 +30,9 @@ pub struct WindowSample {
     pub rect: Option<Rect>,
     /// Whether the game window is the foreground window right now.
     pub focused: bool,
+    /// Whether the game is actually on screen (not minimized, not covered
+    /// by other windows). Focus is deliberately independent of this.
+    pub visible: bool,
     /// Global cursor position.
     pub cursor: (i32, i32),
 }
@@ -40,6 +43,8 @@ pub struct DiffState {
     /// `None` until the first sample so the initial focus state is always
     /// reported, whatever it is (the main loop gates hotkeys on it).
     last_focused: Option<bool>,
+    /// Same first-sample-always-reports contract as focus.
+    last_visible: Option<bool>,
     /// Last cursor position actually *emitted* (not merely seen), so a slow
     /// drift of sub-threshold steps still accumulates into an event —
     /// exactly like the script's lastCx/lastCy.
@@ -54,6 +59,7 @@ impl DiffState {
         DiffState {
             last_rect: None,
             last_focused: None,
+            last_visible: None,
             // Same far-away sentinel as the KWin script so the first sample
             // always reports the cursor (popup anchoring wants a position
             // before the pointer ever moves).
@@ -88,6 +94,11 @@ impl DiffState {
         if self.last_focused != Some(sample.focused) {
             out.push(GameWindowEvent::Active(sample.focused));
             self.last_focused = Some(sample.focused);
+        }
+
+        if self.last_visible != Some(sample.visible) {
+            out.push(GameWindowEvent::Visible(sample.visible));
+            self.last_visible = Some(sample.visible);
         }
 
         let (cx, cy) = sample.cursor;
