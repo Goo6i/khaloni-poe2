@@ -423,6 +423,10 @@ fn overlay_mode() -> anyhow::Result<()> {
 
 #[cfg(ocr)]
 fn overlay_mode() -> anyhow::Result<()> {
+    // Startup phase timing, permanently logged: cold-start stalls are only
+    // diagnosable from user reports, and eight lines of log are cheap.
+    let boot = std::time::Instant::now();
+    let phase = move |name: &str| eprintln!("t+{:>5}ms {}", boot.elapsed().as_millis(), name);
     let mut cfg = Config::load()?;
 
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
@@ -433,7 +437,9 @@ fn overlay_mode() -> anyhow::Result<()> {
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
 
+    phase("price service up");
     let kwin = khaloni_poe2::platform::gamewin::start()?;
+    phase("window tracker up");
     // First geometry fixes the output; 0,0,0,0 means no game yet.
     let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
     let geometry_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -453,6 +459,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
     }
 
+    phase("game geometry known");
     let rt = tokio::runtime::Runtime::new()?;
     // Identify ourselves to xdg-desktop-portal BEFORE any other portal call.
     // ashpd shares one session-bus connection across all its proxies, and the
@@ -473,7 +480,9 @@ fn overlay_mode() -> anyhow::Result<()> {
             Err(e) => eprintln!("invalid app id: {e}"),
         }
     });
+    phase("app id registered");
     let start = rt.block_on(capture::portal_session(cfg.restore_token.as_deref()))?;
+    phase("capture session ready");
     if let Some(tok) = &start.new_token {
         cfg.restore_token = Some(tok.clone());
         cfg.save()?;
@@ -525,6 +534,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // its own dedicated thread (see inject.rs for why the injection must
     // stay on one long-lived thread). A missing /dev/uinput permission is
     // not fatal: F7 just does nothing, logged once at startup.
+    phase("hotkeys spawning");
     let injector: Option<inject::Injector> = match inject::Injector::new() {
         Ok(i) => Some(i),
         Err(e) => {
@@ -1117,6 +1127,8 @@ fn overlay_mode() -> anyhow::Result<()> {
 
     let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
     let mut overlay = khaloni_poe2::platform::overlay::Overlay::new(center)?;
+    phase("overlay surface up");
+    let mut first_present_logged = false;
     let renderer = khaloni_poe2::render::Renderer::new()?;
 
     let mut scanning = true;
@@ -2066,6 +2078,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),
                 }
                 overlay.present(pm)?;
+                if !first_present_logged {
+                    first_present_logged = true;
+                    phase("first frame presented");
+                }
                 last_frame = frame_state;
             }
         }
