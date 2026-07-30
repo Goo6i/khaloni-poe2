@@ -460,7 +460,9 @@ fn overlay_mode() -> anyhow::Result<()> {
     // connection to an app id: for a terminal-launched app that id is empty,
     // and KDE's GlobalShortcuts portal then refuses it ("An app id is
     // required"). Registering here claims a real id first, so hotkeys bind.
-    // Best-effort: logged, never fatal.
+    // Best-effort: logged, never fatal. Portal machinery is Linux-only;
+    // Windows hotkeys (RegisterHotKey) need no identity.
+    #[cfg(target_os = "linux")]
     rt.block_on(async {
         match "dev.goo6i.khalonipoe2".parse::<ashpd::AppID>() {
             Ok(app_id) => {

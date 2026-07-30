@@ -2651,6 +2651,7 @@ dependencies = [
  "khaloni-poe2-core",
  "ksni",
  "leptess",
+ "leptess-stub",
  "pipewire",
  "serde",
  "serde_json",
@@ -2749,6 +2750,10 @@ dependencies = [
  "tesseract-plumbing",
  "thiserror 1.0.69",
 ]
+
+[[package]]
+name = "leptess-stub"
+version = "0.14.0"
 
 [[package]]
 name = "leptonica-plumbing"

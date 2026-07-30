@@ -1,12 +1,14 @@
-/// Emits the `ocr` cfg on targets where leptess (tesseract + leptonica)
-/// can actually link: Linux via pkg-config, Windows-MSVC via vcpkg. The
-/// windows-gnu cross-check target gets no OCR so it stays green without
-/// native libs; the shipped Windows build is MSVC and carries full OCR.
+/// Emits the `ocr` cfg on every supported target. Linux links the real
+/// leptess via pkg-config and Windows-MSVC (the shipped Windows build) via
+/// vcpkg; the windows-gnu CHECK target gets the committed type-check stub
+/// (app/leptess-stub) instead, so `cargo check --target
+/// x86_64-pc-windows-gnu` covers the ENTIRE crate — including code that
+/// only real Windows builds would otherwise compile. Anything else (no
+/// leptess source at all) stays OCR-free.
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(ocr)");
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    if os == "linux" || (os == "windows" && env == "msvc") {
+    if os == "linux" || os == "windows" {
         println!("cargo::rustc-cfg=ocr");
     }
 }

@@ -68,10 +68,10 @@ jobs:
           VCPKG_ROOT: C:\vcpkg
           TESSDATA_PREFIX: ${{ runner.temp }}/tessdata
 
-  # Cross-target type-check of the shared code for the gnu target — cheap
-  # and linker-free, so type drift is caught in minutes even when the MSVC
-  # job queue is slow. OCR is deliberately absent here (app/build.rs `ocr`
-  # cfg); the MSVC job above covers it. ring's build script compiles C for
+  # Cross-target type-check for the gnu target — cheap, linker-free, and
+  # FULL coverage: the committed leptess-stub gives gnu the ocr cfg too, so
+  # even MSVC-only code paths are type-checked here (app/leptess-stub).
+  # ring compiles C for
   # the target, hence the mingw-w64 cross compiler.
   windows-check:
     name: Windows cross-check (x86_64-pc-windows-gnu)

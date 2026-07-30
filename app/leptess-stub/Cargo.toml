@@ -1,0 +1,4 @@
+[package]
+name = "leptess-stub"
+version = "0.14.0"
+edition = "2021"

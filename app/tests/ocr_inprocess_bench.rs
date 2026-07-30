@@ -1,4 +1,4 @@
-#![cfg(ocr)]
+#![cfg(all(ocr, not(target_env = "gnu")))] // needs REAL leptess, not the gnu check stub
 use leptess::LepTess;
 use std::time::Instant;
 

@@ -1,3 +1,8 @@
+// On the windows-gnu check target the real leptess cannot build (native
+// headers); the committed stub type-checks in its place via this alias.
+#[cfg(all(target_os = "windows", target_env = "gnu"))]
+use leptess_stub as leptess;
+
 use std::collections::BTreeMap;
 
 use image::{imageops, GrayImage};

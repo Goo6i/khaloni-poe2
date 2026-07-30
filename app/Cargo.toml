@@ -45,10 +45,14 @@ x11rb = { version = "0.13", features = ["xfixes"] }
 leptess = "0.14"
 ksni = "0.3.6"
 
-# OCR on the shipped Windows build (MSVC + vcpkg); the gnu cross-check
-# target deliberately has no leptess (see app/build.rs `ocr` cfg).
+# OCR everywhere: real leptess on the shipped targets, a committed
+# type-check stub on windows-gnu so the cross-check covers the whole crate
+# (see app/build.rs and app/leptess-stub).
 [target.'cfg(all(target_os = "windows", target_env = "msvc"))'.dependencies]
 leptess = "0.14"
+
+[target.'cfg(all(target_os = "windows", target_env = "gnu"))'.dependencies]
+leptess-stub = { path = "leptess-stub" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 arboard = "3.6.1"
