@@ -348,8 +348,22 @@ impl OcrEngine {
         } else {
             None
         };
-        let lt = leptess::LepTess::new(datapath.as_deref(), "eng")
+        let mut lt = leptess::LepTess::new(datapath.as_deref(), "eng")
             .map_err(|e| anyhow::anyhow!("tesseract init failed: {e}"))?;
+        // Route tesseract's tprintf chatter to the bit bucket. On live
+        // frames the sparse-text pass regularly finds sub-3px noise specks
+        // and prints "Image too small to scale!!" / "Line cannot be
+        // recognized!!" per speck; debug_file is tesseract's own switch for
+        // exactly this, and (being a global param) it also swallows the
+        // cosmetic ObjectCache LEAK warnings its static destructor prints
+        // at exit while worker threads still hold engines. Untestable from
+        // cargo (C-level stderr, only triggered by noisy real frames), so
+        // best-effort and verified live.
+        #[cfg(unix)]
+        let sink = "/dev/null";
+        #[cfg(windows)]
+        let sink = "nul";
+        let _ = lt.set_variable(leptess::Variable::DebugFile, sink);
         Ok(OcrEngine { lt })
     }
 
