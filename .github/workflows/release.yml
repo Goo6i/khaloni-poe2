@@ -37,7 +37,6 @@ jobs:
           mkdir -p dist/khaloni-poe2
           cp target/release/khaloni-poe2 dist/khaloni-poe2/
           cp app/khaloni-poe2-launch dist/khaloni-poe2/
-          cp app/assets/org.khalonipoe2.App.desktop dist/khaloni-poe2/
           cp README.md dist/khaloni-poe2/
           tar -C dist -czf "khaloni-poe2-${TAG}-linux-x86_64.tar.gz" khaloni-poe2
 
