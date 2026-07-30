@@ -771,6 +771,12 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // open the region is LOCKED: the stabilizer's scroll origin
                 // must not move under it. Redetect only when closed.
                 {
+                    // Live-debug: keep the latest full frame on disk so a
+                    // detection miss can be reproduced offline against the
+                    // exact pixels (overwritten each ~700ms frame).
+                    if std::env::var("KHALONI_REGION_DUMP").is_ok() {
+                        let _ = frame.save("/tmp/khaloni-frame.png");
+                    }
                     let mut geom = scan_geom.lock().unwrap();
                     geom.0 = Some((frame.width(), frame.height()));
                     if !panel_open_det.load(Ordering::Relaxed) {
