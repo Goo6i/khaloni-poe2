@@ -66,6 +66,9 @@ jobs:
         run: cargo build --release -p khaloni-poe2
         env:
           VCPKGRS_TRIPLET: x64-windows-static-md
+          # vcpkg-rs (leptonica-sys/tesseract-sys build scripts) reads
+          # VCPKG_ROOT; the runner image only exports VCPKG_INSTALLATION_ROOT.
+          VCPKG_ROOT: C:\vcpkg
 
       - name: Fetch eng traineddata
         shell: pwsh

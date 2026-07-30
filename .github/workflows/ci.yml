@@ -65,6 +65,7 @@ jobs:
         run: cargo test --workspace
         env:
           VCPKGRS_TRIPLET: x64-windows-static-md
+          VCPKG_ROOT: C:\vcpkg
           TESSDATA_PREFIX: ${{ runner.temp }}/tessdata
 
   # Cross-target type-check of the shared code for the gnu target — cheap
