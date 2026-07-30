@@ -7,21 +7,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-use poe2_lens::{
+use khaloni_poe2::{
     config::{Config, Rect},
     coord::CoordMap,
     hover, ocr,
     platform::{capture, inject},
     pricing, prices,
 };
-use poe2_lens_core::ninja::NinjaClient;
+use khaloni_poe2_core::ninja::NinjaClient;
 
 fn main() -> anyhow::Result<()> {
+    migrate_legacy_dirs();
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str).unwrap_or("") {
         "--calibrate" => calibrate(),
         "--headless" => headless(),
-        "--settings" => poe2_lens::settings_ui::run(),
+        "--settings" => khaloni_poe2::settings_ui::run(),
         _ => overlay_mode(),
     }
 }
@@ -81,15 +82,15 @@ fn game_window_logical() -> Rect {
 /// to exalted via the currency table. `Unpriced` when the name doesn't resolve
 /// or there are no listings; leaves it for the caller to cache.
 fn price_one_gem(
-    client: &mut poe2_lens_core::trade::TradeClient,
+    client: &mut khaloni_poe2_core::trade::TradeClient,
     skill_lower: &str,
     level: u32,
     gem_types: &[String],
     cur_id_to_name: &std::collections::HashMap<String, String>,
-    table: &poe2_lens_core::ninja::PriceTable,
-) -> poe2_lens::pricing::GemState {
-    use poe2_lens::pricing::GemState;
-    let Some(name) = poe2_lens_core::trade::match_gem_name(skill_lower, gem_types) else {
+    table: &khaloni_poe2_core::ninja::PriceTable,
+) -> khaloni_poe2::pricing::GemState {
+    use khaloni_poe2::pricing::GemState;
+    let Some(name) = khaloni_poe2_core::trade::match_gem_name(skill_lower, gem_types) else {
         return GemState::Unpriced;
     };
     let listings = match client.price_gem(&name, i64::from(level)) {
@@ -153,7 +154,7 @@ fn urlencode(s: &str) -> String {
 /// URL-encoded) in the default browser. Uses the base type when the item has
 /// no distinct name (magic/normal). No-ops on an unparseable/empty item.
 fn open_resource(url_template: &str, item_text: &str) {
-    let name = poe2_lens_core::item::parse_item(item_text)
+    let name = khaloni_poe2_core::item::parse_item(item_text)
         .ok()
         .and_then(|it| {
             if it.name.trim().is_empty() {
@@ -187,25 +188,25 @@ fn open_url(url: &str) {
 /// single rect; the union is slightly generous when panels are far apart,
 /// but clicks between them still fall through to nothing (hit() misses).
 fn sync_input_region(
-    overlay: &mut poe2_lens::platform::overlay::Overlay,
-    renderer: &poe2_lens::render::Renderer,
-    apanel: &Option<(poe2_lens::appraise_ui::Panel, poe2_lens_core::trade::Query, (i32, i32))>,
-    ref_panel: &Option<(poe2_lens::reference_ui::Panel, (i32, i32))>,
-    lvl_panel: &Option<(poe2_lens::leveling_ui::Panel, (i32, i32))>,
+    overlay: &mut khaloni_poe2::platform::overlay::Overlay,
+    renderer: &khaloni_poe2::render::Renderer,
+    apanel: &Option<(khaloni_poe2::appraise_ui::Panel, khaloni_poe2_core::trade::Query, (i32, i32))>,
+    ref_panel: &Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
+    lvl_panel: &Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
 ) -> anyhow::Result<()> {
     let out = overlay.output_pos();
     let measure = |s: &str| renderer.appraisal_label_width(s);
     let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::new();
     if let Some((p, _, pos)) = apanel {
-        let lay = poe2_lens::appraise_ui::layout(p, &measure);
+        let lay = khaloni_poe2::appraise_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.size.0, lay.size.1));
     }
     if let Some((p, pos)) = ref_panel {
-        let lay = poe2_lens::reference_ui::layout(p, &measure);
+        let lay = khaloni_poe2::reference_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
     }
     if let Some((p, pos)) = lvl_panel {
-        let lay = poe2_lens::leveling_ui::layout(p, &measure);
+        let lay = khaloni_poe2::leveling_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
     }
     let union = boxes.into_iter().fold(None, |acc: Option<(i32, i32, i32, i32)>, (x, y, w, h)| {
@@ -220,21 +221,48 @@ fn sync_input_region(
 }
 
 /// Built-in map-mod seed rules plus the config's extra needles, lowercased.
-fn build_map_rules(cfg: &Config) -> Vec<poe2_lens_core::mapmods::ModRule> {
-    let mut r = poe2_lens_core::mapmods::default_rules();
+fn build_map_rules(cfg: &Config) -> Vec<khaloni_poe2_core::mapmods::ModRule> {
+    let mut r = khaloni_poe2_core::mapmods::default_rules();
     for n in &cfg.map_danger_needles {
-        r.push(poe2_lens_core::mapmods::ModRule {
+        r.push(khaloni_poe2_core::mapmods::ModRule {
             needle: n.to_lowercase(),
-            kind: poe2_lens_core::mapmods::ModKind::Danger,
+            kind: khaloni_poe2_core::mapmods::ModKind::Danger,
         });
     }
     for n in &cfg.map_good_needles {
-        r.push(poe2_lens_core::mapmods::ModRule {
+        r.push(khaloni_poe2_core::mapmods::ModRule {
             needle: n.to_lowercase(),
-            kind: poe2_lens_core::mapmods::ModKind::Good,
+            kind: khaloni_poe2_core::mapmods::ModKind::Good,
         });
     }
     r
+}
+
+/// One-time rename of the pre-rename "poe2-lens" config/cache dirs to the
+/// "khaloni-poe2" locations, so calibration, tokens, rumours.csv, and the
+/// reference cache survive the project rename. Only fires when the old dir
+/// exists and the new one does not; best-effort on every mode's startup.
+fn migrate_legacy_dirs() {
+    let (Some(old), Some(new)) = (
+        directories::ProjectDirs::from("", "", "poe2-lens"),
+        directories::ProjectDirs::from("", "", "khaloni-poe2"),
+    ) else {
+        return;
+    };
+    for (o, n) in [
+        (old.config_dir(), new.config_dir()),
+        (old.cache_dir(), new.cache_dir()),
+    ] {
+        if o.exists() && !n.exists() {
+            if let Some(parent) = n.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::rename(o, n) {
+                Ok(()) => eprintln!("migrated {} -> {}", o.display(), n.display()),
+                Err(e) => eprintln!("dir migration failed ({} -> {}): {e}", o.display(), n.display()),
+            }
+        }
+    }
 }
 
 /// Launches the native settings window as its own process; the overlay keeps
@@ -263,13 +291,13 @@ fn headless() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
 
     eprintln!("fetching prices for {}...", cfg.league);
-    let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+    let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
         .unwrap()
         .cache_dir()
         .to_path_buf();
     let svc = prices::PriceService::start_with_interval(
         NinjaClient::new(cache.clone()),
-        poe2_lens_core::scout::ScoutClient::new(cache),
+        khaloni_poe2_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
@@ -325,18 +353,18 @@ fn headless() -> anyhow::Result<()> {
 /// div=>ex rate), whether prices are stale, the hover popup (with its
 /// anchor), and the interactive appraisal panel (with its anchor).
 type FrameState = (
-    Vec<poe2_lens::render::Placed>,
+    Vec<khaloni_poe2::render::Placed>,
     String,
     bool,
     Option<(hover::Popup, (i32, i32))>,
-    Option<(poe2_lens::appraise_ui::Panel, (i32, i32))>,
-    Vec<poe2_lens::render::RumourBadge>,
+    Option<(khaloni_poe2::appraise_ui::Panel, (i32, i32))>,
+    Vec<khaloni_poe2::render::RumourBadge>,
     // Focused value box (filter index, field, live edit buffer), so typed
     // digits repaint even though the committed panel values are unchanged.
-    Option<(usize, poe2_lens::appraise_ui::Field, String)>,
+    Option<(usize, khaloni_poe2::appraise_ui::Field, String)>,
     // In-overlay reference search and leveling checklist panels.
-    Option<(poe2_lens::reference_ui::Panel, (i32, i32))>,
-    Option<(poe2_lens::leveling_ui::Panel, (i32, i32))>,
+    Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
+    Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
 );
 
 /// What an in-flight copy-hovered request (other than a price check) should
@@ -350,8 +378,8 @@ enum PendingAction {
 /// relax until listings appear; Exact = the user's checkbox state, run
 /// verbatim with no relaxation (their toggle IS the intent).
 enum AppraiseReq {
-    Auto(poe2_lens_core::item::Item),
-    Exact { title: String, query: poe2_lens_core::trade::Query },
+    Auto(khaloni_poe2_core::item::Item),
+    Exact { title: String, query: khaloni_poe2_core::trade::Query },
     /// Price a stackable currency (e.g. an omen) by its display name via the
     /// trade exchange; the result comes back on the exchange channel.
     Currency { name: String },
@@ -363,7 +391,7 @@ enum AppraiseReq {
 
 /// Shared cache of specific-gem prices, written by the trade worker and read
 /// (with lazy request) by the reward-panel pricer.
-type GemMap = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String, u32), poe2_lens::pricing::GemState>>>;
+type GemMap = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String, u32), khaloni_poe2::pricing::GemState>>>;
 
 /// Reads a gem's cached price and, on a miss, marks it pending and asks the
 /// trade worker to price it.
@@ -372,27 +400,27 @@ struct GemCache {
     req_tx: mpsc::Sender<AppraiseReq>,
 }
 
-impl poe2_lens::pricing::GemPricer for GemCache {
-    fn lookup(&self, skill_lower: &str, level: u32) -> poe2_lens::pricing::GemState {
+impl khaloni_poe2::pricing::GemPricer for GemCache {
+    fn lookup(&self, skill_lower: &str, level: u32) -> khaloni_poe2::pricing::GemState {
         let key = (skill_lower.to_string(), level);
         let mut m = self.map.lock().unwrap();
         if let Some(state) = m.get(&key) {
             return *state;
         }
-        m.insert(key.clone(), poe2_lens::pricing::GemState::Pending);
+        m.insert(key.clone(), khaloni_poe2::pricing::GemState::Pending);
         drop(m);
         let _ = self.req_tx.send(AppraiseReq::Gem { skill: skill_lower.to_string(), level });
-        poe2_lens::pricing::GemState::Pending
+        khaloni_poe2::pricing::GemState::Pending
     }
 }
 
 struct AppraiseDone {
     title: String,
-    outcome: Result<Vec<poe2_lens_core::trade::Listing>, String>,
+    outcome: Result<Vec<khaloni_poe2_core::trade::Listing>, String>,
     /// Query + labels only on Auto responses (they seed the panel); an
     /// Exact response updates listings on the panel the user already has.
-    query: Option<poe2_lens_core::trade::Query>,
-    labels: Vec<poe2_lens_core::trade::FilterLabel>,
+    query: Option<khaloni_poe2_core::trade::Query>,
+    labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
     search_id: Option<String>,
 }
 
@@ -410,15 +438,15 @@ fn overlay_mode() -> anyhow::Result<()> {
         .calibration
         .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
 
-    let cache = directories::ProjectDirs::from("", "", "poe2-lens").unwrap().cache_dir().to_path_buf();
+    let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
     let svc = prices::PriceService::start_with_interval(
         NinjaClient::new(cache.clone()),
-        poe2_lens_core::scout::ScoutClient::new(cache),
+        khaloni_poe2_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
 
-    let kwin = poe2_lens::platform::gamewin::start()?;
+    let kwin = khaloni_poe2::platform::gamewin::start()?;
     // First geometry fixes the output; 0,0,0,0 means no game yet.
     let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
     let geometry_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -429,7 +457,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             break;
         }
         match kwin.rx.recv_timeout(remaining) {
-            Ok(poe2_lens::platform::GameWindowEvent::Geometry(g)) => {
+            Ok(khaloni_poe2::platform::GameWindowEvent::Geometry(g)) => {
                 game = g;
                 break;
             }
@@ -447,7 +475,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // required"). Registering here claims a real id first, so hotkeys bind.
     // Best-effort: logged, never fatal.
     rt.block_on(async {
-        match "dev.goo6i.poe2lens".parse::<ashpd::AppID>() {
+        match "dev.goo6i.khalonipoe2".parse::<ashpd::AppID>() {
             Ok(app_id) => {
                 if let Err(e) = ashpd::register_host_app(app_id).await {
                     eprintln!("app-id registration failed (hotkeys may not bind): {e}");
@@ -491,7 +519,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         let hk_tx = hk_tx.clone();
         rt.spawn(async move {
-            if let Err(e) = poe2_lens::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
+            if let Err(e) = khaloni_poe2::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
                 eprintln!("hotkeys unavailable: {e}");
             }
         });
@@ -500,7 +528,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // System tray: quick actions without a hotkey. A missing tray host
     // (no StatusNotifier) is not fatal — everything works without it.
     let (tray_tx, tray_rx) = mpsc::channel();
-    if let Err(e) = poe2_lens::tray::spawn(tray_tx) {
+    if let Err(e) = khaloni_poe2::tray::spawn(tray_tx) {
         eprintln!("tray unavailable: {e}");
     }
 
@@ -530,15 +558,15 @@ fn overlay_mode() -> anyhow::Result<()> {
     // Reference data for the in-overlay panels loads (cached, fetched once)
     // on a background thread so a cold fetch never blocks startup; the
     // panels show a loading row until the OnceLock fills.
-    let reference: std::sync::Arc<std::sync::OnceLock<poe2_lens::refcache::Reference>> =
+    let reference: std::sync::Arc<std::sync::OnceLock<khaloni_poe2::refcache::Reference>> =
         std::sync::Arc::new(std::sync::OnceLock::new());
     {
         let reference = reference.clone();
         std::thread::spawn(move || {
-            let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+            let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
                 .map(|d| d.cache_dir().to_path_buf())
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let r = poe2_lens::refcache::reference_data(&cache);
+            let r = khaloni_poe2::refcache::reference_data(&cache);
             eprintln!(
                 "reference data ready: {} affixes, {} items, {} uniques",
                 r.affixes.len(),
@@ -564,9 +592,9 @@ fn overlay_mode() -> anyhow::Result<()> {
         let gem_map = gem_map.clone();
         let svc_gem = svc.clone();
         std::thread::spawn(move || {
-            let stats_path = directories::ProjectDirs::from("", "", "poe2-lens")
+            let stats_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
                 .map(|d| d.cache_dir().join("trade_stats.json"));
-            let mut client = match poe2_lens_core::trade::TradeClient::new("https://www.pathofexile.com", &league) {
+            let mut client = match khaloni_poe2_core::trade::TradeClient::new("https://www.pathofexile.com", &league) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("trade client unavailable: {e}");
@@ -578,7 +606,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 .as_deref()
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .or_else(|| {
-                    let got = poe2_lens_core::trade::fetch_stats_json().ok()?;
+                    let got = khaloni_poe2_core::trade::fetch_stats_json().ok()?;
                     if let Some(p) = stats_path.as_deref() {
                         if let Some(dir) = p.parent() {
                             let _ = std::fs::create_dir_all(dir);
@@ -587,7 +615,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     Some(got)
                 });
-            let stats = stats_json.and_then(|j| poe2_lens_core::trade::StatIndex::from_json(&j).ok());
+            let stats = stats_json.and_then(|j| khaloni_poe2_core::trade::StatIndex::from_json(&j).ok());
             let Some(stats) = stats else {
                 eprintln!("trade stats index unavailable; rare appraisal disabled");
                 return;
@@ -634,7 +662,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                             item.name.clone()
                         };
                         let (q, labels) =
-                            poe2_lens_core::trade::build_query_with_labels(&item, &stats);
+                            khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
                         (title, q, labels, true)
                     }
                     AppraiseReq::Exact { title, query } => (title, query, Vec::new(), false),
@@ -661,7 +689,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // of the Debug duration ("rate limited; retry in
                 // 32.847s"); other errors keep their Display text.
                 let outcome = outcome.map_err(|e| match e {
-                    poe2_lens_core::trade::TradeError::Cooldown(d) => {
+                    khaloni_poe2_core::trade::TradeError::Cooldown(d) => {
                         format!("trade cooldown, retry in {}s", d.as_secs().max(1))
                     }
                     other => other.to_string(),
@@ -684,7 +712,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (full_tx, full_rx) = mpsc::sync_channel::<image::GrayImage>(1);
     // Recognized rumours flow back to the render loop here (every scan,
     // including empty, so stale badges clear when the panel closes).
-    let (rumour_tx, rumour_rx) = mpsc::channel::<Vec<poe2_lens::rumours::RumourHit>>();
+    let (rumour_tx, rumour_rx) = mpsc::channel::<Vec<khaloni_poe2::rumours::RumourHit>>();
     let (region_tx, region_rx) = mpsc::channel::<Rect>();
     let region = map.region_px();
     // Shared with the OCR worker below: it owns the BrightnessGate and
@@ -714,14 +742,14 @@ fn overlay_mode() -> anyhow::Result<()> {
         let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
         let paused_rumour = pipeline_paused.clone();
         std::thread::spawn(move || {
-            let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+            let dbg = std::env::var("KHALONI_DEBUG").is_ok();
             let Some(csv_path) = rumour_csv else { return };
             let Ok(csv) = std::fs::read_to_string(&csv_path) else {
                 eprintln!("rumour worker: no rumours.csv; rumour overlay off");
                 return;
             };
-            let idx = poe2_lens_core::rumour::RumourIndex::new(
-                poe2_lens_core::rumour::parse_csv(&csv),
+            let idx = khaloni_poe2_core::rumour::RumourIndex::new(
+                khaloni_poe2_core::rumour::parse_csv(&csv),
             );
             let Ok(mut engine) = ocr::OcrEngine::new() else {
                 eprintln!("rumour worker: tesseract init failed; rumour overlay off");
@@ -735,12 +763,12 @@ fn overlay_mode() -> anyhow::Result<()> {
                 let t = std::time::Instant::now();
                 // Debug: dump the exact frame a panel was seen in, so live
                 // misses can be analyzed offline at the true capture resolution.
-                if std::env::var("POE2LENS_RUMOUR_DUMP").is_ok()
-                    && poe2_lens::rumours::find_panel(&frame).is_some()
+                if std::env::var("KHALONI_RUMOUR_DUMP").is_ok()
+                    && khaloni_poe2::rumours::find_panel(&frame).is_some()
                 {
                     let _ = frame.save("/tmp/poe2-live-frame.png");
                 }
-                let hits = poe2_lens::rumours::recognize(&mut engine, &frame, &idx);
+                let hits = khaloni_poe2::rumours::recognize(&mut engine, &frame, &idx);
                 if !hits.is_empty() {
                     eprintln!(
                         "RUMOURS {} in {}ms: {}",
@@ -775,7 +803,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // The reward-panel pricer's handle to the specific-gem cache + trade worker.
     let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
     std::thread::spawn(move || {
-        let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+        let dbg = std::env::var("KHALONI_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
         let Ok(mut engine) = ocr::OcrEngine::new() else {
             eprintln!("tesseract init failed; OCR disabled");
@@ -787,7 +815,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         // profile+templates only; the expensive OCR paths keep the old
         // 120ms rhythm regardless of capture rate.
         let mut last_heavy = std::time::Instant::now() - Duration::from_secs(1);
-        let mut gate = poe2_lens::brightness::BrightnessGate::new(
+        let mut gate = khaloni_poe2::brightness::BrightnessGate::new(
             ocr_cfg.panel_open_brightness,
             ocr_cfg.panel_close_brightness,
         );
@@ -802,8 +830,8 @@ fn overlay_mode() -> anyhow::Result<()> {
             .map(|d| d.join("rumours.csv"))
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|csv| {
-                let idx = poe2_lens_core::rumour::RumourIndex::new(
-                    poe2_lens_core::rumour::parse_csv(&csv),
+                let idx = khaloni_poe2_core::rumour::RumourIndex::new(
+                    khaloni_poe2_core::rumour::parse_csv(&csv),
                 );
                 eprintln!("rumour dataset loaded: {} entries", idx.len());
                 idx
@@ -811,11 +839,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         if rumours.is_none() {
             eprintln!("no rumours.csv in config dir; rumour annotations off");
         }
-        let tpl_path = directories::ProjectDirs::from("", "", "poe2-lens")
+        let tpl_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
             .map(|d| d.cache_dir().join("templates.bin"));
         let mut tstore = tpl_path
             .as_deref()
-            .map(poe2_lens::template::TemplateStore::load)
+            .map(khaloni_poe2::template::TemplateStore::load)
             .unwrap_or_default();
         let mut tpl_saved_at = std::time::Instant::now();
         // The frame channel is capacity-1 with try_send-and-drop on the
@@ -842,7 +870,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // world, not the list). Skip tesseract entirely (this check
                 // costs microseconds) and report gated-empty so the overlay
                 // can drop stale rows instead of holding them.
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::GateEmpty);
+                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::GateEmpty);
                 continue;
             }
             let profile = ocr::row_profile(&frame.gray);
@@ -857,7 +885,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // the next stable frame rescans normally.
                     let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
                     post_scroll_fast = true;
-                    let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Scrolled(dy_pre));
+                    let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Scrolled(dy_pre));
                     if dbg {
                         eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
                     }
@@ -871,7 +899,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // blur/transition); the next Still frame re-anchors
                     // everything from scratch.
                     post_scroll_fast = true;
-                    let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::TrackingLost);
+                    let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::TrackingLost);
                     if dbg {
                         eprintln!("TRACE {:>8.2}s tracking lost", t0.elapsed().as_secs_f32());
                     }
@@ -890,7 +918,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             // if a panel style ever defeats band detection, this is the
             // line to revisit.
             if bands.is_empty() {
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::NoBands);
+                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::NoBands);
                 continue;
             }
             // Template pass first: every band already learned resolves in
@@ -930,7 +958,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         resolved.len()
                     );
                 }
-                let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(resolved, snap.stale));
+                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Rows(resolved, snap.stale));
                 continue;
             }
             // Unresolved bands wait for the next tesseract slot (120ms
@@ -950,7 +978,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 ocr::ocr_scan(&mut engine, &frame.gray)
             };
             if dbg {
-                let d = std::path::Path::new("/tmp/poe2lens-frames");
+                let d = std::path::Path::new("/tmp/khalonipoe2-frames");
                 let _ = std::fs::create_dir_all(d);
                 let _ = frame.gray.save(d.join(format!(
                     "t{:06.2}_bands{}_lines{}.png",
@@ -1027,18 +1055,18 @@ fn overlay_mode() -> anyhow::Result<()> {
                     out.0.iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>().join(", ")
                 );
             }
-            let _ = rows_tx.send(poe2_lens::stabilize::ScanResult::Rows(out.0, snap.stale));
+            let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Rows(out.0, snap.stale));
         }
     });
 
     let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
-    let mut overlay = poe2_lens::platform::overlay::Overlay::new(center)?;
-    let renderer = poe2_lens::render::Renderer::new()?;
+    let mut overlay = khaloni_poe2::platform::overlay::Overlay::new(center)?;
+    let renderer = khaloni_poe2::render::Renderer::new()?;
 
     let mut scanning = true;
     let mut game_focused = true;
     let mut game_present = true;
-    let mut stabilizer = poe2_lens::stabilize::Stabilizer::new();
+    let mut stabilizer = khaloni_poe2::stabilize::Stabilizer::new();
     let mut hover = hover::HoverState::default();
     let mut game_pos = (game.x, game.y);
     // Live pointer position (global logical), fed by the KWin script's
@@ -1052,19 +1080,19 @@ fn overlay_mode() -> anyhow::Result<()> {
     // + placed top-left (global logical). While Some, the overlay's input
     // region covers the panel and clicks resolve through appraise_ui.
     let mut apanel: Option<(
-        poe2_lens::appraise_ui::Panel,
-        poe2_lens_core::trade::Query,
+        khaloni_poe2::appraise_ui::Panel,
+        khaloni_poe2_core::trade::Query,
         (i32, i32),
     )> = None;
     // Which filter box is being typed into, and the digits typed so far.
-    let mut editing: Option<(usize, poe2_lens::appraise_ui::Field)> = None;
+    let mut editing: Option<(usize, khaloni_poe2::appraise_ui::Field)> = None;
     let mut edit_buf = String::new();
     // In-overlay reference search panel (F9) and leveling checklist (F10),
     // each with its placed top-left in global logical coordinates. While
     // open they join the overlay's input region and take keyboard focus
     // for search typing / scrolling.
-    let mut ref_panel: Option<(poe2_lens::reference_ui::Panel, (i32, i32))> = None;
-    let mut lvl_panel: Option<(poe2_lens::leveling_ui::Panel, (i32, i32))> = None;
+    let mut ref_panel: Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))> = None;
+    let mut lvl_panel: Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))> = None;
     // An in-progress panel drag: (grab point in surface px, panel's global
     // position when the grab began). Deliberately NOT persisted anywhere, so
     // each new price check reopens the panel at its freshly-placed spot.
@@ -1080,8 +1108,8 @@ fn overlay_mode() -> anyhow::Result<()> {
     // repaint that clears it.
     let mut last_frame: Option<FrameState> = None;
     // Latest rumours from the recognizer worker (capture-physical px boxes).
-    let mut latest_rumours: Vec<poe2_lens::rumours::RumourHit> = Vec::new();
-    let dbg = std::env::var("POE2LENS_DEBUG").is_ok();
+    let mut latest_rumours: Vec<khaloni_poe2::rumours::RumourHit> = Vec::new();
+    let dbg = std::env::var("KHALONI_DEBUG").is_ok();
     // Live config reload: the web control panel writes config.toml; polling its
     // mtime (once a second) lets main-loop-read settings (pause-when-unfocused,
     // divine threshold) take effect without a relaunch. Worker-thread settings
@@ -1112,14 +1140,14 @@ fn overlay_mode() -> anyhow::Result<()> {
 
         while let Ok(ev) = kwin.rx.try_recv() {
             match ev {
-                poe2_lens::platform::GameWindowEvent::Geometry(g) => {
+                khaloni_poe2::platform::GameWindowEvent::Geometry(g) => {
                     game_pos = (g.x, g.y);
                     game_present = true;
                     let m = CoordMap::new(g, (3840, 2160), cal);
                     let _ = region_tx.send(m.region_px());
                 }
-                poe2_lens::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
-                poe2_lens::platform::GameWindowEvent::GameGone => {
+                khaloni_poe2::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
+                khaloni_poe2::platform::GameWindowEvent::GameGone => {
                     stabilizer.clear();
                     game_present = false;
                     let any_panel = apanel.take().is_some()
@@ -1131,28 +1159,28 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     overlay.hide()?;
                 }
-                poe2_lens::platform::GameWindowEvent::Cursor(x, y) => cursor_pos = (x, y),
+                khaloni_poe2::platform::GameWindowEvent::Cursor(x, y) => cursor_pos = (x, y),
             }
         }
         // Tray menu actions reuse the hotkey paths where one exists, so the
         // two entry points cannot drift apart.
         while let Ok(ev) = tray_rx.try_recv() {
             match ev {
-                poe2_lens::tray::TrayEvent::OpenSettings => open_settings(),
-                poe2_lens::tray::TrayEvent::ToggleOverlay => {
-                    let _ = hk_tx.send(poe2_lens::platform::Hotkey::OverlayToggle);
+                khaloni_poe2::tray::TrayEvent::OpenSettings => open_settings(),
+                khaloni_poe2::tray::TrayEvent::ToggleOverlay => {
+                    let _ = hk_tx.send(khaloni_poe2::platform::Hotkey::OverlayToggle);
                 }
-                poe2_lens::tray::TrayEvent::TogglePause => {
+                khaloni_poe2::tray::TrayEvent::TogglePause => {
                     let v = !pipeline_paused.load(Ordering::Relaxed);
                     pipeline_paused.store(v, Ordering::Relaxed);
                     hover.show_note(if v { "pricing paused" } else { "pricing resumed" });
                 }
-                poe2_lens::tray::TrayEvent::Quit => return Ok(()),
+                khaloni_poe2::tray::TrayEvent::Quit => return Ok(()),
             }
         }
         while let Ok(hk) = hk_rx.try_recv() {
             match hk {
-                poe2_lens::platform::Hotkey::OverlayToggle => {
+                khaloni_poe2::platform::Hotkey::OverlayToggle => {
                     scanning = !scanning;
                     if !scanning {
                         stabilizer.clear();
@@ -1174,13 +1202,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                     let game_rect =
                         Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
                     popup_at = hover.current.as_ref().map(|p| {
-                        let size = poe2_lens::render::Renderer::popup_size(p);
+                        let size = khaloni_poe2::render::Renderer::popup_size(p);
                         let (px, py) =
-                            poe2_lens::popup_pos::place(cursor_pos, size, game_rect);
+                            khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
                         (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
                     });
                 }
-                poe2_lens::platform::Hotkey::PriceCheck => {
+                khaloni_poe2::platform::Hotkey::PriceCheck => {
                     if let Some(inj) = &injector {
                         // game_focused-gated so a press over some other
                         // window never sends Ctrl+C into it; the swap keeps
@@ -1191,7 +1219,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     }
                 }
-                poe2_lens::platform::Hotkey::Extra(id) => {
+                khaloni_poe2::platform::Hotkey::Extra(id) => {
                     // The settings hotkey opens the native settings window in
                     // its own process. No focus gate: it's an out-of-game
                     // window; config changes flow back via the mtime watcher.
@@ -1203,9 +1231,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // gate: consulting them from the game menus is the point.
                     if id == "reference" {
                         if ref_panel.take().is_none() {
-                            let mut p = poe2_lens::reference_ui::Panel::default();
+                            let mut p = khaloni_poe2::reference_ui::Panel::default();
                             if let Some(r) = reference.get() {
-                                poe2_lens::reference_ui::refresh(&mut p, r);
+                                khaloni_poe2::reference_ui::refresh(&mut p, r);
                             }
                             let pos = (game_pos.0 + (game.w as i32) / 2 - 300, game_pos.1 + 140);
                             ref_panel = Some((p, pos));
@@ -1221,9 +1249,9 @@ fn overlay_mode() -> anyhow::Result<()> {
                             let acts = reference.get().map(|r| r.leveling.clone()).unwrap_or_default();
                             let done = Config::path()
                                 .parent()
-                                .map(poe2_lens::leveling_ui::load_done)
+                                .map(khaloni_poe2::leveling_ui::load_done)
                                 .unwrap_or_default();
-                            let p = poe2_lens::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
+                            let p = khaloni_poe2::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
                             let pos = (game_pos.0 + (game.w as i32) / 2 + 40, game_pos.1 + 140);
                             lvl_panel = Some((p, pos));
                         }
@@ -1285,16 +1313,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // here so F7's copy is never clobbered.
                     if text.to_lowercase().contains("waystone") {
                         let lines: Vec<&str> = text.lines().collect();
-                        let classified = poe2_lens_core::mapmods::analyze(&lines, &map_rules);
+                        let classified = khaloni_poe2_core::mapmods::analyze(&lines, &map_rules);
                         let mut mod_lines: Vec<hover::PopupLine> = Vec::new();
                         for (l, k) in classified {
                             let prefix = match k {
-                                poe2_lens_core::mapmods::ModKind::Danger => "!! ",
-                                poe2_lens_core::mapmods::ModKind::Good => "+ ",
+                                khaloni_poe2_core::mapmods::ModKind::Danger => "!! ",
+                                khaloni_poe2_core::mapmods::ModKind::Good => "+ ",
                             };
                             mod_lines.push(hover::PopupLine {
                                 text: format!("{prefix}{l}"),
-                                denom: poe2_lens::pricing::Denom::None,
+                                denom: khaloni_poe2::pricing::Denom::None,
                             });
                         }
                         if !mod_lines.is_empty() {
@@ -1325,8 +1353,8 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
             // A fresh popup anchors at the cursor that triggered it.
             popup_at = hover.current.as_ref().map(|p| {
-                let size = poe2_lens::render::Renderer::popup_size(p);
-                let (px, py) = poe2_lens::popup_pos::place(cursor_pos, size, game_rect);
+                let size = khaloni_poe2::render::Renderer::popup_size(p);
+                let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
                 (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
             });
         }
@@ -1336,7 +1364,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             hover.show_exchange(&name, rate);
         }
         while let Ok(done) = appraise_rx.try_recv() {
-            let listings_of = |outcome: &Result<Vec<poe2_lens_core::trade::Listing>, String>| match outcome {
+            let listings_of = |outcome: &Result<Vec<khaloni_poe2_core::trade::Listing>, String>| match outcome {
                 Ok(ls) if ls.is_empty() => (vec![], "no online matches".to_string()),
                 Ok(ls) => (
                     ls.iter()
@@ -1352,11 +1380,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // "searching trade..." popup was anchored.
                 (Some(query), _) => {
                     let (listings, status) = listings_of(&done.outcome);
-                    let mut mods: Vec<poe2_lens::appraise_ui::ModRow> = done
+                    let mut mods: Vec<khaloni_poe2::appraise_ui::ModRow> = done
                         .labels
                         .iter()
                         .enumerate()
-                        .map(|(i, l)| poe2_lens::appraise_ui::ModRow {
+                        .map(|(i, l)| khaloni_poe2::appraise_ui::ModRow {
                             label: l.text.clone(),
                             tier: l.tier,
                             min: query.filters[i].value.min,
@@ -1367,17 +1395,17 @@ fn overlay_mode() -> anyhow::Result<()> {
                         })
                         .collect();
                     // Group implicits first, then explicits, then map (EE2 order).
-                    mods.sort_by_key(|m| poe2_lens::appraise_ui::tag_rank(&m.tag));
+                    mods.sort_by_key(|m| khaloni_poe2::appraise_ui::tag_rank(&m.tag));
                     // Gear carries a base-type toggle so the user can search
                     // mods-only; items priced by their base (waystones, whose
                     // category is None) get no toggle.
                     let base = query.category.as_deref().map(|c| {
-                        poe2_lens::appraise_ui::BaseToggle {
+                        khaloni_poe2::appraise_ui::BaseToggle {
                             label: format!("Base: {}", pretty_category(c)),
                             enabled: query.category_enabled,
                         }
                     });
-                    let panel = poe2_lens::appraise_ui::Panel {
+                    let panel = khaloni_poe2::appraise_ui::Panel {
                         title: done.title,
                         base,
                         mods,
@@ -1386,10 +1414,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                         search_id: done.search_id,
                     };
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
-                    let lay = poe2_lens::appraise_ui::layout(&panel, &|s| {
+                    let lay = khaloni_poe2::appraise_ui::layout(&panel, &|s| {
                         renderer.appraisal_label_width(s)
                     });
-                    let pos = poe2_lens::popup_pos::place(origin, lay.size, game_rect);
+                    let pos = khaloni_poe2::popup_pos::place(origin, lay.size, game_rect);
                     hover.current = None;
                     popup_at = None;
                     let out_pos = overlay.output_pos();
@@ -1432,7 +1460,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     leftover_clicks.push((cx, cy));
                     continue;
                 };
-                let lay = poe2_lens::appraise_ui::layout(panel, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::appraise_ui::layout(panel, &|s| renderer.appraisal_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 let inside = local.0 >= 0
                     && local.0 < lay.size.0
@@ -1442,8 +1470,8 @@ fn overlay_mode() -> anyhow::Result<()> {
                     leftover_clicks.push((cx, cy));
                     continue;
                 }
-                match poe2_lens::appraise_ui::hit(panel, &lay, local.0, local.1) {
-                    Some(poe2_lens::appraise_ui::Action::ToggleMod(fi)) => {
+                match khaloni_poe2::appraise_ui::hit(panel, &lay, local.0, local.1) {
+                    Some(khaloni_poe2::appraise_ui::Action::ToggleMod(fi)) => {
                         if let Some(f) = query.filters.get_mut(fi) {
                             f.disabled = !f.disabled;
                         }
@@ -1452,26 +1480,26 @@ fn overlay_mode() -> anyhow::Result<()> {
                         }
                     }
                     // Dropping the base searches the mods across every base.
-                    Some(poe2_lens::appraise_ui::Action::ToggleBase) => {
+                    Some(khaloni_poe2::appraise_ui::Action::ToggleBase) => {
                         query.category_enabled = !query.category_enabled;
                         if let Some(b) = panel.base.as_mut() {
                             b.enabled = query.category_enabled;
                         }
                     }
                     // Clicking a value box focuses it for keyboard entry.
-                    Some(poe2_lens::appraise_ui::Action::Edit(fi, field)) => {
+                    Some(khaloni_poe2::appraise_ui::Action::Edit(fi, field)) => {
                         editing = Some((fi, field));
                         edit_buf.clear();
                         overlay.set_keyboard(true)?;
                     }
-                    Some(poe2_lens::appraise_ui::Action::Search) => {
+                    Some(khaloni_poe2::appraise_ui::Action::Search) => {
                         panel.status = "searching...".into();
                         let _ = appraise_req_tx.send(AppraiseReq::Exact {
                             title: panel.title.clone(),
                             query: query.clone(),
                         });
                     }
-                    Some(poe2_lens::appraise_ui::Action::OpenSite) => {
+                    Some(khaloni_poe2::appraise_ui::Action::OpenSite) => {
                         // Feedback in the status line, since opening the browser
                         // gives no in-overlay cue on its own.
                         match &panel.search_id {
@@ -1487,7 +1515,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                             None => panel.status = "run a search first".into(),
                         }
                     }
-                    Some(poe2_lens::appraise_ui::Action::Close) => {
+                    Some(khaloni_poe2::appraise_ui::Action::Close) => {
                         apanel = None;
                         editing = None;
                         panel_drag = None;
@@ -1526,28 +1554,28 @@ fn overlay_mode() -> anyhow::Result<()> {
         // not claim, in priority order reference then leveling.
         for (cx, cy) in leftover_clicks {
             if let Some((p, pos)) = ref_panel.as_mut() {
-                let lay = poe2_lens::reference_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::reference_ui::layout(p, &|s| renderer.appraisal_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
-                    match poe2_lens::reference_ui::hit(p, &lay, local.0, local.1) {
-                        Some(poe2_lens::reference_ui::Action::Close) => {
+                    match khaloni_poe2::reference_ui::hit(p, &lay, local.0, local.1) {
+                        Some(khaloni_poe2::reference_ui::Action::Close) => {
                             ref_panel = None;
                             overlay.set_keyboard(editing.is_some() || lvl_panel.is_some())?;
                             sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                         }
-                        Some(poe2_lens::reference_ui::Action::FocusSearch) => p.focused = true,
-                        Some(poe2_lens::reference_ui::Action::SetCat(c)) => {
+                        Some(khaloni_poe2::reference_ui::Action::FocusSearch) => p.focused = true,
+                        Some(khaloni_poe2::reference_ui::Action::SetCat(c)) => {
                             p.cat = c;
                             if let Some(r) = reference.get() {
-                                poe2_lens::reference_ui::refresh(p, r);
+                                khaloni_poe2::reference_ui::refresh(p, r);
                             }
                             // Result width can change with the category.
                             sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                         }
-                        Some(poe2_lens::reference_ui::Action::ScrollUp) => {
+                        Some(khaloni_poe2::reference_ui::Action::ScrollUp) => {
                             p.scroll = p.scroll.saturating_sub(1);
                         }
-                        Some(poe2_lens::reference_ui::Action::ScrollDown) => {
+                        Some(khaloni_poe2::reference_ui::Action::ScrollDown) => {
                             p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
                         }
                         None => {}
@@ -1556,39 +1584,39 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
             }
             if let Some((p, pos)) = lvl_panel.as_mut() {
-                let lay = poe2_lens::leveling_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::leveling_ui::layout(p, &|s| renderer.appraisal_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
-                    match poe2_lens::leveling_ui::hit(p, &lay, local.0, local.1) {
-                        Some(poe2_lens::leveling_ui::Action::Close) => {
+                    match khaloni_poe2::leveling_ui::hit(p, &lay, local.0, local.1) {
+                        Some(khaloni_poe2::leveling_ui::Action::Close) => {
                             lvl_panel = None;
                             overlay.set_keyboard(editing.is_some() || ref_panel.is_some())?;
                             sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                         }
-                        Some(poe2_lens::leveling_ui::Action::PrevAct) => {
+                        Some(khaloni_poe2::leveling_ui::Action::PrevAct) => {
                             p.act = p.act.saturating_sub(1);
                             p.scroll = 0;
                         }
-                        Some(poe2_lens::leveling_ui::Action::NextAct) => {
+                        Some(khaloni_poe2::leveling_ui::Action::NextAct) => {
                             if p.act + 1 < p.acts.len() {
                                 p.act += 1;
                                 p.scroll = 0;
                             }
                         }
-                        Some(poe2_lens::leveling_ui::Action::ToggleStep(id)) => {
+                        Some(khaloni_poe2::leveling_ui::Action::ToggleStep(id)) => {
                             if !p.done.remove(&id) {
                                 p.done.insert(id);
                             }
                             if let Some(dir) = Config::path().parent() {
-                                if let Err(e) = poe2_lens::leveling_ui::save_done(dir, &p.done) {
+                                if let Err(e) = khaloni_poe2::leveling_ui::save_done(dir, &p.done) {
                                     eprintln!("leveling: save failed: {e}");
                                 }
                             }
                         }
-                        Some(poe2_lens::leveling_ui::Action::ScrollUp) => {
+                        Some(khaloni_poe2::leveling_ui::Action::ScrollUp) => {
                             p.scroll = p.scroll.saturating_sub(1);
                         }
-                        Some(poe2_lens::leveling_ui::Action::ScrollDown) => {
+                        Some(khaloni_poe2::leveling_ui::Action::ScrollDown) => {
                             p.scroll += 1; // layout clamps via the visible window
                         }
                         None => {}
@@ -1608,13 +1636,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                     break;
                 };
                 match key {
-                    poe2_lens::platform::Key::Digit(c) => {
+                    khaloni_poe2::platform::Key::Digit(c) => {
                         if edit_buf.len() < 8 {
                             edit_buf.push(c);
                         }
                     }
                     // One decimal point, so values like 3.5 are typeable.
-                    poe2_lens::platform::Key::Dot => {
+                    khaloni_poe2::platform::Key::Dot => {
                         if edit_buf.len() < 8 && !edit_buf.contains('.') {
                             if edit_buf.is_empty() {
                                 edit_buf.push('0');
@@ -1622,10 +1650,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                             edit_buf.push('.');
                         }
                     }
-                    poe2_lens::platform::Key::Backspace => {
+                    khaloni_poe2::platform::Key::Backspace => {
                         edit_buf.pop();
                     }
-                    poe2_lens::platform::Key::Enter => {
+                    khaloni_poe2::platform::Key::Enter => {
                         // Trailing "." (e.g. "3.") parses fine after trimming.
                         let cleaned = edit_buf.trim_end_matches('.');
                         let parsed: Option<f64> = if cleaned.is_empty() {
@@ -1635,34 +1663,34 @@ fn overlay_mode() -> anyhow::Result<()> {
                         };
                         if let Some(f) = query.filters.get_mut(fi) {
                             match field {
-                                poe2_lens::appraise_ui::Field::Min => {
+                                khaloni_poe2::appraise_ui::Field::Min => {
                                     f.value.min = parsed.unwrap_or(0.0);
                                 }
-                                poe2_lens::appraise_ui::Field::Max => {
+                                khaloni_poe2::appraise_ui::Field::Max => {
                                     f.value.max = parsed;
                                 }
                             }
                         }
                         if let Some(m) = panel.mods.iter_mut().find(|m| m.filter_index == fi) {
                             match field {
-                                poe2_lens::appraise_ui::Field::Min => m.min = parsed.unwrap_or(0.0),
-                                poe2_lens::appraise_ui::Field::Max => m.max = parsed,
+                                khaloni_poe2::appraise_ui::Field::Min => m.min = parsed.unwrap_or(0.0),
+                                khaloni_poe2::appraise_ui::Field::Max => m.max = parsed,
                             }
                         }
                         editing = None;
                         edit_buf.clear();
                         overlay.set_keyboard(false)?;
                     }
-                    poe2_lens::platform::Key::Escape => {
+                    khaloni_poe2::platform::Key::Escape => {
                         editing = None;
                         edit_buf.clear();
                         overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
                     }
                     // Text and arrow keys have no meaning in a numeric value
                     // box; they exist for the reference/leveling panels.
-                    poe2_lens::platform::Key::Char(_)
-                    | poe2_lens::platform::Key::Up
-                    | poe2_lens::platform::Key::Down => {}
+                    khaloni_poe2::platform::Key::Char(_)
+                    | khaloni_poe2::platform::Key::Up
+                    | khaloni_poe2::platform::Key::Down => {}
                 }
             }
         } else if ref_panel.is_some() {
@@ -1672,37 +1700,37 @@ fn overlay_mode() -> anyhow::Result<()> {
             for key in overlay.take_keys() {
                 let Some((p, _)) = ref_panel.as_mut() else { break };
                 match key {
-                    poe2_lens::platform::Key::Char(c) => {
+                    khaloni_poe2::platform::Key::Char(c) => {
                         p.query.push(c);
                         changed = true;
                     }
-                    poe2_lens::platform::Key::Digit(c) => {
+                    khaloni_poe2::platform::Key::Digit(c) => {
                         p.query.push(c);
                         changed = true;
                     }
-                    poe2_lens::platform::Key::Dot => {
+                    khaloni_poe2::platform::Key::Dot => {
                         p.query.push('.');
                         changed = true;
                     }
-                    poe2_lens::platform::Key::Backspace => {
+                    khaloni_poe2::platform::Key::Backspace => {
                         p.query.pop();
                         changed = true;
                     }
-                    poe2_lens::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    poe2_lens::platform::Key::Down => {
+                    khaloni_poe2::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    khaloni_poe2::platform::Key::Down => {
                         p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
                     }
-                    poe2_lens::platform::Key::Escape => {
+                    khaloni_poe2::platform::Key::Escape => {
                         ref_panel = None;
                         overlay.set_keyboard(lvl_panel.is_some())?;
                         sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                     }
-                    poe2_lens::platform::Key::Enter => {}
+                    khaloni_poe2::platform::Key::Enter => {}
                 }
             }
             if changed {
                 if let (Some((p, _)), Some(r)) = (ref_panel.as_mut(), reference.get()) {
-                    poe2_lens::reference_ui::refresh(p, r);
+                    khaloni_poe2::reference_ui::refresh(p, r);
                 }
                 sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
             }
@@ -1710,9 +1738,9 @@ fn overlay_mode() -> anyhow::Result<()> {
             for key in overlay.take_keys() {
                 let Some((p, _)) = lvl_panel.as_mut() else { break };
                 match key {
-                    poe2_lens::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    poe2_lens::platform::Key::Down => p.scroll += 1,
-                    poe2_lens::platform::Key::Escape => {
+                    khaloni_poe2::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
+                    khaloni_poe2::platform::Key::Down => p.scroll += 1,
+                    khaloni_poe2::platform::Key::Escape => {
                         lvl_panel = None;
                         overlay.set_keyboard(false)?;
                         sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
@@ -1737,7 +1765,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         hover.tick();
         match (&hover.current, popup_at) {
             (Some(_), Some((origin, rect))) => {
-                if poe2_lens::popup_pos::should_dismiss(origin, cursor_pos, rect) {
+                if khaloni_poe2::popup_pos::should_dismiss(origin, cursor_pos, rect) {
                     hover.current = None;
                     popup_at = None;
                 }
@@ -1752,19 +1780,19 @@ fn overlay_mode() -> anyhow::Result<()> {
         while let Ok(msg) = rows_rx.try_recv() {
             if dbg {
                 match &msg {
-                    poe2_lens::stabilize::ScanResult::GateEmpty => {
+                    khaloni_poe2::stabilize::ScanResult::GateEmpty => {
                         eprintln!("DBG rows_rx: gate-empty");
                     }
-                    poe2_lens::stabilize::ScanResult::NoBands => {
+                    khaloni_poe2::stabilize::ScanResult::NoBands => {
                         eprintln!("DBG rows_rx: no-bands");
                     }
-                    poe2_lens::stabilize::ScanResult::Rows(rows, stale) => {
+                    khaloni_poe2::stabilize::ScanResult::Rows(rows, stale) => {
                         eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
                     }
-                    poe2_lens::stabilize::ScanResult::Scrolled(dy) => {
+                    khaloni_poe2::stabilize::ScanResult::Scrolled(dy) => {
                         eprintln!("DBG rows_rx: scrolled {dy}");
                     }
-                    poe2_lens::stabilize::ScanResult::TrackingLost => {
+                    khaloni_poe2::stabilize::ScanResult::TrackingLost => {
                         eprintln!("DBG rows_rx: tracking-lost");
                     }
                 }
@@ -1845,7 +1873,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     .iter()
                     .map(|r| {
                         let (lx, ly) = map.label_pos_centered(r.y_top, r.height);
-                        poe2_lens::render::Placed {
+                        khaloni_poe2::render::Placed {
                             x: lx + dx - out_pos.0,
                             y: ly + dy - out_pos.1,
                             amount: r.amount.clone(),
@@ -1879,13 +1907,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // Rumour badges: capture-physical box -> global logical (game
                 // origin + phys/scale) -> surface-local. Hung off the tooltip
                 // panel's right edge at each rumour line's vertical center.
-                let rumour_badges: Vec<poe2_lens::render::RumourBadge> = if show_rows {
+                let rumour_badges: Vec<khaloni_poe2::render::RumourBadge> = if show_rows {
                     latest_rumours
                         .iter()
                         .map(|h| {
                             let phys_x = f64::from(h.panel.x1);
                             let phys_y = f64::from(h.line.y0 + h.line.y1) / 2.0;
-                            poe2_lens::render::RumourBadge {
+                            khaloni_poe2::render::RumourBadge {
                                 x: game_pos.0 + (phys_x / map.scale) as i32 - out_pos.0 + 12,
                                 y: game_pos.1 + (phys_y / map.scale) as i32 - out_pos.1,
                                 rating: h.entry.rating.clone(),
@@ -1938,7 +1966,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                             renderer.draw_popup(pm, p, *anchor);
                         }
                         if let Some((p, anchor)) = panel {
-                            let lay = poe2_lens::appraise_ui::layout(p, &|s| {
+                            let lay = khaloni_poe2::appraise_ui::layout(p, &|s| {
                                 renderer.appraisal_label_width(s)
                             });
                             let ed = edit_state.as_ref().map(|(fi, f, _)| (*fi, *f));
@@ -1946,13 +1974,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                             renderer.draw_appraisal(pm, p, &lay, *anchor, ed, buf);
                         }
                         if let Some((p, anchor)) = ref_state {
-                            let lay = poe2_lens::reference_ui::layout(p, &|s| {
+                            let lay = khaloni_poe2::reference_ui::layout(p, &|s| {
                                 renderer.appraisal_label_width(s)
                             });
                             renderer.draw_reference(pm, p, &lay, *anchor);
                         }
                         if let Some((p, anchor)) = lvl_state {
-                            let lay = poe2_lens::leveling_ui::layout(p, &|s| {
+                            let lay = khaloni_poe2::leveling_ui::layout(p, &|s| {
                                 renderer.appraisal_label_width(s)
                             });
                             renderer.draw_leveling(pm, p, &lay, *anchor);

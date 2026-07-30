@@ -1,6 +1,6 @@
 //! Expedition Island Rumour recognizer (CV + OCR), the app-side half of
 //! the port. The pure geometry (line boxes, anchor location, region crop)
-//! lives in `poe2_lens_core::rumour_scan`; this module adds the parts that
+//! lives in `khaloni_poe2_core::rumour_scan`; this module adds the parts that
 //! need `image`/`tesseract`: the bright-parchment panel finder and the
 //! full recognizer that OCRs the tooltip and resolves each line to a rumour.
 //!
@@ -13,12 +13,12 @@ use std::collections::HashSet;
 #[cfg(ocr)]
 use image::imageops;
 use image::GrayImage;
-use poe2_lens_core::rumour::RumourEntry;
+use khaloni_poe2_core::rumour::RumourEntry;
 #[cfg(ocr)]
-use poe2_lens_core::rumour::RumourIndex;
+use khaloni_poe2_core::rumour::RumourIndex;
 #[cfg(ocr)]
-use poe2_lens_core::rumour_scan::{parse_rumour_tsv, RumourLine};
-use poe2_lens_core::rumour_scan::Rect;
+use khaloni_poe2_core::rumour_scan::{parse_rumour_tsv, RumourLine};
+use khaloni_poe2_core::rumour_scan::Rect;
 
 #[cfg(ocr)]
 use crate::ocr::OcrEngine;

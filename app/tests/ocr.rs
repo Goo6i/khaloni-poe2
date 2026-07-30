@@ -1,4 +1,4 @@
-use poe2_lens::ocr::{detect_bands, parse_band_tsv, parse_whole_tsv, union_ocr_lines, OcrLine, UPSCALE};
+use khaloni_poe2::ocr::{detect_bands, parse_band_tsv, parse_whole_tsv, union_ocr_lines, OcrLine, UPSCALE};
 
 #[test]
 fn parse_band_tsv_splits_confidence_tiers_and_sets_coordinates_from_band_bounds() {
@@ -242,8 +242,8 @@ fn motion_tracking_recovers_known_shifts() {
     for dy in [-180i32, -60, -7, 7, 60, 180] {
         let cur = shifted(&base, dy);
         assert_eq!(
-            poe2_lens::ocr::track_motion(&base, &cur),
-            poe2_lens::ocr::Motion::Scrolled(dy),
+            khaloni_poe2::ocr::track_motion(&base, &cur),
+            khaloni_poe2::ocr::Motion::Scrolled(dy),
             "shift {dy} must be recovered exactly"
         );
     }
@@ -253,14 +253,14 @@ fn motion_tracking_recovers_known_shifts() {
 fn flat_and_static_frames_are_still() {
     let flat = vec![150u16; 1000];
     assert_eq!(
-        poe2_lens::ocr::track_motion(&flat, &flat),
-        poe2_lens::ocr::Motion::Still,
+        khaloni_poe2::ocr::track_motion(&flat, &flat),
+        khaloni_poe2::ocr::Motion::Still,
         "flat profiles carry no signal"
     );
     let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
     assert_eq!(
-        poe2_lens::ocr::track_motion(&base, &base),
-        poe2_lens::ocr::Motion::Still,
+        khaloni_poe2::ocr::track_motion(&base, &base),
+        khaloni_poe2::ocr::Motion::Still,
         "identical frames are not a scroll"
     );
 }
@@ -270,8 +270,8 @@ fn a_tiny_shift_is_still_not_a_scroll() {
     // Sub-3-row drift is jitter; POSITION_SNAP absorbs it downstream.
     let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
     assert_eq!(
-        poe2_lens::ocr::track_motion(&base, &shifted(&base, 2)),
-        poe2_lens::ocr::Motion::Still
+        khaloni_poe2::ocr::track_motion(&base, &shifted(&base, 2)),
+        khaloni_poe2::ocr::Motion::Still
     );
 }
 
@@ -280,8 +280,8 @@ fn uncorrelated_content_is_lost() {
     let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
     let b = synthetic_profile(1000, &[(37, 61), (533, 601), (804, 851)]);
     assert_eq!(
-        poe2_lens::ocr::track_motion(&a, &b),
-        poe2_lens::ocr::Motion::Lost,
+        khaloni_poe2::ocr::track_motion(&a, &b),
+        khaloni_poe2::ocr::Motion::Lost,
         "a panel change is not a scroll and must not hold old positions"
     );
 }
@@ -290,5 +290,5 @@ fn uncorrelated_content_is_lost() {
 fn mismatched_profile_lengths_are_lost() {
     let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
     let b = synthetic_profile(999, &[(100, 170), (400, 470)]);
-    assert_eq!(poe2_lens::ocr::track_motion(&a, &b), poe2_lens::ocr::Motion::Lost);
+    assert_eq!(khaloni_poe2::ocr::track_motion(&a, &b), khaloni_poe2::ocr::Motion::Lost);
 }

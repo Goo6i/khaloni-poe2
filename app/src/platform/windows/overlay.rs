@@ -109,7 +109,7 @@ impl ApplicationHandler for App {
         self.monitor_pos = (pos.x, pos.y);
 
         let attrs = Window::default_attributes()
-            .with_title("poe2-lens")
+            .with_title("khaloni-poe2")
             .with_transparent(true)
             .with_decorations(false)
             .with_window_level(WindowLevel::AlwaysOnTop)

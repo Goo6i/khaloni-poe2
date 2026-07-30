@@ -1,8 +1,8 @@
 #![cfg(ocr)]
-use poe2_lens::config::Config;
-use poe2_lens::ocr;
-use poe2_lens::pricing::{build_vocab, price_lines, Tier};
-use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
+use khaloni_poe2::config::Config;
+use khaloni_poe2::ocr;
+use khaloni_poe2::pricing::{build_vocab, price_lines, Tier};
+use khaloni_poe2_core::ninja::{ExchangeOverview, PriceTable};
 
 /// A real capture of the "choice" Runeshape panel that whole-panel OCR
 /// used to return 0 lines for (see the evidence block in app/src/ocr.rs):

@@ -2,9 +2,9 @@
 //! the Windows gamewin backend, so it runs on Linux CI). Contract mirrors
 //! the KWin script in platform/linux/gamewin.rs.
 
-use poe2_lens::config::Rect;
-use poe2_lens::platform::gamewin_diff::{DiffState, WindowSample};
-use poe2_lens::platform::GameWindowEvent;
+use khaloni_poe2::config::Rect;
+use khaloni_poe2::platform::gamewin_diff::{DiffState, WindowSample};
+use khaloni_poe2::platform::GameWindowEvent;
 
 fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
     Rect { x, y, w, h }

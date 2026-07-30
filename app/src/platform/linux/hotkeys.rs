@@ -17,14 +17,14 @@ pub async fn listen(
     let gs = GlobalShortcuts::new().await?;
     let session = gs.create_session().await?;
     let mut shortcuts = vec![
-        NewShortcut::new("overlay-toggle", "poe2-lens: overlay on/off")
+        NewShortcut::new("overlay-toggle", "khaloni-poe2: overlay on/off")
             .preferred_trigger(overlay.as_str()),
-        NewShortcut::new("price-check", "poe2-lens: price check hovered item")
+        NewShortcut::new("price-check", "khaloni-poe2: price check hovered item")
             .preferred_trigger(price_check.as_str()),
     ];
     for (id, trigger) in &extra {
         shortcuts.push(
-            NewShortcut::new(id.as_str(), "poe2-lens: action").preferred_trigger(trigger.as_str()),
+            NewShortcut::new(id.as_str(), "khaloni-poe2: action").preferred_trigger(trigger.as_str()),
         );
     }
     gs.bind_shortcuts(&session, &shortcuts, None).await?.response()?;

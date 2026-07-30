@@ -35,8 +35,8 @@ fn bench_inprocess_vs_spawn() {
 #[ignore]
 fn corpus_template_cross_frame_validation() {
     use image::imageops;
-    use poe2_lens::{ocr, template::TemplateStore};
-    let dir = std::path::Path::new("/tmp/poe2lens-frames");
+    use khaloni_poe2::{ocr, template::TemplateStore};
+    let dir = std::path::Path::new("/tmp/khalonipoe2-frames");
     let mut frames: Vec<_> = std::fs::read_dir(dir)
         .expect("corpus dir")
         .filter_map(|e| e.ok())

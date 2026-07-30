@@ -35,7 +35,7 @@ function matches(w) {
     return (w.caption + " " + w.resourceClass).toLowerCase().includes("@SUBSTR@");
 }
 function report(w) {
-    callDBus("org.poe2lens.Spike", "/org/poe2lens/Spike", "org.poe2lens.Spike", "Geometry",
+    callDBus("org.khalonipoe2.Spike", "/org/khalonipoe2/Spike", "org.khalonipoe2.Spike", "Geometry",
              Math.round(w.frameGeometry.x), Math.round(w.frameGeometry.y),
              Math.round(w.frameGeometry.width), Math.round(w.frameGeometry.height));
 }
@@ -52,7 +52,7 @@ struct SpikeService {
     tx: Sender<(i32, i32, u32, u32)>,
 }
 
-#[zbus::interface(name = "org.poe2lens.Spike")]
+#[zbus::interface(name = "org.khalonipoe2.Spike")]
 impl SpikeService {
     fn geometry(&self, x: i32, y: i32, w: i32, h: i32) {
         let _ = self.tx.send((x, y, w as u32, h as u32));
@@ -67,7 +67,7 @@ fn qdbus(args: &[&str]) -> Option<String> {
 }
 
 fn load_kwin_script(substr: &str) -> Option<String> {
-    let path = std::env::temp_dir().join("poe2lens-spike-kwin.js");
+    let path = std::env::temp_dir().join("khalonipoe2-spike-kwin.js");
     std::fs::write(&path, KWIN_SCRIPT.replace("@SUBSTR@", &substr.to_lowercase())).ok()?;
     let id = qdbus(&[
         "org.kde.KWin",
@@ -104,8 +104,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // DBus service the KWin script reports window geometry to.
     let (tx, rx) = channel();
     let _dbus = zbus::blocking::connection::Builder::session()?
-        .name("org.poe2lens.Spike")?
-        .serve_at("/org/poe2lens/Spike", SpikeService { tx })?
+        .name("org.khalonipoe2.Spike")?
+        .serve_at("/org/khalonipoe2/Spike", SpikeService { tx })?
         .build()?;
 
     let script = load_kwin_script(&want).ok_or("failed to load KWin script")?;
@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &qh,
         surface,
         Layer::Overlay,
-        Some("poe2-lens-spike"),
+        Some("khaloni-poe2-spike"),
         target.as_ref(),
     );
     // Cover the whole output; panel position is drawn inside the canvas.

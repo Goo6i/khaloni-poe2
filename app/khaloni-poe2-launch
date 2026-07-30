@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# The shortcuts portal needs an app id; host apps get one from an
+# app-<id>-<n>.scope systemd unit plus a matching desktop entry.
+# Diagnostics always go to ~/.cache/khaloni-poe2/last-run.log (overwritten
+# per run) so timing issues can be analyzed after any session.
+set -euo pipefail
+install -Dm644 "$(dirname "$0")/assets/org.khalonipoe2.App.desktop" \
+  "$HOME/.local/share/applications/org.khalonipoe2.App.desktop"
+LOG_DIR="$HOME/.cache/khaloni-poe2"
+mkdir -p "$LOG_DIR"
+[ -f "$LOG_DIR/last-run.log" ] && mv -f "$LOG_DIR/last-run.log" "$LOG_DIR/prev-run.log"
+export KHALONI_DEBUG=1
+exec systemd-run --user --scope --unit="app-org.khalonipoe2.App-$RANDOM.scope" \
+  "$(dirname "$0")/../target/release/khaloni-poe2" "$@" \
+  2> "$LOG_DIR/last-run.log"

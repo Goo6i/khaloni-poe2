@@ -440,12 +440,12 @@ pub fn parse_band_tsv(tsv: &str, y0: u32, y1: u32) -> Option<OcrLine> {
         unfiltered.push(word.to_string());
     }
 
-    let unfiltered = poe2_lens_core::matcher::normalize(&unfiltered.join(" "));
+    let unfiltered = khaloni_poe2_core::matcher::normalize(&unfiltered.join(" "));
     if unfiltered.trim().is_empty() || !has_alpha_run(&unfiltered, MIN_WORD_RUN) {
         return None;
     }
     Some(OcrLine {
-        filtered: poe2_lens_core::matcher::normalize(&filtered.join(" ")),
+        filtered: khaloni_poe2_core::matcher::normalize(&filtered.join(" ")),
         unfiltered,
         y_top: y0 * UPSCALE,
         height: (y1 - y0) * UPSCALE,
@@ -572,12 +572,12 @@ pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
     let mut lines: Vec<OcrLine> = acc
         .into_values()
         .filter_map(|(fw, uw, top, bottom)| {
-            let unfiltered = poe2_lens_core::matcher::normalize(&uw.join(" "));
+            let unfiltered = khaloni_poe2_core::matcher::normalize(&uw.join(" "));
             if unfiltered.trim().is_empty() || !has_alpha_run(&unfiltered, MIN_WORD_RUN) {
                 return None;
             }
             Some(OcrLine {
-                filtered: poe2_lens_core::matcher::normalize(&fw.join(" ")),
+                filtered: khaloni_poe2_core::matcher::normalize(&fw.join(" ")),
                 unfiltered,
                 y_top: top,
                 height: bottom.saturating_sub(top),

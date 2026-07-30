@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use poe2_lens_core::{item, ninja::PriceTable, trade, value};
+use khaloni_poe2_core::{item, ninja::PriceTable, trade, value};
 
 use crate::pricing::Denom;
 
@@ -104,7 +104,7 @@ impl HoverState {
                         .lookup("Divine Orb")
                         .map(|p| p.exalted)
                         .filter(|v| *v > 0.0);
-                    let price = poe2_lens_core::ninja::Price {
+                    let price = khaloni_poe2_core::ninja::Price {
                         divine: div_rate.map(|r| ex / r).unwrap_or(0.0),
                         exalted: ex,
                         chaos: 0.0,

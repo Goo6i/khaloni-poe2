@@ -1,4 +1,4 @@
-use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
+use khaloni_poe2_core::ninja::{ExchangeOverview, PriceTable};
 
 #[test]
 fn names_exposes_every_priced_entry() {

@@ -2,7 +2,7 @@
 //! from the same Layout the renderer draws, so these pin the interaction
 //! contract without a compositor or font.
 
-use poe2_lens::reference_ui::{self, Action, Cat};
+use khaloni_poe2::reference_ui::{self, Action, Cat};
 
 /// Fixed-advance stand-in for the glyph measurer.
 fn m(s: &str) -> i32 {

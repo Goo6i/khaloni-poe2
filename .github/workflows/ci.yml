@@ -90,4 +90,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check
-        run: cargo check --target x86_64-pc-windows-gnu -p poe2-lens -p poe2-lens-core
+        run: cargo check --target x86_64-pc-windows-gnu -p khaloni-poe2 -p khaloni-poe2-core

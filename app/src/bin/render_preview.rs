@@ -1,9 +1,9 @@
 //! Renders representative overlay elements to a PNG so the visual design can
 //! be reviewed without the game running. Not shipped; a dev aid.
 
-use poe2_lens::appraise_ui::{BaseToggle, ModRow, Panel};
-use poe2_lens::pricing::{Denom, Tier};
-use poe2_lens::render::{Placed, Renderer};
+use khaloni_poe2::appraise_ui::{BaseToggle, ModRow, Panel};
+use khaloni_poe2::pricing::{Denom, Tier};
+use khaloni_poe2::render::{Placed, Renderer};
 use tiny_skia::{Color, Pixmap};
 
 fn main() -> anyhow::Result<()> {
@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
         status: "8 shown".into(),
         search_id: Some("abc".into()),
     };
-    let lay = poe2_lens::appraise_ui::layout(&panel, &|s| r.appraisal_label_width(s));
+    let lay = khaloni_poe2::appraise_ui::layout(&panel, &|s| r.appraisal_label_width(s));
     r.draw_appraisal(&mut pm, &panel, &lay, (360, 60), None, "");
 
     let out = "/tmp/claude-1000/-home-mohammed/overlay-preview.png";

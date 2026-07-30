@@ -1,10 +1,10 @@
 use std::time::{Duration, Instant};
 
-use poe2_lens::hover::HoverState;
-use poe2_lens::pricing::Denom;
+use khaloni_poe2::hover::HoverState;
+use khaloni_poe2::pricing::Denom;
 use std::collections::HashMap;
 
-use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
+use khaloni_poe2_core::ninja::{ExchangeOverview, PriceTable};
 
 fn table() -> PriceTable {
     let ov: ExchangeOverview =
@@ -22,7 +22,7 @@ fn currency_fixture_prices_with_stack_count() {
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.title, "Exalted Orb");
     assert_eq!(popup.lines.len(), 1);
-    assert_ne!(popup.lines[0].text, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(popup.lines[0].text, khaloni_poe2_core::value::UNKNOWN);
     assert_ne!(popup.lines[0].denom, Denom::None);
 }
 
@@ -41,7 +41,7 @@ fn rare_item_queues_an_appraisal() {
     // The worker reporting back replaces the popup with listings.
     hs.appraisal_done(
         "Horror Bane",
-        Ok(vec![poe2_lens_core::trade::Listing {
+        Ok(vec![khaloni_poe2_core::trade::Listing {
             price_amount: 2.5,
             price_currency: "exalted".into(),
             account: "Someone#1234".into(),
@@ -101,7 +101,7 @@ fn unique_item_prices_from_the_uniques_map() {
     hs.trigger(clipboard, &t, &uniques, 1.0);
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.title, "The Gnashing Sash");
-    assert_ne!(popup.lines[0].text, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(popup.lines[0].text, khaloni_poe2_core::value::UNKNOWN);
     assert_ne!(popup.lines[0].denom, Denom::None);
     assert!(hs.pending_appraisal.is_none(), "uniques answer locally, no trade search");
 }
@@ -113,5 +113,5 @@ fn unknown_unique_still_shows_the_question_mark() {
     let clipboard = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
     hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let popup = hs.current.as_ref().expect("popup set");
-    assert_eq!(popup.lines[0].text, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(popup.lines[0].text, khaloni_poe2_core::value::UNKNOWN);
 }

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use poe2_lens_core::matcher::Vocab;
-use poe2_lens_core::ninja::{DataOrigin, NinjaClient, PriceTable, EXCHANGE_TYPES};
-use poe2_lens_core::scout::ScoutClient;
+use khaloni_poe2_core::matcher::Vocab;
+use khaloni_poe2_core::ninja::{DataOrigin, NinjaClient, PriceTable, EXCHANGE_TYPES};
+use khaloni_poe2_core::scout::ScoutClient;
 
 pub struct Snapshot {
     pub table: PriceTable,

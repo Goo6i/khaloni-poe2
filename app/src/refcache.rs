@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use poe2_lens_core::refdata::{Affix, Keystone, LevelingAct, RefEntry, RefItem, UniqueDetail};
+use khaloni_poe2_core::refdata::{Affix, Keystone, LevelingAct, RefEntry, RefItem, UniqueDetail};
 
 /// Loads the reference data (affixes + catalog items), reading the on-disk
 /// cache under `cache_dir` and fetching from EE2 once when a file is missing.
@@ -58,7 +58,7 @@ fn cached(
 }
 
 pub fn reference_data(cache_dir: &std::path::Path) -> Reference {
-    use poe2_lens_core::refdata as rd;
+    use khaloni_poe2_core::refdata as rd;
     let mut categories = HashMap::new();
     for (slug, file) in XILE_CATEGORIES {
         let json = cached(cache_dir, &format!("xile_{slug}.json"), || rd::fetch_xile_json(file));

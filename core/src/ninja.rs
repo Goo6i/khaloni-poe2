@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::matcher::normalize;
 
 pub const DEFAULT_BASE: &str = "https://poe.ninja";
-pub const USER_AGENT: &str = concat!("poe2-lens/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("khaloni-poe2/", env!("CARGO_PKG_VERSION"));
 
 /// Exchange types verified to return data on the PoE2 API (2026-07-21).
 // Every poe.ninja PoE2 exchange type that trades in the in-game currency

@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::config::Rect;
-use poe2_lens_core::refdata::{LevelingAct, LevelingStep};
+use khaloni_poe2_core::refdata::{LevelingAct, LevelingStep};
 
 const PAD: i32 = 12;
 const TITLE_H: i32 = 30;

@@ -13,9 +13,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use poe2_lens::ocr::OcrEngine;
-use poe2_lens::rumours::recognize;
-use poe2_lens_core::rumour::{parse_csv, RumourIndex};
+use khaloni_poe2::ocr::OcrEngine;
+use khaloni_poe2::rumours::recognize;
+use khaloni_poe2_core::rumour::{parse_csv, RumourIndex};
 
 const SHEET: &str = include_str!("../../core/tests/fixtures/rumours.csv");
 

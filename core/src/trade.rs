@@ -965,7 +965,7 @@ impl TradeClient {
             .timeout(std::time::Duration::from_secs(15))
             .user_agent(
                 "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
-                 Chrome/126.0 Safari/537.36 poe2-lens/0.1",
+                 Chrome/126.0 Safari/537.36 khaloni-poe2/0.1",
             )
             .build()
             .map_err(|e| TradeError::Http(e.to_string()))?;
@@ -1137,7 +1137,7 @@ pub fn fetch_stats_json() -> Result<String, TradeError> {
         .timeout(std::time::Duration::from_secs(15))
         .user_agent(
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) \
-             Chrome/126.0 Safari/537.36 poe2-lens/0.1",
+             Chrome/126.0 Safari/537.36 khaloni-poe2/0.1",
         )
         .build()
         .map_err(|e| TradeError::Http(e.to_string()))?;

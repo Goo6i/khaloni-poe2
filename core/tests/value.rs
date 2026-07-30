@@ -1,5 +1,5 @@
-use poe2_lens_core::ninja::Price;
-use poe2_lens_core::value::{display_price, format_amount, UNKNOWN};
+use khaloni_poe2_core::ninja::Price;
+use khaloni_poe2_core::value::{display_price, format_amount, UNKNOWN};
 
 fn price(divine: f64, exalted: f64) -> Price {
     Price {

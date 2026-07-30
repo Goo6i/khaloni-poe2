@@ -1,4 +1,4 @@
-# poe2-lens
+# khaloni-poe2
 
 A price overlay for Path of Exile 2 on Linux. It reads the Runeshape
 Combinations panel off the screen, looks every reward up on poe.ninja, and
@@ -84,7 +84,7 @@ shared.
 
 ### Windows
 
-Grab the release zip, unzip anywhere, run `poe2-lens.exe`. Notes:
+Grab the release zip, unzip anywhere, run `khaloni-poe2.exe`. Notes:
 - The game must run **windowed or borderless-windowed**; true exclusive
   fullscreen occludes every overlay (a Windows-wide limitation).
 - First launch shows a SmartScreen warning because the binary is unsigned:
@@ -104,7 +104,7 @@ which needs `/dev/uinput` access without root:
 
 ```
 sudo usermod -aG input $USER
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-poe2lens-uinput.rules
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-khalonipoe2-uinput.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
 ```
 
@@ -114,9 +114,9 @@ sessions.
 Build and set up:
 
 ```
-cargo build --release -p poe2-lens
-./target/release/poe2-lens --calibrate   # drag a box over the Runeshape panel area
-./app/poe2-lens-launch                   # run the overlay
+cargo build --release -p khaloni-poe2
+./target/release/khaloni-poe2 --calibrate   # drag a box over the Runeshape panel area
+./app/khaloni-poe2-launch                   # run the overlay
 ```
 
 Calibration is once. The launcher installs a desktop entry and starts the
@@ -143,12 +143,12 @@ keys once configured in Settings.
 ## Settings and the tray
 
 Everything is configured from a native settings window: `F12`, the tray
-icon's "Open Settings", or `poe2-lens --settings` all open it. Changes save
+icon's "Open Settings", or `khaloni-poe2 --settings` all open it. Changes save
 automatically and apply to the running overlay within a second (hotkey
 changes need a relaunch). The tray icon (Plasma system tray) also toggles
 the overlay, pauses pricing, and quits.
 
-The config file behind the window is `~/.config/poe2-lens/config.toml`;
+The config file behind the window is `~/.config/khaloni-poe2/config.toml`;
 two fields are file-only on purpose: `restore_token` (screencast portal
 grant) and `calibration` (set via the Recalibrate button or
 `--calibrate`). The brightness hysteresis defaults
@@ -156,7 +156,7 @@ grant) and `calibration` (set via the Recalibrate button or
 real frames (parchment reads about 156 to 168, open game world about 40
 to 90) and should not need touching.
 
-Diagnostics from every run land in `~/.cache/poe2-lens/last-run.log`, with
+Diagnostics from every run land in `~/.cache/khaloni-poe2/last-run.log`, with
 the previous run kept next to it. If a row reads wrong, that log plus the
 `--headless` mode (prints priced rows to the terminal) is how you find out
 why. There is also `scanimg <image.png>` to run the whole pipeline against a

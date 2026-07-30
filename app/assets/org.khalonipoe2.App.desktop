@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=khaloni-poe2
+Exec=/home/mohammed/khaloni-poe2/target/release/khaloni-poe2
+NoDisplay=true

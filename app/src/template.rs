@@ -340,7 +340,7 @@ mod tests {
         let a = textured(280, 36, 11);
         let mut store = TemplateStore::new();
         store.learn("divine orb", 2, true, &a);
-        let dir = std::env::temp_dir().join(format!("poe2lens-tpl-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("khalonipoe2-tpl-test-{}", std::process::id()));
         let path = dir.join("templates.bin");
         store.save(&path).expect("save");
         let loaded = TemplateStore::load(&path);
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn corrupt_store_loads_empty_not_panicking() {
-        let dir = std::env::temp_dir().join(format!("poe2lens-tpl-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("khalonipoe2-tpl-bad-{}", std::process::id()));
         let path = dir.join("templates.bin");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(&path, b"garbage").unwrap();

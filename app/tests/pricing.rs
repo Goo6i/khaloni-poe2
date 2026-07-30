@@ -1,7 +1,7 @@
-use poe2_lens::config::Config;
-use poe2_lens::ocr::OcrLine;
-use poe2_lens::pricing::{build_vocab, price_lines, Denom, Tier};
-use poe2_lens_core::ninja::{ExchangeOverview, PriceTable};
+use khaloni_poe2::config::Config;
+use khaloni_poe2::ocr::OcrLine;
+use khaloni_poe2::pricing::{build_vocab, price_lines, Denom, Tier};
+use khaloni_poe2_core::ninja::{ExchangeOverview, PriceTable};
 
 fn table() -> PriceTable {
     // Reuse the phase-2 currency fixture and a synthetic UncutGems overview
@@ -42,10 +42,10 @@ fn prices_currency_rows_with_counts() {
     );
     assert_eq!(rows.len(), 2);
     assert!(rows[0].label.contains("each") || rows[0].label.contains("ex"));
-    assert_ne!(rows[0].label, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
     // amount is the label's leading number, denom carries what the label's
     // suffix used to say ("div" or "ex"); the renderer draws an icon instead.
-    assert_ne!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
     let expected_denom = if rows[0].label.contains(" div") { Denom::Divine } else { Denom::Exalted };
     assert_eq!(rows[0].denom, expected_denom);
     // The panel is a pick-one choice: no summed total is ever rendered.
@@ -72,15 +72,15 @@ fn maps_skill_gem_rows_by_level_and_never_guesses_support() {
     assert!(rows[0].amount.contains("20.6"), "got {}", rows[0].amount);
     assert_eq!(rows[0].denom, Denom::Exalted);
     // Support row has no level on the panel: must be "?" and Unknown tier.
-    assert_eq!(rows[1].label, poe2_lens_core::value::UNKNOWN);
-    assert_eq!(rows[1].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[1].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(rows[1].amount, khaloni_poe2_core::value::UNKNOWN);
     assert_eq!(rows[1].denom, Denom::None);
     assert_eq!(rows[1].tier, Tier::Unknown);
 }
 
 #[test]
 fn specific_gems_price_individually_via_the_gem_pricer() {
-    use poe2_lens::pricing::{price_lines_with_rumours, GemPricer, GemState};
+    use khaloni_poe2::pricing::{price_lines_with_rumours, GemPricer, GemState};
     // A pricer that gives each named gem its own price, proving rows no longer
     // collapse to one uncut value.
     struct Mock;
@@ -135,8 +135,8 @@ fn unmatched_counted_stack_shows_question_mark_instead_of_dropping() {
     // in the vocab (mangled OCR): still worth a row, not a silent drop.
     let (rows, _) = price_lines(&t, &v, &[line("3x mystery orb", 10)], &cfg);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
-    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
     assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
@@ -169,8 +169,8 @@ fn ambiguous_variant_match_shows_question_mark_not_a_guess() {
     // A clean line still resolves to its exact variant, priced.
     let (clean_rows, _) = price_lines(&t, &v, &[line("1x greater jewellers orb", 10)], &cfg);
     assert_eq!(clean_rows.len(), 1);
-    assert_ne!(clean_rows[0].label, poe2_lens_core::value::UNKNOWN);
-    assert_ne!(clean_rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_ne!(clean_rows[0].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_ne!(clean_rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
     assert_ne!(clean_rows[0].denom, Denom::None);
 
     // "gleaser" fuzzy-scores Lesser and Greater within a hair of each
@@ -178,8 +178,8 @@ fn ambiguous_variant_match_shows_question_mark_not_a_guess() {
     // render as "?" rather than the row silently pricing as either.
     let (rows, _) = price_lines(&t, &v, &[line("1x gleaser jewellers orb", 10)], &cfg);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
-    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
     assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
@@ -191,8 +191,8 @@ fn unmatched_unique_line_shows_question_mark_instead_of_dropping() {
     let cfg = Config::default();
     let (rows, _) = price_lines(&t, &v, &[line("saqawals unique rune", 10)], &cfg);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].label, poe2_lens_core::value::UNKNOWN);
-    assert_eq!(rows[0].amount, poe2_lens_core::value::UNKNOWN);
+    assert_eq!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
     assert_eq!(rows[0].denom, Denom::None);
     assert_eq!(rows[0].tier, Tier::Unknown);
 }
@@ -202,10 +202,10 @@ fn unmatched_line_resolves_as_a_rumour_annotation() {
     let t = table();
     let v = build_vocab(&t);
     let cfg = Config::default();
-    let idx = poe2_lens_core::rumour::RumourIndex::new(poe2_lens_core::rumour::parse_csv(
+    let idx = khaloni_poe2_core::rumour::RumourIndex::new(khaloni_poe2_core::rumour::parse_csv(
         include_str!("../../core/tests/fixtures/rumours.csv"),
     ));
-    let (rows, _) = poe2_lens::pricing::price_lines_with_rumours(
+    let (rows, _) = khaloni_poe2::pricing::price_lines_with_rumours(
         &t,
         &v,
         &[line("fallen stars", 10)],
@@ -216,7 +216,7 @@ fn unmatched_line_resolves_as_a_rumour_annotation() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].item_key, "rumour:Fallen Stars|Moor|S+");
     assert_eq!(rows[0].amount, "Moor S+");
-    assert_eq!(rows[0].denom, poe2_lens::pricing::Denom::None);
+    assert_eq!(rows[0].denom, khaloni_poe2::pricing::Denom::None);
     assert!(rows[0].locks_in_one, "an exact rumour resolve locks in one read");
 }
 
@@ -224,7 +224,7 @@ fn unmatched_line_resolves_as_a_rumour_annotation() {
 fn rumour_template_key_reprices_without_ocr() {
     let t = table();
     let cfg = Config::default();
-    let row = poe2_lens::pricing::price_resolved(
+    let row = khaloni_poe2::pricing::price_resolved(
         &t,
         "rumour:Fallen Stars|Moor|S+",
         1,
@@ -235,5 +235,5 @@ fn rumour_template_key_reprices_without_ocr() {
     )
     .expect("rumour keys must resolve without a table hit");
     assert_eq!(row.amount, "Moor S+");
-    assert_eq!(row.denom, poe2_lens::pricing::Denom::None);
+    assert_eq!(row.denom, khaloni_poe2::pricing::Denom::None);
 }

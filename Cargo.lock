@@ -2635,6 +2635,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "khaloni-poe2"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "ashpd",
+ "directories",
+ "eframe",
+ "evdev",
+ "fontdue",
+ "futures-util",
+ "global-hotkey",
+ "image",
+ "khaloni-poe2-core",
+ "ksni",
+ "leptess",
+ "pipewire",
+ "serde",
+ "serde_json",
+ "smithay-client-toolkit 0.19.2",
+ "softbuffer",
+ "tiny-skia",
+ "tokio",
+ "toml 0.8.2",
+ "tray-icon",
+ "wayland-client",
+ "windows",
+ "windows-capture",
+ "winit",
+ "x11rb",
+ "zbus",
+]
+
+[[package]]
+name = "khaloni-poe2-core"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "strsim",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "khronos-egl"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3821,52 +3867,6 @@ dependencies = [
  "fdeflate",
  "flate2",
  "miniz_oxide",
-]
-
-[[package]]
-name = "poe2-lens"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arboard",
- "ashpd",
- "directories",
- "eframe",
- "evdev",
- "fontdue",
- "futures-util",
- "global-hotkey",
- "image",
- "ksni",
- "leptess",
- "pipewire",
- "poe2-lens-core",
- "serde",
- "serde_json",
- "smithay-client-toolkit 0.19.2",
- "softbuffer",
- "tiny-skia",
- "tokio",
- "toml 0.8.2",
- "tray-icon",
- "wayland-client",
- "windows",
- "windows-capture",
- "winit",
- "x11rb",
- "zbus",
-]
-
-[[package]]
-name = "poe2-lens-core"
-version = "0.1.0"
-dependencies = [
- "directories",
- "reqwest",
- "serde",
- "serde_json",
- "strsim",
- "thiserror 2.0.19",
 ]
 
 [[package]]

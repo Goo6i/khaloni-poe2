@@ -1,4 +1,4 @@
-use poe2_lens_core::ninja::{
+use khaloni_poe2_core::ninja::{
     DataOrigin, ExchangeOverview, NinjaClient, NinjaError, PriceTable,
 };
 
@@ -59,7 +59,7 @@ fn missing_exalted_rate_is_rejected_and_not_cached() {
     assert!(!ov.lines.is_empty());
     assert!(NinjaClient::validate(&ov, "Currency").is_err());
 
-    let dir = std::env::temp_dir().join("poe2-lens-test-cache-malformed-rates");
+    let dir = std::env::temp_dir().join("khaloni-poe2-test-cache-malformed-rates");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -82,7 +82,7 @@ fn non_divine_primary_is_rejected_and_not_cached() {
     assert!(!ov.lines.is_empty());
     assert!(NinjaClient::validate(&ov, "Currency").is_err());
 
-    let dir = std::env::temp_dir().join("poe2-lens-test-cache-malformed-primary");
+    let dir = std::env::temp_dir().join("khaloni-poe2-test-cache-malformed-primary");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -99,7 +99,7 @@ fn non_divine_primary_is_rejected_and_not_cached() {
 
 #[test]
 fn stale_cache_fallback_when_network_unreachable() {
-    let dir = std::env::temp_dir().join("poe2-lens-test-cache");
+    let dir = std::env::temp_dir().join("khaloni-poe2-test-cache");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -116,7 +116,7 @@ fn stale_cache_fallback_when_network_unreachable() {
     assert_eq!(ov.lines.len(), 3);
 
     // no cache and no network: hard error
-    let empty_dir = std::env::temp_dir().join("poe2-lens-test-cache-empty");
+    let empty_dir = std::env::temp_dir().join("khaloni-poe2-test-cache-empty");
     let _ = std::fs::remove_dir_all(&empty_dir);
     std::fs::create_dir_all(&empty_dir).unwrap();
     let client2 = NinjaClient::with_base("http://127.0.0.1:9".to_string(), empty_dir);
@@ -152,7 +152,7 @@ fn serve_once(body: &str) -> String {
 #[test]
 #[ignore = "live network smoke test, run manually"]
 fn live_smoke() {
-    let dir = std::env::temp_dir().join("poe2-lens-live-cache");
+    let dir = std::env::temp_dir().join("khaloni-poe2-live-cache");
     std::fs::create_dir_all(&dir).unwrap();
     let client = NinjaClient::new(dir);
     let leagues = client.leagues().unwrap();

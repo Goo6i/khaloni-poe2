@@ -12,7 +12,7 @@
 
 use crate::config::Rect;
 use crate::refcache::{self, Reference};
-use poe2_lens_core::refdata;
+use khaloni_poe2_core::refdata;
 
 const PAD: i32 = 12;
 const TITLE_H: i32 = 30;

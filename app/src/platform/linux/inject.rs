@@ -25,7 +25,7 @@
 //!
 //! ```text
 //! sudo usermod -aG input $USER
-//! echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-poe2-lens-uinput.rules
+//! echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-khaloni-poe2-uinput.rules
 //! sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
 //! # then log out and back in for the new group membership to take effect
 //! ```
@@ -308,7 +308,7 @@ fn build_device() -> anyhow::Result<evdev::uinput::VirtualDevice> {
         }
     }
     Ok(VirtualDeviceBuilder::new()?
-        .name("poe2-lens-kbd")
+        .name("khaloni-poe2-kbd")
         .with_keys(&keys)?
         .build()?)
 }

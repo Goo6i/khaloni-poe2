@@ -58,7 +58,7 @@ fn consume(node_id: u32, fd: OwnedFd) -> Result<(), Box<dyn std::error::Error>> 
 
     let stream = pw::stream::StreamBox::new(
         &core,
-        "poe2-lens-spike-capture",
+        "khaloni-poe2-spike-capture",
         properties! {
             *pw::keys::MEDIA_TYPE => "Video",
             *pw::keys::MEDIA_CATEGORY => "Capture",

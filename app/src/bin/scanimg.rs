@@ -8,18 +8,18 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(ocr)]
 fn main() -> anyhow::Result<()> {
-    use poe2_lens::{config::Config, ocr, pricing, prices};
-    use poe2_lens_core::ninja::NinjaClient;
+    use khaloni_poe2::{config::Config, ocr, pricing, prices};
+    use khaloni_poe2_core::ninja::NinjaClient;
 
     let path = std::env::args().nth(1).expect("usage: scanimg <image>");
     let cfg = Config::load()?;
-    let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+    let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
         .unwrap()
         .cache_dir()
         .to_path_buf();
     let svc = prices::PriceService::start(
         NinjaClient::new(cache.clone()),
-        poe2_lens_core::scout::ScoutClient::new(cache),
+        khaloni_poe2_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
     )?;
     let img = image::open(&path)?.to_luma8();

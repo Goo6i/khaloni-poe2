@@ -1,4 +1,4 @@
-use poe2_lens::config::{Config, Rect};
+use khaloni_poe2::config::{Config, Rect};
 
 #[test]
 fn roundtrips_through_toml() {
@@ -44,10 +44,10 @@ fn dead_fields_are_gone_and_unknown_keys_ignored() {
 
 #[test]
 fn save_is_atomic_no_partial_file() {
-    let dir = std::env::temp_dir().join(format!("poe2lens-atomic-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("khalonipoe2-atomic-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
-    poe2_lens::config::write_atomic(&path, "league = \"Y\"").unwrap();
+    khaloni_poe2::config::write_atomic(&path, "league = \"Y\"").unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "league = \"Y\"");
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temp litter");
     std::fs::remove_dir_all(&dir).unwrap();

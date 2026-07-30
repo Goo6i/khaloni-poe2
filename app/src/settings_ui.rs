@@ -1,4 +1,4 @@
-//! Native settings window (`poe2-lens --settings`), eframe/egui.
+//! Native settings window (`khaloni-poe2 --settings`), eframe/egui.
 //!
 //! All edits go through [`EditModel`], a pure struct with no egui types so
 //! the binding/validation rules are unit-testable without a display. The
@@ -92,7 +92,7 @@ pub fn run() -> anyhow::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "poe2-lens settings",
+        "khaloni-poe2 settings",
         options,
         Box::new(move |_cc| Ok(Box::new(SettingsApp::new(cfg)))),
     )
@@ -151,10 +151,10 @@ impl SettingsApp {
             // the frame thread. The Arc write flips the combo in on arrival.
             let leagues = leagues.clone();
             std::thread::spawn(move || {
-                let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+                let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
                     .map(|d| d.cache_dir().to_path_buf())
                     .unwrap_or_else(std::env::temp_dir);
-                let client = poe2_lens_core::ninja::NinjaClient::new(cache);
+                let client = khaloni_poe2_core::ninja::NinjaClient::new(cache);
                 if let Ok(ls) = client.leagues() {
                     *leagues.lock().unwrap() = ls.into_iter().map(|l| l.name).collect();
                 }
@@ -166,7 +166,7 @@ impl SettingsApp {
             // cache fetches once. Off the frame thread like the league fetch.
             let mods = mods.clone();
             std::thread::spawn(move || {
-                let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+                let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
                     .map(|d| d.cache_dir().to_path_buf())
                     .unwrap_or_else(std::env::temp_dir);
                 let r = crate::refcache::reference_data(&cache);

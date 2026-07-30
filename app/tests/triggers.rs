@@ -2,7 +2,7 @@
 //! hotkey backends route config strings through it, so the accepted
 //! grammar is pinned here rather than in either backend.
 
-use poe2_lens::platform::triggers::{parse, Trigger};
+use khaloni_poe2::platform::triggers::{parse, Trigger};
 
 fn t(ctrl: bool, alt: bool, shift: bool, key: &str) -> Trigger {
     Trigger {

@@ -1,5 +1,5 @@
-use poe2_lens_core::item::parse_item;
-use poe2_lens_core::trade::StatIndex;
+use khaloni_poe2_core::item::parse_item;
+use khaloni_poe2_core::trade::StatIndex;
 
 const STATS_JSON: &str = include_str!("fixtures/trade_stats.json");
 const BOW: &str = include_str!("fixtures/item1-inventory-rare-bow.txt");
@@ -83,10 +83,10 @@ fn unknown_mod_resolves_to_none() {
 fn parse_exchange_rate_finds_cheapest_offer() {
     const EXCHANGE: &str = include_str!("fixtures/trade_exchange.json");
     // Live want=divine/have=exalted fixture: a divine costs several exalted.
-    let rate = poe2_lens_core::trade::parse_exchange_rate(EXCHANGE).expect("offers present");
+    let rate = khaloni_poe2_core::trade::parse_exchange_rate(EXCHANGE).expect("offers present");
     assert!(rate.is_finite() && rate >= 1.0, "plausible divine->exalted rate, got {rate}");
     // No offers -> None, not a panic.
-    assert!(poe2_lens_core::trade::parse_exchange_rate(r#"{"result":{}}"#).is_none());
+    assert!(khaloni_poe2_core::trade::parse_exchange_rate(r#"{"result":{}}"#).is_none());
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn parse_static_currency_ids_maps_names_to_ids() {
     let json = r#"{"result":[{"id":"Misc","entries":[
         {"id":"omen-of-whittling","text":"Omen of Whittling"},
         {"id":"exalted","text":"Exalted Orb"}]}]}"#;
-    let map = poe2_lens_core::trade::parse_static_currency_ids(json);
+    let map = khaloni_poe2_core::trade::parse_static_currency_ids(json);
     assert_eq!(map.get("omen of whittling").map(String::as_str), Some("omen-of-whittling"));
     assert_eq!(map.get("exalted orb").map(String::as_str), Some("exalted"));
 }
@@ -106,7 +106,7 @@ fn bad_json_is_an_error() {
 
 // --- rate limiter + query builder (facts verified live 2026-07-21) ---
 
-use poe2_lens_core::trade::{build_query, build_query_with_labels, RateDecision, RateLimiter};
+use khaloni_poe2_core::trade::{build_query, build_query_with_labels, RateDecision, RateLimiter};
 
 #[test]
 fn build_query_covers_implicit_mods() {
@@ -181,7 +181,7 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
 
 #[test]
 fn parses_gem_types_and_matches_ocr_to_exact_name() {
-    use poe2_lens_core::trade::{match_gem_name, parse_gem_types};
+    use khaloni_poe2_core::trade::{match_gem_name, parse_gem_types};
     let items = r#"{"result":[
         {"label":"Currency","entries":[{"type":"Exalted Orb"}]},
         {"label":"Gems","entries":[
@@ -206,7 +206,7 @@ fn parses_gem_types_and_matches_ocr_to_exact_name() {
 
 #[test]
 fn gem_query_searches_by_skill_name_category_and_exact_level() {
-    use poe2_lens_core::trade::build_gem_query;
+    use khaloni_poe2_core::trade::build_gem_query;
     let body = build_gem_query("Detonate Living", 20).to_body();
     assert_eq!(body["query"]["type"], "Detonate Living");
     assert_eq!(
@@ -220,7 +220,7 @@ fn gem_query_searches_by_skill_name_category_and_exact_level() {
 
 #[test]
 fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
-    use poe2_lens_core::trade::{FilterValue, Query, StatFilter};
+    use khaloni_poe2_core::trade::{FilterValue, Query, StatFilter};
     let q = Query {
         category: None,
         category_enabled: false,
@@ -267,7 +267,7 @@ fn disabling_category_searches_mods_only_across_all_bases() {
     assert!(!body["query"]["stats"][0]["filters"].as_array().unwrap().is_empty());
 }
 
-use poe2_lens_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};
+use khaloni_poe2_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};
 
 #[test]
 fn parses_recorded_search_and_fetch_payloads() {
@@ -287,7 +287,7 @@ fn parses_recorded_search_and_fetch_payloads() {
 fn unreachable_host_is_an_http_error_not_a_panic() {
     let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
     let q = build_query(
-        &poe2_lens_core::item::parse_item(BOW).unwrap(),
+        &khaloni_poe2_core::item::parse_item(BOW).unwrap(),
         &StatIndex::from_json(STATS_JSON).unwrap(),
     );
     match c.search(&q) {
@@ -301,7 +301,7 @@ fn cooldown_blocks_before_any_request_leaves() {
     let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
     c.search_limiter.apply_state("1:10:60");
     let q = build_query(
-        &poe2_lens_core::item::parse_item(BOW).unwrap(),
+        &khaloni_poe2_core::item::parse_item(BOW).unwrap(),
         &StatIndex::from_json(STATS_JSON).unwrap(),
     );
     match c.search(&q) {
@@ -315,7 +315,7 @@ fn cooldown_blocks_before_any_request_leaves() {
 fn live_trade_smoke() {
     let mut c = TradeClient::new("https://www.pathofexile.com", "Runes of Aldur").expect("client");
     let stats = StatIndex::from_json(STATS_JSON).unwrap();
-    let item = poe2_lens_core::item::parse_item(BOW).unwrap();
+    let item = khaloni_poe2_core::item::parse_item(BOW).unwrap();
     let mut q = build_query(&item, &stats);
     // Keep only the two filters of the verified live probe: a full
     // 5-filter exact rare can legitimately have zero online matches.

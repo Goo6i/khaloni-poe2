@@ -1,5 +1,5 @@
-use poe2_lens::config::{Config, Macro, ResourceShortcut};
-use poe2_lens::settings_ui::{CaptureTarget, EditModel};
+use khaloni_poe2::config::{Config, Macro, ResourceShortcut};
+use khaloni_poe2::settings_ui::{CaptureTarget, EditModel};
 
 #[test]
 fn key_capture_writes_the_right_binding() {
@@ -102,14 +102,14 @@ fn mod_suggestions_rank_tightest_first_and_require_all_tokens() {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    let hits = poe2_lens::settings_ui::mod_suggestions(&mods, "extra fire", 8);
+    let hits = khaloni_poe2::settings_ui::mod_suggestions(&mods, "extra fire", 8);
     assert_eq!(hits.len(), 1);
     assert!(hits[0].contains("extra fire"));
     // All tokens required: "extra pack" matches nothing.
-    assert!(poe2_lens::settings_ui::mod_suggestions(&mods, "extra pack", 8).is_empty());
+    assert!(khaloni_poe2::settings_ui::mod_suggestions(&mods, "extra pack", 8).is_empty());
     // Shorter (tighter) texts rank first.
-    let hits = poe2_lens::settings_ui::mod_suggestions(&mods, "monsters", 8);
+    let hits = khaloni_poe2::settings_ui::mod_suggestions(&mods, "monsters", 8);
     assert_eq!(hits[0], "monsters have #% increased attack speed");
     // Empty query suggests nothing.
-    assert!(poe2_lens::settings_ui::mod_suggestions(&mods, "  ", 8).is_empty());
+    assert!(khaloni_poe2::settings_ui::mod_suggestions(&mods, "  ", 8).is_empty());
 }

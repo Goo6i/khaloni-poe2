@@ -1,4 +1,4 @@
-use poe2_lens_core::item::{parse_item, ModKind, Rarity};
+use khaloni_poe2_core::item::{parse_item, ModKind, Rarity};
 
 const BOW: &str = include_str!("fixtures/item1-inventory-rare-bow.txt");
 const JEWEL: &str = include_str!("fixtures/item2-stash-rare-jewel.txt");

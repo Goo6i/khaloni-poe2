@@ -1,6 +1,6 @@
-use poe2_lens_core::matcher::{match_rows, normalize, MatchTier, Vocab};
-use poe2_lens_core::ninja::{Price, PriceTable};
-use poe2_lens_core::value::{display_price, format_amount, UNKNOWN};
+use khaloni_poe2_core::matcher::{match_rows, normalize, MatchTier, Vocab};
+use khaloni_poe2_core::ninja::{Price, PriceTable};
+use khaloni_poe2_core::value::{display_price, format_amount, UNKNOWN};
 
 use crate::config::Config;
 use crate::ocr::OcrLine;
@@ -274,7 +274,7 @@ pub fn price_lines_with_rumours(
     vocab: &Vocab,
     lines: &[OcrLine],
     cfg: &Config,
-    rumours: Option<&poe2_lens_core::rumour::RumourIndex>,
+    rumours: Option<&khaloni_poe2_core::rumour::RumourIndex>,
     gem: Option<&dyn GemPricer>,
 ) -> (Vec<Priced>, String) {
     let mut rows = Vec::new();
@@ -303,7 +303,7 @@ pub fn price_lines_with_rumours(
                                 .lookup("Divine Orb")
                                 .map(|p| p.exalted)
                                 .filter(|v| *v > 0.0);
-                            let price = poe2_lens_core::ninja::Price {
+                            let price = khaloni_poe2_core::ninja::Price {
                                 exalted: ex,
                                 divine: div.map(|r| ex / r).unwrap_or(0.0),
                                 chaos: 0.0,

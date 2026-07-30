@@ -1,4 +1,4 @@
-use poe2_lens_core::matcher::{match_rows, normalize, MatchTier, Vocab};
+use khaloni_poe2_core::matcher::{match_rows, normalize, MatchTier, Vocab};
 
 fn lines(s: &str) -> Vec<String> {
     s.lines().map(|l| l.to_string()).collect()

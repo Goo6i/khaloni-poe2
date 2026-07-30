@@ -116,7 +116,7 @@ impl Overlay {
             &qh,
             surface,
             Layer::Overlay,
-            Some("poe2-lens"),
+            Some("khaloni-poe2"),
             target.as_ref(),
         );
         // Cover the whole output.

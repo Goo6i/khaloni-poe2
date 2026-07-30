@@ -145,7 +145,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        directories::ProjectDirs::from("", "", "poe2-lens")
+        directories::ProjectDirs::from("", "", "khaloni-poe2")
             .expect("home dir resolvable")
             .config_dir()
             .join("config.toml")

@@ -1,5 +1,5 @@
-use poe2_lens::config::Rect;
-use poe2_lens::coord::CoordMap;
+use khaloni_poe2::config::Rect;
+use khaloni_poe2::coord::CoordMap;
 
 #[test]
 fn maps_logical_calibration_to_capture_pixels() {

@@ -98,7 +98,7 @@ mod win {
         .context("tray: menu build failed")?;
 
         TrayIconBuilder::new()
-            .with_tooltip("poe2-lens")
+            .with_tooltip("khaloni-poe2")
             .with_icon(icon)
             .with_menu(Box::new(menu))
             // Left click opens settings (ksni's activate); menu stays on
@@ -161,7 +161,7 @@ mod linux {
 
     use super::TrayEvent;
 
-    // Fallback pixmap for hosts without a "poe2-lens" hicolor icon installed
+    // Fallback pixmap for hosts without a "khaloni-poe2" hicolor icon installed
     // (Task 9 ships the theme icon). Exalted orb: gold, matches the palette.
     static ICON_PNG: &[u8] = include_bytes!("../assets/icons/exalted.png");
 
@@ -197,15 +197,15 @@ mod linux {
 
     impl ksni::Tray for Tray {
         fn id(&self) -> String {
-            "poe2-lens".into()
+            "khaloni-poe2".into()
         }
 
         fn title(&self) -> String {
-            "poe2-lens".into()
+            "khaloni-poe2".into()
         }
 
         fn icon_name(&self) -> String {
-            "poe2-lens".into()
+            "khaloni-poe2".into()
         }
 
         fn icon_pixmap(&self) -> Vec<ksni::Icon> {

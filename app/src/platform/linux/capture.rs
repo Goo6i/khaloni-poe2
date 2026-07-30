@@ -118,7 +118,7 @@ pub fn consume(
     let core = context.connect_fd_rc(start.fd, None)?;
     let stream = pw::stream::StreamBox::new(
         &core,
-        "poe2-lens-capture",
+        "khaloni-poe2-capture",
         properties! {
             *pw::keys::MEDIA_TYPE => "Video",
             *pw::keys::MEDIA_CATEGORY => "Capture",

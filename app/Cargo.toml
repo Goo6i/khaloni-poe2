@@ -1,12 +1,12 @@
 [package]
-name = "poe2-lens"
+name = "khaloni-poe2"
 version = "0.1.0"
 edition = "2021"
 publish = false
-default-run = "poe2-lens"
+default-run = "khaloni-poe2"
 
 [dependencies]
-poe2-lens-core = { path = "../core" }
+khaloni-poe2-core = { path = "../core" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 image = "0.25"
 tiny-skia = "0.11"
@@ -23,11 +23,11 @@ eframe = "0.35.0"
 serde_json = "1"
 
 [lib]
-name = "poe2_lens"
+name = "khaloni_poe2"
 path = "src/lib.rs"
 
 [[bin]]
-name = "poe2-lens"
+name = "khaloni-poe2"
 path = "src/main.rs"
 
 # The Linux backend stack (Wayland overlay, pipewire/portal capture, uinput

@@ -386,7 +386,7 @@ impl Stabilizer {
             // Post-scroll frames can carry motion blur that fakes count
             // tokens; do not mint NEW "?" slots from them (existing slots
             // still update normally).
-            let is_unknown = row.item_key.starts_with("unpriceable") || row.denom == crate::pricing::Denom::None && row.amount == poe2_lens_core::value::UNKNOWN;
+            let is_unknown = row.item_key.starts_with("unpriceable") || row.denom == crate::pricing::Denom::None && row.amount == khaloni_poe2_core::value::UNKNOWN;
             let existing = self
                 .slots
                 .iter()

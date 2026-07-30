@@ -1,12 +1,12 @@
 #![cfg(target_os = "linux")]
-use poe2_lens::platform::gamewin::KWIN_SCRIPT;
+use khaloni_poe2::platform::gamewin::KWIN_SCRIPT;
 
 #[test]
 fn script_reports_geometry_focus_and_close() {
     for needle in [
         "callDBus",
-        "org.poe2lens.App",
-        "/org/poe2lens/App",
+        "org.khalonipoe2.App",
+        "/org/khalonipoe2/App",
         "Geometry",
         "Active",
         "Math.round",

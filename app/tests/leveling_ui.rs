@@ -2,8 +2,8 @@
 //! checkbox hit zones carrying stable step ids, and the done-set persistence
 //! roundtrip.
 
-use poe2_lens::leveling_ui::{self, Action};
-use poe2_lens_core::refdata::{LevelingAct, LevelingStep};
+use khaloni_poe2::leveling_ui::{self, Action};
+use khaloni_poe2_core::refdata::{LevelingAct, LevelingStep};
 
 /// Fixed-advance stand-in for the glyph measurer.
 fn m(s: &str) -> i32 {
@@ -82,7 +82,7 @@ fn scroll_clamps_and_visible_window_tracks() {
 
 #[test]
 fn toggle_and_persist_roundtrip() {
-    let dir = std::env::temp_dir().join(format!("poe2lens-lvl-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("khalonipoe2-lvl-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let mut done = std::collections::HashSet::new();
     done.insert("a1:step3".to_string());
@@ -94,6 +94,6 @@ fn toggle_and_persist_roundtrip() {
 
 #[test]
 fn missing_done_file_loads_an_empty_set() {
-    let dir = std::env::temp_dir().join(format!("poe2lens-lvl-none-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("khalonipoe2-lvl-none-{}", std::process::id()));
     assert!(leveling_ui::load_done(&dir).is_empty());
 }

@@ -1,8 +1,8 @@
-use poe2_lens::hover::{Popup, PopupLine};
-use poe2_lens::pricing::{Denom, Tier};
-use poe2_lens::render::{Placed, Renderer};
-use poe2_lens::{leveling_ui, reference_ui};
-use poe2_lens_core::refdata::{LevelingAct, LevelingStep};
+use khaloni_poe2::hover::{Popup, PopupLine};
+use khaloni_poe2::pricing::{Denom, Tier};
+use khaloni_poe2::render::{Placed, Renderer};
+use khaloni_poe2::{leveling_ui, reference_ui};
+use khaloni_poe2_core::refdata::{LevelingAct, LevelingStep};
 
 #[test]
 fn draws_nonempty_label_pixels_inside_bounds() {

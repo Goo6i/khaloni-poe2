@@ -331,7 +331,7 @@ pub fn fetch_xile_path(rel: &str) -> Result<String, String> {
     let url = format!("https://raw.githubusercontent.com/XileHUD/poe_overlay/{COMMIT}/data/poe2/{rel}");
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 poe2-lens/0.1")
+        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = http.get(&url).send().map_err(|e| e.to_string())?;
@@ -350,7 +350,7 @@ pub fn fetch_xile_json(file: &str) -> Result<String, String> {
     );
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 poe2-lens/0.1")
+        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = http.get(&url).send().map_err(|e| e.to_string())?;
@@ -370,7 +370,7 @@ pub fn fetch_ee2_ndjson(kind: &str) -> Result<String, String> {
     );
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 poe2-lens/0.1")
+        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = http.get(&url).send().map_err(|e| e.to_string())?;

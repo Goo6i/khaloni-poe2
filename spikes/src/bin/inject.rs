@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     keys.insert(Key::KEY_LEFTCTRL);
     keys.insert(Key::KEY_C);
     let mut dev = VirtualDeviceBuilder::new()?
-        .name("poe2-lens-spike-kbd")
+        .name("khaloni-poe2-spike-kbd")
         .with_keys(&keys)?
         .build()?;
 
