@@ -96,7 +96,7 @@ Grab the release zip, unzip anywhere, run `khaloni-poe2.exe`. Notes:
 Packages, on Arch and derivatives:
 
 ```
-sudo pacman -S --needed tesseract tesseract-data-eng leptonica slurp
+sudo pacman -S --needed tesseract tesseract-data-eng leptonica
 ```
 
 The F7 price check types Ctrl+C into the game through a virtual keyboard,
@@ -111,18 +111,18 @@ sudo udevadm control --reload-rules && sudo udevadm trigger /dev/uinput
 Log out and back in once after that; group membership only applies to new
 sessions.
 
-Build and set up:
+Build and run:
 
 ```
 cargo build --release -p khaloni-poe2
-./target/release/khaloni-poe2 --calibrate   # drag a box over the Runeshape panel area
-./app/khaloni-poe2-launch                   # run the overlay
+./app/khaloni-poe2-launch   # run the overlay
 ```
 
-Calibration is once. The launcher installs a desktop entry and starts the
-app in a systemd scope because the global shortcuts portal refuses to bind
-hotkeys for a process without an app id; running the binary directly works
-except the hotkeys.
+No calibration, no setup: the reward panel is detected automatically on
+screen, on any monitor and resolution. The launcher installs a desktop
+entry and starts the app in a systemd scope because the global shortcuts
+portal refuses to bind hotkeys for a process without an app id; running
+the binary directly works except the hotkeys.
 
 ## Hotkeys
 
@@ -149,9 +149,8 @@ changes need a relaunch). The tray icon (Plasma system tray) also toggles
 the overlay, pauses pricing, and quits.
 
 The config file behind the window is `~/.config/khaloni-poe2/config.toml`;
-two fields are file-only on purpose: `restore_token` (screencast portal
-grant) and `calibration` (set via the Recalibrate button or
-`--calibrate`). The brightness hysteresis defaults
+one field is file-only on purpose: `restore_token` (screencast portal
+grant). The brightness hysteresis defaults
 (`panel_open_brightness`/`panel_close_brightness`) came from measuring
 real frames (parchment reads about 156 to 168, open game world about 40
 to 90) and should not need touching.

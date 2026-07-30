@@ -20,48 +20,10 @@ fn main() -> anyhow::Result<()> {
     migrate_legacy_dirs();
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str).unwrap_or("") {
-        "--calibrate" => calibrate(),
         "--headless" => headless(),
         "--settings" => khaloni_poe2::settings_ui::run(),
         _ => overlay_mode(),
     }
-}
-
-/// slurp prints the dragged region in global logical coordinates.
-/// Windows has no slurp; a native drag-select window is queued work, so
-/// there the region is set by editing `calibration` in config.toml.
-#[cfg(not(target_os = "linux"))]
-fn calibrate() -> anyhow::Result<()> {
-    anyhow::bail!(
-        "interactive calibration is Linux-only for now; set [calibration] in {}",
-        Config::path().display()
-    )
-}
-
-/// slurp prints the dragged region in global logical coordinates.
-#[cfg(target_os = "linux")]
-fn calibrate() -> anyhow::Result<()> {
-    let out = std::process::Command::new("slurp")
-        .args(["-f", "%x %y %w %h"])
-        .output()?;
-    anyhow::ensure!(out.status.success(), "slurp cancelled or missing");
-    let s = String::from_utf8_lossy(&out.stdout);
-    let v: Vec<i32> = s.split_whitespace().filter_map(|t| t.parse().ok()).collect();
-    anyhow::ensure!(v.len() == 4, "unexpected slurp output: {s}");
-    let mut cfg = Config::load()?;
-    cfg.calibration = Some(Rect {
-        x: v[0],
-        y: v[1],
-        w: v[2] as u32,
-        h: v[3] as u32,
-    });
-    cfg.save()?;
-    println!(
-        "calibration saved: {:?} -> {}",
-        cfg.calibration.unwrap(),
-        Config::path().display()
-    );
-    Ok(())
 }
 
 fn game_window_logical() -> Rect {
@@ -286,9 +248,6 @@ fn headless() -> anyhow::Result<()> {
 #[cfg(ocr)]
 fn headless() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
-    let cal = cfg
-        .calibration
-        .ok_or_else(|| anyhow::anyhow!("run --calibrate first"))?;
 
     eprintln!("fetching prices for {}...", cfg.league);
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
@@ -310,30 +269,57 @@ fn headless() -> anyhow::Result<()> {
         cfg.save()?;
     }
 
-    // Capture geometry is negotiated at 3840x2160 on the reference machine.
-    let map = CoordMap::new(game_window_logical(), (3840, 2160), cal);
-    // Capacity 1: only the latest frame is ever wanted; see capture::consume.
+    // Headless works from full frames only: detect the reward panel on
+    // each frame (zero calibration), crop in-process, and scan the crop.
+    // The region channel is unused; the region path's throttling doesn't
+    // matter because the dummy region below is never OCR'd.
     let (ftx, frx) = mpsc::sync_channel(1);
     let (_rtx, rrx) = mpsc::channel::<Rect>();
-    let region = map.region_px();
-    // headless has no brightness gate of its own (it OCRs every frame
-    // unconditionally below), so this never flips true: capture always
-    // throttles at the closed (300ms) rate here.
+    let (full_tx, full_rx) = mpsc::sync_channel::<image::GrayImage>(1);
     let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     std::thread::spawn(move || {
-        if let Err(e) = capture::consume(start, rrx, region, ftx, panel_open, None) {
+        let dummy = Rect { x: 0, y: 0, w: 64, h: 64 };
+        if let Err(e) = capture::consume(start, rrx, dummy, ftx, panel_open, Some(full_tx)) {
             eprintln!("capture thread died: {e}");
         }
     });
+    // Keep the region channel drained so capture's try_send never backs up.
+    std::thread::spawn(move || for _ in frx {});
 
     eprintln!("headless pipeline running; open a Runeshape panel. Ctrl+C to quit.");
+    let game = game_window_logical();
     let mut engine = ocr::OcrEngine::new()?;
-    for frame in frx {
-        let lines = ocr::ocr_scan(&mut engine, &frame.gray);
+    for frame in full_rx {
+        let Some(region) = khaloni_poe2::autoregion::detect_reward_region(&frame) else {
+            continue;
+        };
+        let crop = image::imageops::crop_imm(
+            &frame,
+            region.x0,
+            region.y0,
+            region.x1 - region.x0,
+            region.y1 - region.y0,
+        )
+        .to_image();
+        let map = CoordMap::new(
+            game,
+            (frame.width(), frame.height()),
+            Rect {
+                x: region.x0 as i32,
+                y: region.y0 as i32,
+                w: region.x1 - region.x0,
+                h: region.y1 - region.y0,
+            },
+        );
+        let lines = ocr::ocr_scan(&mut engine, &crop);
         let snap = svc.snapshot();
         let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
         println!(
-            "--- scan ({} lines, {} priced){}",
+            "--- scan region {}x{}@({},{}) ({} lines, {} priced){}",
+            region.x1 - region.x0,
+            region.y1 - region.y0,
+            region.x0,
+            region.y0,
             lines.len(),
             rows.len(),
             if snap.stale { " [STALE PRICES]" } else { "" }
@@ -366,6 +352,10 @@ type FrameState = (
     Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
     Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
 );
+
+/// Shared placement geometry from the full-frame worker: (capture frame
+/// dims, detected reward region in capture px), both None until first seen.
+type ScanGeom = std::sync::Arc<std::sync::Mutex<(Option<(u32, u32)>, Option<Rect>)>>;
 
 /// What an in-flight copy-hovered request (other than a price check) should
 /// do with the copied item text once it arrives.
@@ -434,18 +424,6 @@ fn overlay_mode() -> anyhow::Result<()> {
 #[cfg(ocr)]
 fn overlay_mode() -> anyhow::Result<()> {
     let mut cfg = Config::load()?;
-    // Calibration gates ONLY the reward-panel scan region. Without it that
-    // scanner stays off but everything else (F7 price check, rumours,
-    // appraisal, reference/leveling panels, tray, settings) runs — so a
-    // fresh install works out of the box, and so does Windows, where the
-    // interactive calibrator doesn't exist yet.
-    let have_cal = cfg.calibration.is_some();
-    if !have_cal {
-        eprintln!(
-            "no calibration: reward-panel pricing off, everything else active \
-             (set it via Recalibrate in Settings, or [calibration] in config.toml)"
-        );
-    }
 
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
     let svc = prices::PriceService::start_with_interval(
@@ -714,13 +692,15 @@ fn overlay_mode() -> anyhow::Result<()> {
         });
     }
 
-    // Uncalibrated: a tiny corner rect keeps CoordMap total (its scale and
-    // window mapping still serve rumour badges); the region it describes is
-    // never OCR'd because the scan worker below drains instead of scanning.
-    let cal = cfg
-        .calibration
-        .unwrap_or(Rect { x: game.x, y: game.y, w: 64, h: 64 });
-    let map = CoordMap::new(game, (3840, 2160), cal);
+    // Zero calibration: the reward-panel region is DETECTED on the full
+    // frames (autoregion, inside the rumour worker below) and shipped to
+    // the capture thread through region_tx. Until the first detection the
+    // capture crops a harmless dummy corner that the OCR worker ignores
+    // (region_ready gate). `scan_geom` carries (frame dims, region) to the
+    // main loop for label/badge placement, replacing the old CoordMap-from-
+    // calibration path and its hardcoded 3840x2160 capture assumption.
+    let scan_geom: ScanGeom = std::sync::Arc::new(std::sync::Mutex::new((None, None)));
+    let region_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Capacity 1: only the latest frame is ever wanted; see capture::consume.
     let (ftx, frx) = mpsc::sync_channel(1);
     // Full-frame channel for the rumour recognizer (latest-only, capacity 1).
@@ -729,7 +709,7 @@ fn overlay_mode() -> anyhow::Result<()> {
     // including empty, so stale badges clear when the panel closes).
     let (rumour_tx, rumour_rx) = mpsc::channel::<Vec<khaloni_poe2::rumours::RumourHit>>();
     let (region_tx, region_rx) = mpsc::channel::<Rect>();
-    let region = map.region_px();
+    let region = Rect { x: 0, y: 0, w: 64, h: 64 };
     // Shared with the OCR worker below: it owns the BrightnessGate and
     // stores whether it's currently open here every pass; the capture
     // thread only reads it, to pick its 120ms/300ms throttle. An atomic is
@@ -749,32 +729,79 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (rows_tx, rows_rx) = mpsc::channel();
     let svc_ocr = svc.clone();
     let ocr_cfg = cfg.clone();
-    // Rumour recognizer worker (step 1: detect + log; rendering follows).
-    // Full frames arrive on their own slow cadence; find_panel locates the
-    // tooltip and recognize() reads the rumours. Independent of the reward
-    // pipeline and the calibration region (rumours can be anywhere on screen).
+    // Full-frame worker: reward-region detection + rumour recognition, one
+    // thread because the full-frame channel has a single consumer. Region
+    // detection is pure image math and runs even when the rumour dataset or
+    // tesseract is missing; rumour recognition is best-effort on top.
     {
         let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
         let paused_rumour = pipeline_paused.clone();
+        let scan_geom = scan_geom.clone();
+        let region_ready = region_ready.clone();
+        let panel_open_det = panel_open.clone();
         std::thread::spawn(move || {
             let dbg = std::env::var("KHALONI_DEBUG").is_ok();
-            let Some(csv_path) = rumour_csv else { return };
-            let Ok(csv) = std::fs::read_to_string(&csv_path) else {
-                eprintln!("rumour worker: no rumours.csv; rumour overlay off");
-                return;
+            // Rumour half of the worker: optional. None = detection only.
+            let idx = rumour_csv
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|csv| {
+                    khaloni_poe2_core::rumour::RumourIndex::new(
+                        khaloni_poe2_core::rumour::parse_csv(&csv),
+                    )
+                });
+            let mut engine = match &idx {
+                Some(idx) => match ocr::OcrEngine::new() {
+                    Ok(e) => {
+                        eprintln!("rumour worker: ready ({} entries)", idx.len());
+                        Some(e)
+                    }
+                    Err(_) => {
+                        eprintln!("rumour worker: tesseract init failed; rumour overlay off");
+                        None
+                    }
+                },
+                None => {
+                    eprintln!("rumour worker: no rumours.csv; rumour overlay off");
+                    None
+                }
             };
-            let idx = khaloni_poe2_core::rumour::RumourIndex::new(
-                khaloni_poe2_core::rumour::parse_csv(&csv),
-            );
-            let Ok(mut engine) = ocr::OcrEngine::new() else {
-                eprintln!("rumour worker: tesseract init failed; rumour overlay off");
-                return;
-            };
-            eprintln!("rumour worker: ready ({} entries)", idx.len());
+            let mut last_region: Option<Rect> = None;
             for frame in full_rx {
+                // Reward-region detection. While the brightness gate is
+                // open the region is LOCKED: the stabilizer's scroll origin
+                // must not move under it. Redetect only when closed.
+                {
+                    let mut geom = scan_geom.lock().unwrap();
+                    geom.0 = Some((frame.width(), frame.height()));
+                    if !panel_open_det.load(Ordering::Relaxed) {
+                        let found = khaloni_poe2::autoregion::detect_reward_region(&frame).map(|r| Rect {
+                            x: r.x0 as i32,
+                            y: r.y0 as i32,
+                            w: r.x1 - r.x0,
+                            h: r.y1 - r.y0,
+                        });
+                        if dbg && found != last_region {
+                            eprintln!("auto-region: {found:?}");
+                        }
+                        if let Some(r) = found {
+                            if last_region != Some(r) {
+                                let _ = region_tx.send(r);
+                                last_region = Some(r);
+                            }
+                            geom.1 = Some(r);
+                            region_ready.store(true, Ordering::Relaxed);
+                        }
+                        // A vanished panel keeps the last region: the gate
+                        // is closed anyway, and reusing it makes reopening
+                        // in the same spot (the common case) instant.
+                    }
+                }
                 if paused_rumour.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
+                let (Some(idx), Some(engine)) = (&idx, engine.as_mut()) else {
+                    continue;
+                };
                 let t = std::time::Instant::now();
                 // Debug: dump the exact frame a panel was seen in, so live
                 // misses can be analyzed offline at the true capture resolution.
@@ -783,7 +810,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 {
                     let _ = frame.save("/tmp/poe2-live-frame.png");
                 }
-                let hits = khaloni_poe2::rumours::recognize(&mut engine, &frame, &idx);
+                let hits = khaloni_poe2::rumours::recognize(engine, &frame, idx);
                 if !hits.is_empty() {
                     eprintln!(
                         "RUMOURS {} in {}ms: {}",
@@ -817,14 +844,8 @@ fn overlay_mode() -> anyhow::Result<()> {
     let paused_ocr = pipeline_paused.clone();
     // The reward-panel pricer's handle to the specific-gem cache + trade worker.
     let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
+    let region_ready_ocr = region_ready.clone();
     std::thread::spawn(move || {
-        // No calibrated region: nothing to scan. Drain the frames so the
-        // capture side's try_send never meets a dropped receiver, and skip
-        // engine/template/dataset setup entirely.
-        if !have_cal {
-            for _ in frx {}
-            return;
-        }
         let dbg = std::env::var("KHALONI_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
         let Ok(mut engine) = ocr::OcrEngine::new() else {
@@ -873,6 +894,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         // structurally impossible: this is always the latest frame, and a
         // plain blocking recv (via the Receiver iterator) is enough.
         for frame in frx {
+            // Until the detector has found a reward region, capture is
+            // cropping the startup dummy rect — never OCR that.
+            if !region_ready_ocr.load(std::sync::atomic::Ordering::Relaxed) {
+                continue;
+            }
             let mean = mean_gray_brightness(&frame.gray);
             if dbg {
                 eprintln!("DBG ocr-worker: frame {}x{} mean_brightness={mean}", frame.gray.width(), frame.gray.height());
@@ -1163,10 +1189,12 @@ fn overlay_mode() -> anyhow::Result<()> {
         while let Ok(ev) = kwin.rx.try_recv() {
             match ev {
                 khaloni_poe2::platform::GameWindowEvent::Geometry(g) => {
+                    // The scan region is capture-space and auto-detected, so
+                    // a window move needs no region update; label placement
+                    // reads the live game position every paint.
                     game_pos = (g.x, g.y);
+                    game = g;
                     game_present = true;
-                    let m = CoordMap::new(g, (3840, 2160), cal);
-                    let _ = region_tx.send(m.region_px());
                 }
                 khaloni_poe2::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
                 khaloni_poe2::platform::GameWindowEvent::GameGone => {
@@ -1869,11 +1897,19 @@ fn overlay_mode() -> anyhow::Result<()> {
             let frame_state = if show {
                 let rows = if show_rows { stabilizer.rows() } else { Vec::new() };
                 let out_pos = overlay.output_pos();
-                // Global logical -> surface-local (output-relative); the
-                // game may have moved, so re-anchor on its live pos. Shared
-                // by the row labels and the popup anchor below.
-                let dx = game_pos.0 - map.window_logical.x;
-                let dy = game_pos.1 - map.window_logical.y;
+                // Placement geometry, rebuilt every paint from the live game
+                // position plus the detector's (frame dims, region): labels
+                // need the full map, rumour badges only the capture scale.
+                let (frame_dims, region_now) = *scan_geom.lock().unwrap();
+                let smap = match (frame_dims, region_now) {
+                    (Some(f), Some(r)) => Some(CoordMap::new(
+                        Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h },
+                        f,
+                        r,
+                    )),
+                    _ => None,
+                };
+                let cap_scale = frame_dims.map(|f| f.0 as f64 / game.w.max(1) as f64);
                 // Best-pick: the single highest-value priced row (in
                 // exalted terms) gets the gold marker; only meaningful
                 // when at least two rows are priced (a pick-one panel).
@@ -1891,20 +1927,25 @@ fn overlay_mode() -> anyhow::Result<()> {
                         None
                     }
                 };
-                let placed: Vec<_> = rows
-                    .iter()
-                    .map(|r| {
-                        let (lx, ly) = map.label_pos_centered(r.y_top, r.height);
-                        khaloni_poe2::render::Placed {
-                            x: lx + dx - out_pos.0,
-                            y: ly + dy - out_pos.1,
-                            amount: r.amount.clone(),
-                            denom: r.denom,
-                            tier: r.tier,
-                            best: Some(r.y_top) == best_key,
-                        }
-                    })
-                    .collect();
+                let placed: Vec<_> = match &smap {
+                    Some(m) => rows
+                        .iter()
+                        .map(|r| {
+                            let (lx, ly) = m.label_pos_centered(r.y_top, r.height);
+                            khaloni_poe2::render::Placed {
+                                x: lx - out_pos.0,
+                                y: ly - out_pos.1,
+                                amount: r.amount.clone(),
+                                denom: r.denom,
+                                tier: r.tier,
+                                best: Some(r.y_top) == best_key,
+                            }
+                        })
+                        .collect(),
+                    // Rows without geometry cannot happen (rows require the
+                    // detector's region), but never panic in the paint path.
+                    None => Vec::new(),
+                };
                 // Popup anchor: the rect placed at check time next to the
                 // cursor (popup_pos::place), converted global -> surface
                 // like the row labels. Global coords are already live, so
@@ -1929,21 +1970,20 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // Rumour badges: capture-physical box -> global logical (game
                 // origin + phys/scale) -> surface-local. Hung off the tooltip
                 // panel's right edge at each rumour line's vertical center.
-                let rumour_badges: Vec<khaloni_poe2::render::RumourBadge> = if show_rows {
-                    latest_rumours
+                let rumour_badges: Vec<khaloni_poe2::render::RumourBadge> = match cap_scale {
+                    Some(scale) if show_rows => latest_rumours
                         .iter()
                         .map(|h| {
                             let phys_x = f64::from(h.panel.x1);
                             let phys_y = f64::from(h.line.y0 + h.line.y1) / 2.0;
                             khaloni_poe2::render::RumourBadge {
-                                x: game_pos.0 + (phys_x / map.scale) as i32 - out_pos.0 + 12,
-                                y: game_pos.1 + (phys_y / map.scale) as i32 - out_pos.1,
+                                x: game_pos.0 + (phys_x / scale) as i32 - out_pos.0 + 12,
+                                y: game_pos.1 + (phys_y / scale) as i32 - out_pos.1,
                                 rating: h.entry.rating.clone(),
                             }
                         })
-                        .collect()
-                } else {
-                    Vec::new()
+                        .collect(),
+                    _ => Vec::new(),
                 };
                 let edit_state = editing.map(|(fi, field)| (fi, field, edit_buf.clone()));
                 // Reference/leveling panels: cloned into the frame state so

@@ -71,9 +71,6 @@ pub struct Config {
     /// Screencast portal restore token; grants silent capture on later runs.
     #[serde(default)]
     pub restore_token: Option<String>,
-    /// Calibrated list region in GLOBAL logical coordinates (slurp's space).
-    #[serde(default)]
-    pub calibration: Option<Rect>,
     #[serde(default = "default_divine_threshold")]
     pub divine_threshold: f64,
     /// Price table refresh interval; while data is stale a 60s retry

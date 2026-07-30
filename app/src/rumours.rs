@@ -147,18 +147,37 @@ const MIN_H: u32 = 250;
 const MAX_H: u32 = 1000;
 const MIN_FILL: f64 = 0.6;
 
-/// Locate the bright parchment "Uncharted Waters" tooltip anywhere on the
-/// frame. Subsample, threshold, close the text holes, label connected
-/// components, and return the largest panel-shaped bright blob in
-/// full-resolution pixels, or `None` if none qualifies.
-pub fn find_panel(gray: &GrayImage) -> Option<Rect> {
+/// One bright blob from the parchment sweep: full-resolution bounds plus
+/// the mask-space mass and fill the size/shape gates are judged on. Public
+/// so `autoregion` can reuse the sweep with its own reward-panel gates
+/// (the reward panel is ~990x1030 at 4K, outside `find_panel`'s
+/// tooltip-sized MAX_W/MAX_H).
+#[derive(Debug, Clone, Copy)]
+pub struct PanelCandidate {
+    /// Blob bounding box in full-resolution pixels (subsample-grid
+    /// aligned; x1/y1 can overshoot the frame edge by up to
+    /// PANEL_STEP - 1, callers cropping must clamp).
+    pub rect: Rect,
+    /// Blob pixel count in the subsampled mask — `find_panel`'s selection
+    /// key (heaviest gate-passing blob wins).
+    pub count: u32,
+    /// count / mask bounding-box area: how solid the blob is.
+    pub fill: f64,
+}
+
+/// The component sweep behind `find_panel`: subsample, threshold, close
+/// the text holes, label connected components, and return EVERY bright
+/// blob ungated. `find_panel` (rumour tooltip) and
+/// `autoregion::detect_reward_region` (reward panel) apply their own
+/// size/fill gates on top.
+pub fn panel_candidates(gray: &GrayImage) -> Vec<PanelCandidate> {
     let step = PANEL_STEP;
     let (gw, gh) = (gray.width(), gray.height());
     // Subsample to a small mask (Python `gray[::step, ::step] > thresh`).
     let sw = gw.div_ceil(step);
     let sh = gh.div_ceil(step);
     if sw == 0 || sh == 0 {
-        return None;
+        return Vec::new();
     }
     let mut mask = vec![false; (sw * sh) as usize];
     for sy in 0..sh {
@@ -169,27 +188,40 @@ pub fn find_panel(gray: &GrayImage) -> Option<Rect> {
     }
     // Close the dark text holes so the parchment labels as one blob.
     let closed = binary_close(&mask, sw, sh, CLOSE_ITERS);
-    // Largest panel-shaped connected component.
-    let mut best: Option<(u32, Rect)> = None; // (pixel count, full-res box)
-    for comp in connected_components(&closed, sw, sh) {
-        let bw = (comp.maxx - comp.minx + 1) * step;
-        let bh = (comp.maxy - comp.miny + 1) * step;
-        let bbox_area = (comp.maxx - comp.minx + 1) * (comp.maxy - comp.miny + 1);
-        let fill = f64::from(comp.count) / f64::from(bbox_area.max(1));
-        if (MIN_W..MAX_W).contains(&bw)
-            && (MIN_H..MAX_H).contains(&bh)
-            && fill > MIN_FILL
-            && best.is_none_or(|(c, _)| comp.count > c)
-        {
-            best = Some((
-                comp.count,
-                Rect {
+    connected_components(&closed, sw, sh)
+        .into_iter()
+        .map(|comp| {
+            let bbox_area = (comp.maxx - comp.minx + 1) * (comp.maxy - comp.miny + 1);
+            PanelCandidate {
+                rect: Rect {
                     x0: comp.minx * step,
                     y0: comp.miny * step,
                     x1: (comp.maxx + 1) * step,
                     y1: (comp.maxy + 1) * step,
                 },
-            ));
+                count: comp.count,
+                fill: f64::from(comp.count) / f64::from(bbox_area.max(1)),
+            }
+        })
+        .collect()
+}
+
+/// Locate the bright parchment "Uncharted Waters" tooltip anywhere on the
+/// frame: the largest panel-shaped bright blob from the candidate sweep,
+/// in full-resolution pixels, or `None` if none qualifies.
+pub fn find_panel(gray: &GrayImage) -> Option<Rect> {
+    let mut best: Option<(u32, Rect)> = None; // (pixel count, full-res box)
+    for cand in panel_candidates(gray) {
+        // rect is subsample-grid aligned, so width/height here equal the
+        // (maxx - minx + 1) * step the gates were originally tuned on.
+        let bw = cand.rect.width();
+        let bh = cand.rect.height();
+        if (MIN_W..MAX_W).contains(&bw)
+            && (MIN_H..MAX_H).contains(&bh)
+            && cand.fill > MIN_FILL
+            && best.is_none_or(|(c, _)| cand.count > c)
+        {
+            best = Some((cand.count, cand.rect));
         }
     }
     best.map(|(_, r)| r)

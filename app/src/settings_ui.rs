@@ -140,7 +140,6 @@ struct SettingsApp {
     last_edit: Instant,
     saved_at: Option<String>,
     save_err: Option<String>,
-    calibrate_err: Option<String>,
 }
 
 impl SettingsApp {
@@ -185,7 +184,6 @@ impl SettingsApp {
             last_edit: Instant::now(),
             saved_at: None,
             save_err: None,
-            calibrate_err: None,
         }
     }
 
@@ -278,7 +276,6 @@ impl eframe::App for SettingsApp {
             leagues,
             mods,
             suggest,
-            calibrate_err,
             ..
         } = self;
         let mod_list = mods.lock().unwrap().clone();
@@ -294,7 +291,7 @@ impl eframe::App for SettingsApp {
                     Section::Display => section_display(ui, cfg, tier_ok),
                     Section::Pricing => section_pricing(ui, cfg, leagues),
                     Section::CaptureOcr => {
-                        section_capture_ocr(ui, cfg, brightness_ok, calibrate_err)
+                        section_capture_ocr(ui, cfg, brightness_ok)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
                     Section::Waystones => section_waystones(ui, cfg, &mod_list, suggest),
@@ -509,47 +506,17 @@ fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<
     });
 }
 
-fn section_capture_ocr(
-    ui: &mut egui::Ui,
-    cfg: &mut Config,
-    brightness_ok: bool,
-    calibrate_err: &mut Option<String>,
-) {
+fn section_capture_ocr(ui: &mut egui::Ui, cfg: &mut Config, brightness_ok: bool) {
     ui.heading("Capture & OCR");
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label("Calibrated region");
-        match cfg.calibration {
-            Some(r) => {
-                ui.monospace(format!("x {}", r.x));
-                ui.monospace(format!("y {}", r.y));
-                ui.monospace(format!("w {}", r.w));
-                ui.monospace(format!("h {}", r.h));
-            }
-            None => {
-                ui.weak("Not set yet");
-            }
-        }
-    });
-    if ui.button("Recalibrate…").clicked() {
-        // The picker needs its own portal session, so it runs as a fresh
-        // process instead of inside this window.
-        *calibrate_err = match std::env::current_exe().map_err(anyhow::Error::from).and_then(
-            |exe| {
-                std::process::Command::new(exe)
-                    .arg("--calibrate")
-                    .spawn()
-                    .map_err(anyhow::Error::from)
-            },
-        ) {
-            Ok(_) => None,
-            Err(e) => Some(e.to_string()),
-        };
-    }
-    if let Some(err) = calibrate_err {
-        ui.colored_label(egui::Color32::RED, format!("recalibrate failed: {err}"));
-    }
-
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "The reward panel is detected automatically — no calibration. \
+             The gate below decides when the detected region is bright \
+             enough to scan.",
+        )
+        .weak(),
+    );
     ui.add_space(12.0);
     ui.label("Brightness gate");
     ui.horizontal(|ui| {

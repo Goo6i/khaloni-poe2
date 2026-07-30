@@ -1,4 +1,5 @@
 pub mod appraise_ui;
+pub mod autoregion;
 pub mod brightness;
 pub mod leveling_ui;
 pub mod platform;
