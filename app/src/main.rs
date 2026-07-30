@@ -219,6 +219,24 @@ fn sync_input_region(
     )
 }
 
+/// Built-in map-mod seed rules plus the config's extra needles, lowercased.
+fn build_map_rules(cfg: &Config) -> Vec<poe2_lens_core::mapmods::ModRule> {
+    let mut r = poe2_lens_core::mapmods::default_rules();
+    for n in &cfg.map_danger_needles {
+        r.push(poe2_lens_core::mapmods::ModRule {
+            needle: n.to_lowercase(),
+            kind: poe2_lens_core::mapmods::ModKind::Danger,
+        });
+    }
+    for n in &cfg.map_good_needles {
+        r.push(poe2_lens_core::mapmods::ModRule {
+            needle: n.to_lowercase(),
+            kind: poe2_lens_core::mapmods::ModKind::Good,
+        });
+    }
+    r
+}
+
 /// Launches the native settings window as its own process; the overlay keeps
 /// running and picks config changes up via the mtime watcher, so no IPC.
 fn open_settings() {
@@ -506,23 +524,9 @@ fn overlay_mode() -> anyhow::Result<()> {
     // in-flight copy was for.
     let (action_tx, action_rx) = mpsc::channel::<anyhow::Result<String>>();
     let mut pending_action: Option<PendingAction> = None;
-    // Map-mod rules: built-in seed plus any config-added needles.
-    let map_rules = {
-        let mut r = poe2_lens_core::mapmods::default_rules();
-        for n in &cfg.map_danger_needles {
-            r.push(poe2_lens_core::mapmods::ModRule {
-                needle: n.to_lowercase(),
-                kind: poe2_lens_core::mapmods::ModKind::Danger,
-            });
-        }
-        for n in &cfg.map_good_needles {
-            r.push(poe2_lens_core::mapmods::ModRule {
-                needle: n.to_lowercase(),
-                kind: poe2_lens_core::mapmods::ModKind::Good,
-            });
-        }
-        r
-    };
+    // Map-mod rules: built-in seed plus any config-added needles. Rebuilt
+    // on config hot-reload so settings edits apply without a relaunch.
+    let mut map_rules = build_map_rules(&cfg);
     // Reference data for the in-overlay panels loads (cached, fetched once)
     // on a background thread so a cold fetch never blocks startup; the
     // panels show a loading row until the OnceLock fills.
@@ -1095,6 +1099,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     cfg_mtime = Some(m);
                     if let Ok(new_cfg) = Config::load() {
                         cfg = new_cfg;
+                        map_rules = build_map_rules(&cfg);
                     }
                 }
             }

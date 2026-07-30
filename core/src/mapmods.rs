@@ -60,11 +60,49 @@ pub fn default_rules() -> Vec<ModRule> {
     ]
 }
 
-/// The kind of the first rule whose needle occurs in `line` (case-
+/// The kind of the first rule whose needle matches `line` (case-
 /// insensitive), or `None` if no rule matches.
 pub fn classify(line: &str, rules: &[ModRule]) -> Option<ModKind> {
     let l = line.to_lowercase();
-    rules.iter().find(|r| l.contains(&r.needle)).map(|r| r.kind)
+    rules.iter().find(|r| needle_matches(&l, &r.needle)).map(|r| r.kind)
+}
+
+/// Whether `needle` matches the (already lowercased) line. A plain needle
+/// is a substring test; a needle containing `#` — the placeholder the trade
+/// stat dataset uses for rolled numbers — matches its literal segments in
+/// order with a number in each gap, so a canonical mod text pasted from the
+/// autocomplete matches every roll of that mod.
+fn needle_matches(line_lower: &str, needle: &str) -> bool {
+    if !needle.contains('#') {
+        return line_lower.contains(needle);
+    }
+    let mut pos = 0usize;
+    for (i, seg) in needle.split('#').enumerate() {
+        if seg.is_empty() {
+            // Leading/trailing '#' or "##": nothing literal to anchor here;
+            // the neighboring segments carry the match.
+            continue;
+        }
+        match line_lower[pos..].find(seg) {
+            // The first literal segment may start anywhere; later ones must
+            // appear after the previous match with only the number between.
+            Some(at) => {
+                if i > 0 {
+                    // The gap the '#' swallowed must look like a rolled
+                    // number, not arbitrary text, or "deal #% as extra fire"
+                    // would match a cold-damage line via a later "fire".
+                    let gap = &line_lower[pos..pos + at];
+                    if !gap.chars().all(|c| c.is_ascii_digit() || ".,+-% ".contains(c)) || gap.trim().is_empty()
+                    {
+                        return false;
+                    }
+                }
+                pos += at + seg.len();
+            }
+            None => return false,
+        }
+    }
+    true
 }
 
 /// Each mod line paired with its classification, keeping only the lines that
@@ -84,7 +122,9 @@ pub fn search_regex(mod_lines: &[&str], rules: &[ModRule]) -> String {
     for line in mod_lines {
         let l = line.to_lowercase();
         for r in rules {
-            if r.kind == ModKind::Good && l.contains(&r.needle) && !needles.contains(&r.needle.as_str())
+            if r.kind == ModKind::Good
+                && needle_matches(&l, &r.needle)
+                && !needles.contains(&r.needle.as_str())
             {
                 needles.push(&r.needle);
             }
@@ -92,7 +132,9 @@ pub fn search_regex(mod_lines: &[&str], rules: &[ModRule]) -> String {
     }
     needles
         .iter()
-        .map(|n| regex_escape(n))
+        // '#' placeholders become number wildcards so the regex matches any
+        // roll, mirroring needle_matches.
+        .map(|n| regex_escape(n).replace('#', r"\d+"))
         .collect::<Vec<_>>()
         .join("|")
 }
@@ -162,5 +204,36 @@ mod tests {
         let r = default_rules();
         let lines = ["Players have 25% reduced maximum Resistances"];
         assert_eq!(search_regex(&lines, &r), "");
+    }
+
+    #[test]
+    fn wildcard_needle_matches_any_roll() {
+        let r = vec![ModRule::new("monsters deal #% of their damage as extra fire damage", ModKind::Danger)];
+        assert_eq!(
+            classify("Monsters deal 40% of their Damage as Extra Fire Damage", &r),
+            Some(ModKind::Danger)
+        );
+        assert_eq!(
+            classify("Monsters deal 173% of their Damage as Extra Fire Damage", &r),
+            Some(ModKind::Danger)
+        );
+        // Different element: the literal tail does not match.
+        assert_eq!(
+            classify("Monsters deal 40% of their Damage as Extra Cold Damage", &r),
+            None
+        );
+    }
+
+    #[test]
+    fn wildcard_needle_with_multiple_hashes() {
+        let r = vec![ModRule::new("monsters gain # to # added damage", ModKind::Danger)];
+        assert_eq!(classify("Monsters gain 5 to 12 added Damage", &r), Some(ModKind::Danger));
+        assert_eq!(classify("Monsters gain added Damage", &r), None);
+    }
+
+    #[test]
+    fn plain_needles_keep_substring_semantics() {
+        let r = vec![ModRule::new("pack size", ModKind::Good)];
+        assert_eq!(classify("12% increased Pack Size", &r), Some(ModKind::Good));
     }
 }

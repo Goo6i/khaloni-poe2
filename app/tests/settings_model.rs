@@ -90,3 +90,26 @@ fn tier_ladder_order_enforced() {
     m.cfg.tier_good_ex = 50.1;
     assert!(m.tier_valid());
 }
+
+#[test]
+fn mod_suggestions_rank_tightest_first_and_require_all_tokens() {
+    let mods: Vec<String> = [
+        "monsters deal #% of their damage as extra fire damage",
+        "monsters deal #% of their damage as extra cold damage",
+        "#% increased pack size",
+        "monsters have #% increased attack speed",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let hits = poe2_lens::settings_ui::mod_suggestions(&mods, "extra fire", 8);
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].contains("extra fire"));
+    // All tokens required: "extra pack" matches nothing.
+    assert!(poe2_lens::settings_ui::mod_suggestions(&mods, "extra pack", 8).is_empty());
+    // Shorter (tighter) texts rank first.
+    let hits = poe2_lens::settings_ui::mod_suggestions(&mods, "monsters", 8);
+    assert_eq!(hits[0], "monsters have #% increased attack speed");
+    // Empty query suggests nothing.
+    assert!(poe2_lens::settings_ui::mod_suggestions(&mods, "  ", 8).is_empty());
+}

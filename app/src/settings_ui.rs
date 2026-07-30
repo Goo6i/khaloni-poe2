@@ -126,6 +126,14 @@ struct SettingsApp {
     /// League names land here from a one-shot background fetch; empty means
     /// still loading (or the fetch failed) and the UI falls back to free text.
     leagues: Arc<Mutex<Vec<String>>>,
+    /// Canonical mod texts (lowercased, `#` for the rolled number) for the
+    /// waystone-needle autocomplete, from the same cached reference data the
+    /// overlay's F9 panel uses. Empty while loading.
+    mods: Arc<Mutex<Vec<String>>>,
+    /// The needle row currently showing suggestions: (list id, row index).
+    /// Tracked explicitly instead of via widget focus so clicking a
+    /// suggestion button (which steals focus) still lands.
+    suggest: Option<(&'static str, usize)>,
     /// Change detection: Config has no PartialEq, but it serializes, so one
     /// toml snapshot per frame catches every widget edit in one place.
     last_serialized: String,
@@ -152,11 +160,27 @@ impl SettingsApp {
                 }
             });
         }
+        let mods: Arc<Mutex<Vec<String>>> = Arc::default();
+        {
+            // Reference data is disk-cached by the overlay/F9 panel; a cold
+            // cache fetches once. Off the frame thread like the league fetch.
+            let mods = mods.clone();
+            std::thread::spawn(move || {
+                let cache = directories::ProjectDirs::from("", "", "poe2-lens")
+                    .map(|d| d.cache_dir().to_path_buf())
+                    .unwrap_or_else(std::env::temp_dir);
+                let r = crate::refcache::reference_data(&cache);
+                *mods.lock().unwrap() =
+                    r.affixes.iter().map(|a| a.text.to_lowercase()).collect();
+            });
+        }
         let last_serialized = toml::to_string(&cfg).unwrap_or_default();
         SettingsApp {
             model: EditModel::from_config(cfg),
             section: Section::Hotkeys,
             leagues,
+            mods,
+            suggest: None,
             last_serialized,
             last_edit: Instant::now(),
             saved_at: None,
@@ -252,9 +276,12 @@ impl eframe::App for SettingsApp {
             model,
             section,
             leagues,
+            mods,
+            suggest,
             calibrate_err,
             ..
         } = self;
+        let mod_list = mods.lock().unwrap().clone();
         let tier_ok = model.tier_valid();
         let brightness_ok = model.brightness_valid();
         let EditModel { cfg, capture, .. } = model;
@@ -270,7 +297,7 @@ impl eframe::App for SettingsApp {
                         section_capture_ocr(ui, cfg, brightness_ok, calibrate_err)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
-                    Section::Waystones => section_waystones(ui, cfg),
+                    Section::Waystones => section_waystones(ui, cfg, &mod_list, suggest),
                 });
         });
 
@@ -607,25 +634,73 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
     });
 }
 
-fn section_waystones(ui: &mut egui::Ui, cfg: &mut Config) {
+fn section_waystones(
+    ui: &mut egui::Ui,
+    cfg: &mut Config,
+    mods: &[String],
+    suggest: &mut Option<(&'static str, usize)>,
+) {
     ui.heading("Waystones");
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(
+            "Type to search the mod database — # stands for the rolled \
+             number, so a picked mod matches every roll. Free text works \
+             too and matches as a substring.",
+        )
+        .weak(),
+    );
     ui.add_space(6.0);
-    string_list(ui, "Danger mod needles", "danger", &mut cfg.map_danger_needles);
+    string_list(ui, "Danger mod needles", "danger", &mut cfg.map_danger_needles, mods, suggest);
     ui.add_space(12.0);
-    string_list(ui, "Reward mod needles", "good", &mut cfg.map_good_needles);
+    string_list(ui, "Reward mod needles", "good", &mut cfg.map_good_needles, mods, suggest);
 }
 
-/// Editable list of lowercase substrings merged into the map-mod classifier.
-fn string_list(ui: &mut egui::Ui, label: &str, id: &str, items: &mut Vec<String>) {
+/// Editable needle list with autocomplete from the mod database. Suggestion
+/// visibility is keyed off `suggest`, not widget focus: a click on a
+/// suggestion button takes focus from the text field, and focus-gated
+/// suggestions would vanish one frame before the click could land.
+fn string_list(
+    ui: &mut egui::Ui,
+    label: &str,
+    id: &'static str,
+    items: &mut Vec<String>,
+    mods: &[String],
+    suggest: &mut Option<(&'static str, usize)>,
+) {
     ui.label(label);
     let mut remove: Option<usize> = None;
     for (i, s) in items.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(s).id_salt((id, i)));
+            let resp = ui.add(egui::TextEdit::singleline(s).id_salt((id, i)));
+            if resp.gained_focus() || resp.changed() {
+                *suggest = Some((id, i));
+            }
             if ui.button("✕").clicked() {
                 remove = Some(i);
+                *suggest = None;
             }
         });
+        if *suggest == Some((id, i)) && s.trim().len() >= 3 {
+            if mods.is_empty() {
+                ui.label(egui::RichText::new("  loading mod database…").weak().small());
+            }
+            let mut picked: Option<String> = None;
+            ui.indent((id, i, "sugg"), |ui| {
+                for m in mod_suggestions(mods, s, 8) {
+                    if ui.small_button(m).clicked() {
+                        picked = Some(m.clone());
+                    }
+                }
+            });
+            if let Some(p) = picked {
+                *s = p;
+                *suggest = None;
+            }
+            if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+                *suggest = None;
+            }
+        }
     }
     if let Some(i) = remove {
         items.remove(i);
@@ -633,6 +708,24 @@ fn string_list(ui: &mut egui::Ui, label: &str, id: &str, items: &mut Vec<String>
     if ui.button(format!("+ Add {}", label.to_lowercase())).clicked() {
         items.push(String::new());
     }
+}
+
+/// Top `limit` mod texts matching `query`: every whitespace-separated query
+/// token must occur (case-insensitive), shorter texts rank first so the
+/// tightest mod surfaces on top. Pure, so it is unit-testable.
+pub fn mod_suggestions<'a>(mods: &'a [String], query: &str, limit: usize) -> Vec<&'a String> {
+    let q = query.to_lowercase();
+    let tokens: Vec<&str> = q.split_whitespace().collect();
+    if tokens.is_empty() {
+        return Vec::new();
+    }
+    let mut hits: Vec<&String> = mods
+        .iter()
+        .filter(|m| tokens.iter().all(|t| m.contains(t)))
+        .collect();
+    hits.sort_by_key(|m| m.len());
+    hits.truncate(limit);
+    hits
 }
 
 /// Wall-clock HH:MM:SS for the "Saved …" heartbeat. chrono is deliberately
