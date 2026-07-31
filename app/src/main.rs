@@ -1200,7 +1200,9 @@ fn overlay_mode() -> anyhow::Result<()> {
         // against NAN and would never fire — the bug this replaces).
         if cfg.overlay_opacity != last_opacity {
             last_opacity = cfg.overlay_opacity;
-            overlay.set_opacity(cfg.overlay_opacity);
+            // Same 10% floor as the settings slider, so a hand-edited config
+            // cannot make the overlay silently invisible either.
+            overlay.set_opacity(cfg.overlay_opacity.max(0.1));
             last_frame = None;
         }
         if last_cfg_poll.elapsed() >= Duration::from_secs(1) {

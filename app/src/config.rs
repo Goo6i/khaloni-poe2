@@ -101,8 +101,10 @@ pub struct Config {
     /// key name is accepted so pre-rename configs load unchanged.
     #[serde(default = "default_true", alias = "pause_when_unfocused")]
     pub pause_when_hidden: bool,
-    /// Overlay opacity, 0.0 (invisible) to 1.0 (opaque). Applies to the
-    /// in-game overlay surface only, never the settings window.
+    /// Overlay opacity, floored at 0.1 (nearly transparent) up to 1.0
+    /// (opaque) — never fully invisible, because hotkeys keep working and an
+    /// unseeable overlay reads as broken. In-game surface only, never the
+    /// settings window.
     #[serde(default = "default_overlay_opacity")]
     pub overlay_opacity: f64,
     /// Value tier thresholds in exalts: below decent = junk, above good = jackpot.

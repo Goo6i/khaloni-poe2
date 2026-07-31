@@ -429,8 +429,10 @@ fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
     ui.horizontal(|ui| {
         ui.label("Overlay opacity");
         // In-game overlay only — this window is unaffected by design.
-        let mut pct = (cfg.overlay_opacity * 100.0).round() as u32;
-        if ui.add(egui::Slider::new(&mut pct, 0..=100).suffix("%")).changed() {
+        // Floor at 10%: a fully invisible overlay reads as broken (the
+        // hotkeys still work with nothing on screen to show for it).
+        let mut pct = (cfg.overlay_opacity * 100.0).round().clamp(10.0, 100.0) as u32;
+        if ui.add(egui::Slider::new(&mut pct, 10..=100).suffix("%")).changed() {
             cfg.overlay_opacity = f64::from(pct) / 100.0;
         }
     });
