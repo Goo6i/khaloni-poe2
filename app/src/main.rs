@@ -828,19 +828,73 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (rows_tx, rows_rx) = mpsc::channel();
     let svc_ocr = svc.clone();
     let ocr_cfg = cfg.clone();
-    // Full-frame worker: reward-region detection + rumour recognition, one
-    // thread because the full-frame channel has a single consumer. Region
-    // detection is pure image math and runs even when the rumour dataset or
-    // tesseract is missing; rumour recognition is best-effort on top.
+    // Full frames feed two consumers with very different costs: region
+    // detection (pure math, ~40ms) and rumour OCR (seconds when any
+    // parchment-like blob — including combat explosions — is on screen).
+    // They MUST NOT share a thread: reward panels open right after combat,
+    // exactly when a shared thread would still be chewing explosion frames,
+    // which measured as 30s+ first-detection latency. The fan-out clones
+    // each ~8MB frame once per 700ms — noise next to one OCR pass.
+    let (det_tx, det_rx) = mpsc::sync_channel::<image::GrayImage>(1);
+    let (rum_tx, rum_rx) = mpsc::sync_channel::<image::GrayImage>(1);
+    std::thread::spawn(move || {
+        for frame in full_rx {
+            let _ = det_tx.try_send(frame.clone());
+            let _ = rum_tx.try_send(frame);
+        }
+    });
+    // Region-detection worker: always fast, never blocked by OCR.
     {
-        let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
-        let paused_rumour = pipeline_paused.clone();
         let scan_geom = scan_geom.clone();
         let region_ready = region_ready.clone();
         let panel_open_det = panel_open.clone();
         std::thread::spawn(move || {
             let dbg = std::env::var("KHALONI_DEBUG").is_ok();
-            // Rumour half of the worker: optional. None = detection only.
+            let mut last_region: Option<Rect> = None;
+            for frame in det_rx {
+                // While the brightness gate is open the region is LOCKED:
+                // the stabilizer's scroll origin must not move under it.
+                // Redetect only when closed.
+                // Live-debug: keep the latest full frame on disk so a
+                // detection miss can be reproduced offline against the
+                // exact pixels (overwritten each ~700ms frame).
+                if std::env::var("KHALONI_REGION_DUMP").is_ok() {
+                    let _ = frame.save(std::env::temp_dir().join("khaloni-frame.png"));
+                }
+                let mut geom = scan_geom.lock().unwrap();
+                geom.0 = Some((frame.width(), frame.height()));
+                if !panel_open_det.load(Ordering::Relaxed) {
+                    let found = khaloni_poe2::autoregion::detect_reward_region(&frame).map(|r| Rect {
+                        x: r.x0 as i32,
+                        y: r.y0 as i32,
+                        w: r.x1 - r.x0,
+                        h: r.y1 - r.y0,
+                    });
+                    if dbg && found != last_region {
+                        eprintln!("auto-region: {found:?}");
+                    }
+                    if let Some(r) = found {
+                        if last_region != Some(r) {
+                            let _ = region_tx.send(r);
+                            last_region = Some(r);
+                        }
+                        geom.1 = Some(r);
+                        region_ready.store(true, Ordering::Relaxed);
+                    }
+                    // A vanished panel keeps the last region: the gate is
+                    // closed anyway, and reusing it makes reopening in the
+                    // same spot (the common case) instant.
+                }
+            }
+        });
+    }
+    // Rumour recognizer worker: OCR-heavy, allowed to lag; latest-only
+    // channels mean it just skips to the newest frame when it falls behind.
+    {
+        let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
+        let paused_rumour = pipeline_paused.clone();
+        std::thread::spawn(move || {
+            let dbg = std::env::var("KHALONI_DEBUG").is_ok();
             let idx = rumour_csv
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map(|csv| {
@@ -864,43 +918,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     None
                 }
             };
-            let mut last_region: Option<Rect> = None;
-            for frame in full_rx {
-                // Reward-region detection. While the brightness gate is
-                // open the region is LOCKED: the stabilizer's scroll origin
-                // must not move under it. Redetect only when closed.
-                {
-                    // Live-debug: keep the latest full frame on disk so a
-                    // detection miss can be reproduced offline against the
-                    // exact pixels (overwritten each ~700ms frame).
-                    if std::env::var("KHALONI_REGION_DUMP").is_ok() {
-                        let _ = frame.save(std::env::temp_dir().join("khaloni-frame.png"));
-                    }
-                    let mut geom = scan_geom.lock().unwrap();
-                    geom.0 = Some((frame.width(), frame.height()));
-                    if !panel_open_det.load(Ordering::Relaxed) {
-                        let found = khaloni_poe2::autoregion::detect_reward_region(&frame).map(|r| Rect {
-                            x: r.x0 as i32,
-                            y: r.y0 as i32,
-                            w: r.x1 - r.x0,
-                            h: r.y1 - r.y0,
-                        });
-                        if dbg && found != last_region {
-                            eprintln!("auto-region: {found:?}");
-                        }
-                        if let Some(r) = found {
-                            if last_region != Some(r) {
-                                let _ = region_tx.send(r);
-                                last_region = Some(r);
-                            }
-                            geom.1 = Some(r);
-                            region_ready.store(true, Ordering::Relaxed);
-                        }
-                        // A vanished panel keeps the last region: the gate
-                        // is closed anyway, and reusing it makes reopening
-                        // in the same spot (the common case) instant.
-                    }
-                }
+            for frame in rum_rx {
                 if paused_rumour.load(std::sync::atomic::Ordering::Relaxed) {
                     continue;
                 }
@@ -1377,7 +1395,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     let game_rect =
                         Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
                     popup_at = hover.current.as_ref().map(|p| {
-                        let size = khaloni_poe2::render::Renderer::popup_size(p);
+                        let size = renderer.popup_size(p);
                         let (px, py) =
                             khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
                         (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
@@ -1528,7 +1546,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             }
             // A fresh popup anchors at the cursor that triggered it.
             popup_at = hover.current.as_ref().map(|p| {
-                let size = khaloni_poe2::render::Renderer::popup_size(p);
+                let size = renderer.popup_size(p);
                 let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
                 (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
             });

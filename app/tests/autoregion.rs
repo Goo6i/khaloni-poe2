@@ -100,3 +100,14 @@ fn rumour_frames_do_not_validate() {
     }
     assert_eq!(checked, 5, "all 5 rumour fixtures present and checked");
 }
+
+#[test]
+fn detects_the_real_live_reward_panel() {
+    // A real 4K capture with the rune rewards panel open (live band means
+    // 176/216/211 — dimmer than the synthetic fixture, the miss that made
+    // detection take 30s of lucky frames before the threshold was retuned).
+    let img = image::open("tests/fixtures/reward-live-1.png").unwrap().to_luma8();
+    let r = khaloni_poe2::autoregion::detect_reward_region(&img).expect("live panel must detect");
+    // The panel occupies the left half around (100,160)-(1176,1340).
+    assert!(r.x0 < 300 && r.y0 < 400 && r.x1 > 1000 && r.y1 > 1100);
+}

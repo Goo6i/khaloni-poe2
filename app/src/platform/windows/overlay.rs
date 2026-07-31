@@ -329,9 +329,12 @@ impl Overlay {
             .surface
             .buffer_mut()
             .map_err(|e| anyhow::anyhow!("surface buffer: {e}"))?;
-        // tiny-skia stores premultiplied RGBA; softbuffer wants 0x00RRGGBB.
-        // The global opacity scales the premultiplied channels, same as the
-        // Linux present path (256-entry table = one lookup per channel).
+        // tiny-skia stores premultiplied RGBA. softbuffer documents the top
+        // byte as ignored, but on a winit TRANSPARENT window the Windows
+        // compositor honors it as per-pixel alpha — leaving it zero renders
+        // everything ghost-faint no matter the content (live finding from
+        // the first Windows testers). Write the real (opacity-scaled,
+        // premultiplied) alpha; where it is ignored it costs nothing.
         let lut: [u32; 256] = {
             let mut t = [0u32; 256];
             let o = self.opacity.clamp(0.0, 1.0);
@@ -341,7 +344,10 @@ impl Overlay {
             t
         };
         for (dst, s) in buffer.iter_mut().zip(pixmap.data().chunks_exact(4)) {
-            *dst = (lut[s[0] as usize] << 16) | (lut[s[1] as usize] << 8) | lut[s[2] as usize];
+            *dst = (lut[s[3] as usize] << 24)
+                | (lut[s[0] as usize] << 16)
+                | (lut[s[1] as usize] << 8)
+                | lut[s[2] as usize];
         }
         buffer
             .present()

@@ -76,7 +76,10 @@ const PILL_CORNER: f32 = 4.0;
 const PILL_BORDER_WIDTH: f32 = 1.5;
 
 // Hover price-check popup (Stage A: display-only, no interactivity).
-const POPUP_WIDTH: f32 = 320.0;
+/// Minimum popup width; the box grows to fit its widest text line (long
+/// item names and waystone mod lines must never overflow the pill —
+/// live finding from the first Windows testers).
+const POPUP_MIN_WIDTH: f32 = 320.0;
 const POPUP_TITLE_PX: f32 = 22.0;
 const POPUP_LINE_PX: f32 = 18.0;
 const POPUP_PAD: f32 = 12.0;
@@ -744,12 +747,26 @@ impl Renderer {
 
     /// Pixel size the popup pill will occupy, for placement and the
     /// move-away inside test. Must mirror draw_popup's layout math.
-    pub fn popup_size(popup: &Popup) -> (i32, i32) {
+    /// Width the popup needs for its widest line, floored at
+    /// POPUP_MIN_WIDTH: the box accommodates the text, never the reverse.
+    fn popup_width(&self, popup: &Popup) -> f32 {
+        let mut w = self.text_width(FontKind::Amount, &popup.title, POPUP_TITLE_PX);
+        for line in &popup.lines {
+            let mut lw = self.text_width(FontKind::Annotation, &line.text, POPUP_LINE_PX);
+            if self.icon_for(line.denom).is_some() {
+                lw += ICON_GAP + ICON_SIZE as f32;
+            }
+            w = w.max(lw);
+        }
+        (w + POPUP_PAD * 2.0).max(POPUP_MIN_WIDTH)
+    }
+
+    pub fn popup_size(&self, popup: &Popup) -> (i32, i32) {
         let title_h = POPUP_TITLE_PX + POPUP_ROW_GAP;
         let line_h = POPUP_LINE_PX + POPUP_ROW_GAP;
         let content_h = title_h + popup.lines.len() as f32 * line_h;
         let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
-        (POPUP_WIDTH as i32, pill_h.ceil() as i32)
+        (self.popup_width(popup).ceil() as i32, pill_h.ceil() as i32)
     }
 
     pub fn draw_popup(&self, pm: &mut Pixmap, popup: &Popup, anchor: (i32, i32)) {
@@ -760,7 +777,7 @@ impl Renderer {
         let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
         let pill_x = ax as f32;
         let pill_y = ay as f32;
-        self.pill(pm, pill_x, pill_y, POPUP_WIDTH, pill_h, panel_border());
+        self.pill(pm, pill_x, pill_y, self.popup_width(popup), pill_h, panel_border());
 
         let title_color = rgb(C_INK);
         let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: title_color };

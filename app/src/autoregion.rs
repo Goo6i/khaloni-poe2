@@ -28,7 +28,9 @@
 //! text rows on already-bright parchment), while the reward panel's white
 //! reward bars measure 221..=227 (on the panel_choice composite). A band
 //! only counts as reward-style when its mean clears
-//! REWARD_BAND_MEAN = 212 — the midpoint of the measured 203/221 gap,
+//! REWARD_BAND_MEAN = 205 — the midpoint of the measured live gap
+//! (rumour bands top out at 200; live reward bars measure 210-216,
+//! dimmer than the 221-227 the original fixture suggested),
 //! with real margin to both sides. That single feature rejects all 5
 //! rumour fixtures (0 qualifying bands each) while the reward fixture
 //! keeps all 4 of its bands; no band-coverage cap was needed on top (one
@@ -60,10 +62,10 @@ const MAX_FRAME_TENTHS: u32 = 9;
 /// per-candidate crop+profile work.
 const MIN_FILL: f64 = 0.3;
 /// See the module doc: a band's profile mean must clear this to count as
-/// a reward-style bar (midpoint of the measured rumour-max 203 /
+/// a reward-style bar (midpoint of the measured rumour-max 200 /
 /// reward-min 221 gap). Local to this module by design — ocr.rs's
 /// BAND_BRIGHTNESS=175 stays the OCR pipeline's own row gate.
-const REWARD_BAND_MEAN: u16 = 212;
+const REWARD_BAND_MEAN: u16 = 205;
 /// A reward panel always shows multiple reward rows; one lone bright bar
 /// (a hover tooltip's title, a stray HUD element) is not a panel.
 const MIN_REWARD_BANDS: usize = 2;
@@ -113,8 +115,9 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
         let reward_bands =
             bands.iter().filter(|&&(y0, y1)| band_mean(&profile, y0, y1) >= REWARD_BAND_MEAN).count();
         if dbg {
+            let means: Vec<u16> = bands.iter().map(|&(y0, y1)| band_mean(&profile, y0, y1)).collect();
             eprintln!(
-                "autoregion: candidate {:?} fill={:.2} bands={} reward-style={} -> {}",
+                "autoregion: candidate {:?} fill={:.2} bands={} band-means={means:?} reward-style={} -> {}",
                 cand.rect,
                 cand.fill,
                 bands.len(),
