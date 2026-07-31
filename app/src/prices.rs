@@ -132,12 +132,19 @@ impl PriceService {
                 };
                 match fetch(&client, &league) {
                     Ok((table, stale)) => {
+                        let recovered = last_failed;
                         last_failed = false;
                         let vocab = crate::pricing::build_vocab(&table);
                         let prev = inner.read().unwrap().clone();
                         let uniques = uniques.unwrap_or_else(|| prev.uniques.clone());
+                        let was_stale = prev.stale;
                         *inner.write().unwrap() = Arc::new(Snapshot { table, vocab, uniques, stale });
-                        eprintln!("prices refreshed (stale={stale})");
+                        // Routine refreshes are silent; log only state
+                        // changes (a long session otherwise fills the log
+                        // with one line per interval — live finding).
+                        if recovered || was_stale != stale {
+                            eprintln!("prices refreshed (stale={stale})");
+                        }
                     }
                     Err(e) => {
                         last_failed = true;
