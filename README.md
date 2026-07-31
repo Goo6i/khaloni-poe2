@@ -161,14 +161,6 @@ the previous run kept next to it. If a row reads wrong, that log plus the
 why. There is also `scanimg <image.png>` to run the whole pipeline against a
 screenshot offline.
 
-## What it will not do
-
-No memory reading, no injection, no automation. It looks at pixels, and the
-only input it ever synthesizes is the single Ctrl+C you asked for by
-pressing F7. Trade API requests are rate limited client-side to the limits
-the API itself declares in its response headers, so it backs off before the
-server ever has to tell it twice.
-
 ## Credits
 
 - [PoeAncientsPriceHelper](https://github.com/pedro-quiterio/PoeAncientsPriceHelper)
