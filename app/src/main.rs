@@ -1194,7 +1194,11 @@ fn overlay_mode() -> anyhow::Result<()> {
     loop {
         overlay.pump()?;
 
-        if (cfg.overlay_opacity - last_opacity).abs() > f64::EPSILON {
+        // Exact != on purpose: both sides come from the same config value,
+        // and the NAN sentinel compares unequal to everything, so the first
+        // tick always applies (a subtraction-epsilon test is always-false
+        // against NAN and would never fire — the bug this replaces).
+        if cfg.overlay_opacity != last_opacity {
             last_opacity = cfg.overlay_opacity;
             overlay.set_opacity(cfg.overlay_opacity);
             last_frame = None;
