@@ -2,6 +2,10 @@
 // (they need the Linux OCR stack; see platform/windows/mod.rs), which
 // leaves their helpers and imports dead there. Linux lints are unaffected.
 #![cfg_attr(not(ocr), allow(dead_code, unused_imports))]
+// Release Windows builds are GUI-subsystem: no console window appears when
+// the exe is launched from Explorer. Debug builds keep the console so
+// `cargo run` output stays visible during development.
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -16,14 +20,88 @@ use khaloni_poe2::{
 };
 use khaloni_poe2_core::ninja::NinjaClient;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    // Without a console (GUI subsystem, or a menu launch), diagnostics
+    // must survive somewhere findable: on Windows stderr/stdout are
+    // rebound to last-run.log in the cache dir (Linux menu launches
+    // already land in the journal).
+    #[cfg(target_os = "windows")]
+    redirect_output_to_log();
     migrate_legacy_dirs();
     let args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(String::as_str).unwrap_or("") {
+    let result = match args.get(1).map(String::as_str).unwrap_or("") {
         "--headless" => headless(),
         "--settings" => khaloni_poe2::settings_ui::run(),
         _ => overlay_mode(),
+    };
+    if let Err(e) = result {
+        // A GUI app's fatal error must be visible like any normal
+        // program's: native dialog first, log always.
+        eprintln!("fatal: {e:#}");
+        fatal_dialog(&format!("{e:#}"));
+        std::process::exit(1);
     }
+}
+
+/// Shows a native error dialog. Best-effort: a missing dialog helper
+/// falls back to the (already-written) log line.
+fn fatal_dialog(msg: &str) {
+    let text = format!("khaloni-poe2 could not start:\n\n{msg}");
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::HSTRING;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            MessageBoxW, MB_ICONERROR, MB_OK,
+        };
+        unsafe {
+            MessageBoxW(None, &HSTRING::from(text.as_str()), &HSTRING::from("khaloni-poe2"), MB_OK | MB_ICONERROR);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // kdialog on KDE, zenity elsewhere; silent if neither exists (the
+        // journal/terminal already carries the message).
+        let tried = std::process::Command::new("kdialog")
+            .args(["--error", &text, "--title", "khaloni-poe2"])
+            .status();
+        if tried.is_err() {
+            let _ = std::process::Command::new("zenity")
+                .args(["--error", "--text", &text, "--title", "khaloni-poe2"])
+                .status();
+        }
+    }
+}
+
+/// Rebinds stdout/stderr to `<cache>/last-run.log` (rotating the previous
+/// run to prev-run.log) when no console is attached, so eprintln-based
+/// diagnostics keep working in the GUI-subsystem build.
+#[cfg(target_os = "windows")]
+fn redirect_output_to_log() {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Console::{
+        GetConsoleWindow, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    if !unsafe { GetConsoleWindow() }.is_invalid() {
+        return; // launched from a terminal: leave output where it is
+    }
+    let Some(dirs) = directories::ProjectDirs::from("", "", "khaloni-poe2") else {
+        return;
+    };
+    let dir = dirs.cache_dir();
+    let _ = std::fs::create_dir_all(dir);
+    let last = dir.join("last-run.log");
+    let _ = std::fs::rename(&last, dir.join("prev-run.log"));
+    let Ok(file) = std::fs::File::create(&last) else {
+        return;
+    };
+    let h = HANDLE(file.as_raw_handle());
+    unsafe {
+        let _ = SetStdHandle(STD_ERROR_HANDLE, h);
+        let _ = SetStdHandle(STD_OUTPUT_HANDLE, h);
+    }
+    // The handle must outlive the process's logging; leak it deliberately.
+    std::mem::forget(file);
 }
 
 fn game_window_logical() -> Rect {
@@ -139,9 +217,18 @@ fn open_url(url: &str) {
     #[cfg(target_os = "linux")]
     let _ = std::process::Command::new("xdg-open").arg(url).spawn();
     #[cfg(target_os = "windows")]
-    // `start` is a cmd builtin; the empty "" is its window-title slot so a
-    // URL containing spaces is not mistaken for the title.
-    let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
+    {
+        // `start` is a cmd builtin; the empty "" is its window-title slot so
+        // a URL containing spaces is not mistaken for the title.
+        // CREATE_NO_WINDOW keeps the helper cmd from flashing a console in
+        // the GUI-subsystem build.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
 }
 
 /// Sets the overlay's pointer input region to the union bounding box of
