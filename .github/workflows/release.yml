@@ -53,6 +53,15 @@ jobs:
 
       # leptess links tesseract + leptonica; on MSVC the *-sys crates
       # resolve them through vcpkg (static, so the zip stays self-contained).
+      # vcpkg compiles tesseract+leptonica from source (~20 min); the
+      # installed tree is stable per triplet, so cache it. Bump the key
+      # suffix to force a rebuild (e.g. after a runner image change).
+      - name: Cache vcpkg installed tree
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-tesseract-x64-windows-static-md-v1
+
       - name: Install tesseract via vcpkg
         run: |
           vcpkg install tesseract:x64-windows-static-md
