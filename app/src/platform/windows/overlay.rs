@@ -186,6 +186,8 @@ impl ApplicationHandler for App {
 }
 
 pub struct Overlay {
+    /// Global opacity applied at present time; see `set_opacity`.
+    opacity: f64,
     app: App,
     surface: softbuffer::Surface<Arc<Window>, Arc<Window>>,
     _context: softbuffer::Context<Arc<Window>>,
@@ -234,6 +236,7 @@ impl Overlay {
         let surface = softbuffer::Surface::new(&context, window)
             .map_err(|e| anyhow::anyhow!("softbuffer surface: {e}"))?;
         Ok(Overlay {
+            opacity: 1.0,
             app,
             surface,
             _context: context,
@@ -327,8 +330,18 @@ impl Overlay {
             .buffer_mut()
             .map_err(|e| anyhow::anyhow!("surface buffer: {e}"))?;
         // tiny-skia stores premultiplied RGBA; softbuffer wants 0x00RRGGBB.
+        // The global opacity scales the premultiplied channels, same as the
+        // Linux present path (256-entry table = one lookup per channel).
+        let lut: [u32; 256] = {
+            let mut t = [0u32; 256];
+            let o = self.opacity.clamp(0.0, 1.0);
+            for (i, v) in t.iter_mut().enumerate() {
+                *v = (i as f64 * o) as u32;
+            }
+            t
+        };
         for (dst, s) in buffer.iter_mut().zip(pixmap.data().chunks_exact(4)) {
-            *dst = ((s[0] as u32) << 16) | ((s[1] as u32) << 8) | s[2] as u32;
+            *dst = (lut[s[0] as usize] << 16) | (lut[s[1] as usize] << 8) | lut[s[2] as usize];
         }
         buffer
             .present()
@@ -364,6 +377,11 @@ impl Overlay {
                 (s.width, s.height)
             })
             .unwrap_or((0, 0))
+    }
+
+    /// Global overlay opacity (0.0..=1.0), applied at present time.
+    pub fn set_opacity(&mut self, opacity: f64) {
+        self.opacity = opacity;
     }
 
     pub fn output_pos(&self) -> (i32, i32) {

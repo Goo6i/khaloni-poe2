@@ -65,3 +65,9 @@ fn old_pause_key_still_loads() {
     let c: Config = toml::from_str("league = \"X\"\npause_when_unfocused = false").unwrap();
     assert!(!c.pause_when_hidden);
 }
+
+#[test]
+fn overlay_opacity_defaults_opaque() {
+    let c: Config = toml::from_str("league = \"X\"").unwrap();
+    assert!((c.overlay_opacity - 1.0).abs() < f64::EPSILON);
+}

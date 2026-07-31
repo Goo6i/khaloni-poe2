@@ -425,6 +425,15 @@ fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
     ui.heading("Display");
     ui.add_space(6.0);
     ui.checkbox(&mut cfg.pause_when_hidden, "Hide overlay when the game is minimized or covered");
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        ui.label("Overlay opacity");
+        // In-game overlay only — this window is unaffected by design.
+        let mut pct = (cfg.overlay_opacity * 100.0).round() as u32;
+        if ui.add(egui::Slider::new(&mut pct, 0..=100).suffix("%")).changed() {
+            cfg.overlay_opacity = f64::from(pct) / 100.0;
+        }
+    });
     ui.horizontal(|ui| {
         ui.label("Show divine values above");
         ui.add(

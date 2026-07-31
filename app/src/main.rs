@@ -1129,6 +1129,9 @@ fn overlay_mode() -> anyhow::Result<()> {
     let mut overlay = khaloni_poe2::platform::overlay::Overlay::new(center)?;
     phase("overlay surface up");
     let mut first_present_logged = false;
+    // Overlay opacity live-applies from config; a change must force a
+    // repaint because an idle overlay keeps its last presented buffer.
+    let mut last_opacity = f64::NAN;
     let renderer = khaloni_poe2::render::Renderer::new()?;
 
     let mut scanning = true;
@@ -1191,6 +1194,11 @@ fn overlay_mode() -> anyhow::Result<()> {
     loop {
         overlay.pump()?;
 
+        if (cfg.overlay_opacity - last_opacity).abs() > f64::EPSILON {
+            last_opacity = cfg.overlay_opacity;
+            overlay.set_opacity(cfg.overlay_opacity);
+            last_frame = None;
+        }
         if last_cfg_poll.elapsed() >= Duration::from_secs(1) {
             last_cfg_poll = std::time::Instant::now();
             if let Ok(m) = std::fs::metadata(Config::path()).and_then(|md| md.modified()) {

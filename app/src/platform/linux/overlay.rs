@@ -60,6 +60,8 @@ pub struct Overlay {
     app: App,
     output_pos: (i32, i32),
     compositor: CompositorState,
+    /// Global opacity applied to every presented pixel; see `set_opacity`.
+    opacity: f64,
 }
 
 impl Overlay {
@@ -136,6 +138,7 @@ impl Overlay {
             app,
             output_pos,
             compositor,
+            opacity: 1.0,
         })
     }
 
@@ -210,12 +213,23 @@ impl Overlay {
             .pool
             .create_buffer(w as i32, h as i32, stride, wl_shm::Format::Argb8888)?;
         let src = pixmap.data();
-        // tiny-skia stores premultiplied RGBA; wl ARGB8888 little-endian wants [B,G,R,A].
+        // tiny-skia stores premultiplied RGBA; wl ARGB8888 little-endian wants
+        // [B,G,R,A]. The global opacity scales every channel (premultiplied,
+        // so alpha and color fade together) — a 256-entry table keeps the
+        // per-pixel cost to a lookup.
+        let lut: [u8; 256] = {
+            let mut t = [0u8; 256];
+            let o = self.opacity.clamp(0.0, 1.0);
+            for (i, v) in t.iter_mut().enumerate() {
+                *v = (i as f64 * o) as u8;
+            }
+            t
+        };
         for (dst, s) in canvas.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
-            dst[0] = s[2];
-            dst[1] = s[1];
-            dst[2] = s[0];
-            dst[3] = s[3];
+            dst[0] = lut[s[2] as usize];
+            dst[1] = lut[s[1] as usize];
+            dst[2] = lut[s[0] as usize];
+            dst[3] = lut[s[3] as usize];
         }
         let layer = self.app.layer.as_ref().expect("layer created in new()");
         layer.wl_surface().damage_buffer(0, 0, w as i32, h as i32);
@@ -240,6 +254,13 @@ impl Overlay {
 
     pub fn output_pos(&self) -> (i32, i32) {
         self.output_pos
+    }
+
+    /// Global overlay opacity (0.0..=1.0), applied at present time. The
+    /// caller repaints after changing it; an idle overlay keeps its last
+    /// buffer until then.
+    pub fn set_opacity(&mut self, opacity: f64) {
+        self.opacity = opacity;
     }
 }
 
