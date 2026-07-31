@@ -316,9 +316,13 @@ impl Renderer {
             let amount_w = self.text_width(FontKind::Amount, &p.amount, AMOUNT_PX);
             let icon_w = if icon.is_some() { ICON_GAP + ICON_SIZE as f32 } else { 0.0 };
             let old_w = if stale { ICON_GAP + self.text_width(FontKind::Annotation, "(old)", OLD_PX) } else { 0.0 };
+            // The BEST tag is pill content like everything else it draws
+            // after; leaving it out let the text overflow the gold border.
+            let best_w =
+                if p.best { ICON_GAP + self.text_width(FontKind::Annotation, "BEST", OLD_PX) } else { 0.0 };
 
             let pill_h = AMOUNT_PX + 10.0;
-            let content_w = amount_w + icon_w + old_w;
+            let content_w = amount_w + icon_w + old_w + best_w;
             let pill_x = p.x as f32 - PILL_PAD_X;
             let pill_y = p.y as f32 - pill_h / 2.0;
             let border = if p.best { best_border_color() } else { border_color(p.tier) };
