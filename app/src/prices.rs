@@ -66,25 +66,40 @@ impl PriceService {
         league: String,
         interval: Duration,
     ) -> anyhow::Result<PriceService> {
-        let (table, stale) = fetch(&client, &league)?;
-        let vocab = crate::pricing::build_vocab(&table);
-        // Uniques are best-effort at startup and on every refetch: a
-        // failure logs and prices uniques as "?" instead of failing the
-        // service (currency pricing is the core feature, uniques ride
-        // along).
-        let uniques = match scout.unique_prices(&league) {
-            Ok((map, scout_stale)) => {
-                eprintln!("uniques loaded: {} items (stale={scout_stale})", map.len());
-                map
-            }
-            Err(e) => {
-                eprintln!("uniques unavailable, pricing them as ?: {e}");
-                HashMap::new()
-            }
-        };
-        let inner = Arc::new(RwLock::new(Arc::new(Snapshot { table, vocab, uniques, stale })));
+        // Startup must never block on the network (measured 8s on a live
+        // machine): the service starts EMPTY and stale, the overlay comes up
+        // immediately, and the first worker-thread fetch below fills prices
+        // seconds later. Until then priced rows simply do not appear, the
+        // same behavior as any other stale window.
+        let inner = Arc::new(RwLock::new(Arc::new(Snapshot {
+            table: PriceTable::default(),
+            vocab: crate::pricing::build_vocab(&PriceTable::default()),
+            uniques: HashMap::new(),
+            stale: true,
+        })));
         let svc = PriceService { inner: inner.clone() };
         std::thread::spawn(move || {
+            // Initial fetch, off the startup path. Uniques are best-effort
+            // here and on every refetch: a failure logs and prices uniques
+            // as "?" instead of failing the service.
+            match fetch(&client, &league) {
+                Ok((table, stale)) => {
+                    let vocab = crate::pricing::build_vocab(&table);
+                    let uniques = match scout.unique_prices(&league) {
+                        Ok((map, scout_stale)) => {
+                            eprintln!("uniques loaded: {} items (stale={scout_stale})", map.len());
+                            map
+                        }
+                        Err(e) => {
+                            eprintln!("uniques unavailable, pricing them as ?: {e}");
+                            HashMap::new()
+                        }
+                    };
+                    eprintln!("price table ready ({} names, stale={stale})", table.len());
+                    *inner.write().unwrap() = Arc::new(Snapshot { table, vocab, uniques, stale });
+                }
+                Err(e) => eprintln!("initial price fetch failed (retrying on the stale cadence): {e}"),
+            }
             // Tracks outright fetch failures, which keep the old snapshot
             // (whose stale flag then understates the data's age): either
             // signal arms the fast retry.

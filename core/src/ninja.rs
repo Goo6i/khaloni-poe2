@@ -209,6 +209,7 @@ pub struct Price {
     pub chaos: f64,
 }
 
+#[derive(Default)]
 pub struct PriceTable {
     by_name: HashMap<String, Price>,
     pub exalted_per_divine: f64,

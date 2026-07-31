@@ -1887,7 +1887,8 @@ fn overlay_mode() -> anyhow::Result<()> {
             let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if t.is_multiple_of(10) {
                 eprintln!(
-                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} rows={} surface={:?} game_pos={game_pos:?}",
+                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} visible={game_visible} region={:?} rows={} surface={:?} game_pos={game_pos:?}",
+                    scan_geom.lock().unwrap().1,
                     stabilizer.rows().len(),
                     overlay.size()
                 );
