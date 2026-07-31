@@ -874,7 +874,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // detection miss can be reproduced offline against the
                     // exact pixels (overwritten each ~700ms frame).
                     if std::env::var("KHALONI_REGION_DUMP").is_ok() {
-                        let _ = frame.save("/tmp/khaloni-frame.png");
+                        let _ = frame.save(std::env::temp_dir().join("khaloni-frame.png"));
                     }
                     let mut geom = scan_geom.lock().unwrap();
                     geom.0 = Some((frame.width(), frame.height()));
