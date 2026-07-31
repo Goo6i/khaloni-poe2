@@ -1,4 +1,5 @@
-use khaloni_poe2_core::matcher::{match_rows, normalize, MatchTier, Vocab};
+pub use khaloni_poe2_core::matcher::Vocab;
+use khaloni_poe2_core::matcher::{match_rows, normalize, MatchTier};
 use khaloni_poe2_core::ninja::{Price, PriceTable};
 use khaloni_poe2_core::value::{display_price, format_amount, UNKNOWN};
 
@@ -87,6 +88,35 @@ pub(crate) fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> 
 
 pub fn build_vocab(table: &PriceTable) -> Vocab {
     Vocab::new(table.names().map(str::to_string).collect())
+}
+
+/// The table's names plus extra exchange-catalog names, deduped by
+/// normalized form. Rows naming a currency the ninja table omits (niche
+/// runes etc.) then still MATCH — and price through the CurrencyPricer
+/// fallback instead of the table.
+pub fn build_vocab_with(table: &PriceTable, extra: &[String]) -> Vocab {
+    let mut names: Vec<String> = table.names().map(str::to_string).collect();
+    let have: std::collections::HashSet<String> = names.iter().map(|n| normalize(n)).collect();
+    names.extend(extra.iter().filter(|n| !have.contains(&normalize(n))).cloned());
+    Vocab::new(names)
+}
+
+/// Async exchange price of a currency the poe.ninja table lacks, resolved
+/// by the background trade worker (mirrors GemState / GemPricer).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CurrencyState {
+    /// Requested; an exchange query is in flight.
+    Pending,
+    /// Priced at this many exalted per unit.
+    Priced(f64),
+    /// Queried but the exchange has no rate for it.
+    Unpriced,
+}
+
+pub trait CurrencyPricer {
+    /// Price state for a canonical vocab name, or None when the name is
+    /// unknown to the exchange catalog (the row then stays label-less).
+    fn lookup(&self, name: &str) -> Option<CurrencyState>;
 }
 
 /// Async price state of a specific cut skill gem, resolved by a background
@@ -266,7 +296,7 @@ pub fn price_lines(
     lines: &[OcrLine],
     cfg: &Config,
 ) -> (Vec<Priced>, String) {
-    price_lines_with_rumours(table, vocab, lines, cfg, None, None)
+    price_lines_with_rumours(table, vocab, lines, cfg, None, None, None)
 }
 
 pub fn price_lines_with_rumours(
@@ -276,6 +306,7 @@ pub fn price_lines_with_rumours(
     cfg: &Config,
     rumours: Option<&khaloni_poe2_core::rumour::RumourIndex>,
     gem: Option<&dyn GemPricer>,
+    currency: Option<&dyn CurrencyPricer>,
 ) -> (Vec<Priced>, String) {
     let mut rows = Vec::new();
     // The Runeshape Combinations book titles itself; its recipe-output rows
@@ -434,6 +465,61 @@ pub fn price_lines_with_rumours(
         }
         let name = vocab.entry(hit.entry_index);
         let Some(price) = table.lookup(name) else {
+            // Every in-table vocab name has a price, so a miss means an
+            // extended-vocab (exchange catalog) name: price it through the
+            // async exchange fallback. Rows render "…" while the query is
+            // in flight and re-price on a later scan.
+            if let Some(state) = currency.and_then(|c| c.lookup(name)) {
+                let count = hit.count.unwrap_or(1);
+                let (label, amount, denom, tier, value_ex) = match state {
+                    CurrencyState::Priced(ex) => {
+                        let div = table
+                            .lookup("Divine Orb")
+                            .map(|p| p.exalted)
+                            .filter(|v| *v > 0.0);
+                        let price = khaloni_poe2_core::ninja::Price {
+                            exalted: ex,
+                            divine: div.map(|r| ex / r).unwrap_or(0.0),
+                            chaos: 0.0,
+                        };
+                        let (denom, amount) = denom_amount(&price, count, cfg.divine_threshold);
+                        (
+                            display_price(&price, count, cfg.divine_threshold),
+                            amount,
+                            denom,
+                            tier_for(ex * f64::from(count), cfg),
+                            ex * f64::from(count),
+                        )
+                    }
+                    CurrencyState::Pending => (
+                        "…".to_string(),
+                        "…".to_string(),
+                        Denom::None,
+                        Tier::Unknown,
+                        0.0,
+                    ),
+                    CurrencyState::Unpriced => (
+                        UNKNOWN.to_string(),
+                        UNKNOWN.to_string(),
+                        Denom::None,
+                        Tier::Unknown,
+                        0.0,
+                    ),
+                };
+                rows.push(Priced {
+                    y_top: line.y_top,
+                    height: line.height,
+                    label,
+                    amount,
+                    denom,
+                    tier,
+                    item_key: normalize(name),
+                    value_ex,
+                    count,
+                    count_explicit: hit.count.is_some(),
+                    locks_in_one: hit.tier.locks_in_one(),
+                });
+            }
             continue;
         };
         let count = hit.count.unwrap_or(1);

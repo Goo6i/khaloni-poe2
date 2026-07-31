@@ -107,6 +107,7 @@ fn specific_gems_price_individually_via_the_gem_pricer() {
         &cfg,
         None,
         Some(&Mock),
+        None,
     );
     assert_eq!(rows.len(), 2);
     // Priced gem: its own trade price, keyed by name so it never templates back.
@@ -212,6 +213,7 @@ fn unmatched_line_resolves_as_a_rumour_annotation() {
         &cfg,
         Some(&idx),
         None,
+        None,
     );
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].item_key, "rumour:Fallen Stars|Moor|S+");
@@ -258,4 +260,55 @@ fn book_panel_suppresses_unleveled_recipe_rows() {
         &cfg,
     );
     assert!(rows.is_empty(), "recipe outputs must not produce rows, got {rows:?}");
+}
+
+#[test]
+fn exchange_fallback_prices_names_outside_the_table() {
+    use khaloni_poe2::pricing::{build_vocab_with, price_lines_with_rumours, CurrencyPricer, CurrencyState};
+    // "Saqawal's Rune of Memory" is not in the ninja table (no listings),
+    // but the exchange catalog knows it: the extended vocab matches the
+    // row and the pricer fallback supplies the rate (live finding: these
+    // rendered as permanent "?" on the Runeshape book and reward panels).
+    struct Mock;
+    impl CurrencyPricer for Mock {
+        fn lookup(&self, name: &str) -> Option<CurrencyState> {
+            assert!(name.to_lowercase().contains("rune of memory"), "asked for {name}");
+            Some(CurrencyState::Priced(30.0))
+        }
+    }
+    let t = table();
+    let extra = vec!["saqawal's rune of memory".to_string()];
+    let v = build_vocab_with(&t, &extra);
+    let cfg = Config::default();
+    let (rows, _) = price_lines_with_rumours(
+        &t,
+        &v,
+        &[line("2x saqawal s rune of memory", 10)],
+        &cfg,
+        None,
+        None,
+        Some(&Mock),
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].count, 2);
+    assert!((rows[0].value_ex - 60.0).abs() < 1e-9, "got {}", rows[0].value_ex);
+
+    // Pending renders the in-flight marker instead of "?".
+    struct Pending;
+    impl CurrencyPricer for Pending {
+        fn lookup(&self, _: &str) -> Option<CurrencyState> {
+            Some(CurrencyState::Pending)
+        }
+    }
+    let (rows, _) = price_lines_with_rumours(
+        &t,
+        &v,
+        &[line("saqawal s rune of memory", 10)],
+        &cfg,
+        None,
+        None,
+        Some(&Pending),
+    );
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].amount, "…");
 }

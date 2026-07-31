@@ -459,7 +459,7 @@ enum AppraiseReq {
     Exact { title: String, query: khaloni_poe2_core::trade::Query },
     /// Price a stackable currency (e.g. an omen) by its display name via the
     /// trade exchange; the result comes back on the exchange channel.
-    Currency { name: String },
+    Currency { name: String, for_row: bool },
     /// Price a specific cut skill gem (reward-panel "Skill Level N: <name>")
     /// by name + level via item search; the result is written to the shared
     /// gem cache the OCR pricer reads.
@@ -472,6 +472,27 @@ type GemMap = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String,
 
 /// Reads a gem's cached price and, on a miss, marks it pending and asks the
 /// trade worker to price it.
+/// Async exchange pricer for reward rows naming currencies the ninja table
+/// lacks (niche runes etc.): cache-or-request, GemCache's sibling. Lookup
+/// keys are canonical vocab names; misses insert Pending and queue one
+/// exchange query, so each name is asked exactly once per run.
+struct CurrencyCache {
+    map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, khaloni_poe2::pricing::CurrencyState>>>,
+    req_tx: mpsc::Sender<AppraiseReq>,
+}
+
+impl khaloni_poe2::pricing::CurrencyPricer for CurrencyCache {
+    fn lookup(&self, name: &str) -> Option<khaloni_poe2::pricing::CurrencyState> {
+        let mut m = self.map.lock().unwrap();
+        if let Some(state) = m.get(name) {
+            return Some(*state);
+        }
+        m.insert(name.to_string(), khaloni_poe2::pricing::CurrencyState::Pending);
+        let _ = self.req_tx.send(AppraiseReq::Currency { name: name.to_string(), for_row: true });
+        Some(khaloni_poe2::pricing::CurrencyState::Pending)
+    }
+}
+
 struct GemCache {
     map: GemMap,
     req_tx: mpsc::Sender<AppraiseReq>,
@@ -668,7 +689,14 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (appraise_tx, appraise_rx) = mpsc::channel::<AppraiseDone>();
     let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<AppraiseReq>();
     // Currency-exchange results: (display name, price in exalted or None).
-    let (exch_tx, exch_rx) = mpsc::channel::<(String, Option<f64>)>();
+    let (exch_tx, exch_rx) = mpsc::channel::<(String, Option<f64>, bool)>();
+    // Exchange-catalog display names, published by the trade worker once the
+    // static list arrives; the OCR worker extends its match vocab with them.
+    let exch_names: std::sync::Arc<std::sync::OnceLock<Vec<String>>> =
+        std::sync::Arc::new(std::sync::OnceLock::new());
+    // name -> async exchange price state for reward rows (GemCache's sibling).
+    let currency_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, khaloni_poe2::pricing::CurrencyState>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     // Specific-gem price cache, shared with the OCR pricer.
     let gem_map: GemMap = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     {
@@ -677,6 +705,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         let league = cfg.league.clone();
         let gem_map = gem_map.clone();
         let svc_gem = svc.clone();
+        let exch_names_pub = exch_names.clone();
         std::thread::spawn(move || {
             let stats_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
                 .map(|d| d.cache_dir().join("trade_stats.json"));
@@ -709,6 +738,7 @@ fn overlay_mode() -> anyhow::Result<()> {
             // Currency name -> trade exchange id (for pricing omens etc. that
             // poe.ninja doesn't track). Best-effort; empty disables exchange.
             let currency_ids = client.static_currency_ids().unwrap_or_default();
+            let _ = exch_names_pub.set(currency_ids.keys().cloned().collect());
             // Reverse map (trade currency id -> display name), for converting a
             // gem listing's price currency to exalted via the poe.ninja table.
             let cur_id_to_name: std::collections::HashMap<String, String> =
@@ -717,11 +747,11 @@ fn overlay_mode() -> anyhow::Result<()> {
             let gem_types = client.gem_types().unwrap_or_default();
             for req in appraise_req_rx {
                 // Currency exchange is priced separately from item search.
-                if let AppraiseReq::Currency { name } = &req {
+                if let AppraiseReq::Currency { name, for_row } = &req {
                     let rate = currency_ids
                         .get(&name.to_lowercase())
                         .and_then(|id| client.exchange(id, "exalted").ok().flatten());
-                    let _ = exch_tx.send((name.clone(), rate));
+                    let _ = exch_tx.send((name.clone(), rate, *for_row));
                     continue;
                 }
                 // Specific cut skill gem: resolve name, item-search by level,
@@ -967,10 +997,16 @@ fn overlay_mode() -> anyhow::Result<()> {
     let paused_ocr = pipeline_paused.clone();
     // The reward-panel pricer's handle to the specific-gem cache + trade worker.
     let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
+    let currency_cache = CurrencyCache { map: currency_map.clone(), req_tx: appraise_req_tx.clone() };
+    let exch_names_ocr = exch_names.clone();
     let region_ready_ocr = region_ready.clone();
     std::thread::spawn(move || {
         let dbg = std::env::var("KHALONI_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
+        // Match vocab = price-table names + exchange catalog (async-published);
+        // rebuilt only when either side actually changes.
+        let mut vocab_ext: Option<pricing::Vocab> = None;
+        let mut vocab_key: (usize, usize) = (0, 0);
         let Ok(mut engine) = ocr::OcrEngine::new() else {
             eprintln!("tesseract init failed; OCR disabled");
             return;
@@ -1158,13 +1194,20 @@ fn overlay_mode() -> anyhow::Result<()> {
                     lines.len()
                 )));
             }
+            let extra = exch_names_ocr.get().map(|v| v.as_slice()).unwrap_or(&[]);
+            let key = (snap.table.len(), extra.len());
+            if vocab_ext.is_none() || vocab_key != key {
+                vocab_ext = Some(pricing::build_vocab_with(&snap.table, extra));
+                vocab_key = key;
+            }
             let out = pricing::price_lines_with_rumours(
                 &snap.table,
-                &snap.vocab,
+                vocab_ext.as_ref().unwrap_or(&snap.vocab),
                 &lines,
                 &ocr_cfg,
                 rumours.as_ref(),
                 Some(&gem_cache),
+                Some(&currency_cache),
             );
             // Teach the template store from confidently identified OCR
             // rows aligned to a band (OCR-taught templates then take over
@@ -1539,7 +1582,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         let _ = appraise_req_tx.send(AppraiseReq::Auto(item));
                     }
                     if let Some(name) = hover.pending_currency.take() {
-                        let _ = appraise_req_tx.send(AppraiseReq::Currency { name });
+                        let _ = appraise_req_tx.send(AppraiseReq::Currency { name, for_row: false });
                     }
                 }
                 Err(e) => eprintln!("price check: {e}"),
@@ -1553,8 +1596,15 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         // Currency-exchange results replace the "checking exchange..." popup
         // in place (the anchor from the F7 press still applies).
-        while let Ok((name, rate)) = exch_rx.try_recv() {
-            hover.show_exchange(&name, rate);
+        while let Ok((name, rate, for_row)) = exch_rx.try_recv() {
+            let state = match rate {
+                Some(ex) => khaloni_poe2::pricing::CurrencyState::Priced(ex),
+                None => khaloni_poe2::pricing::CurrencyState::Unpriced,
+            };
+            currency_map.lock().unwrap().insert(name.clone(), state);
+            if !for_row {
+                hover.show_exchange(&name, rate);
+            }
         }
         while let Ok(done) = appraise_rx.try_recv() {
             let listings_of = |outcome: &Result<Vec<khaloni_poe2_core::trade::Listing>, String>| match outcome {
