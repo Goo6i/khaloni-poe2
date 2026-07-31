@@ -237,3 +237,25 @@ fn rumour_template_key_reprices_without_ocr() {
     assert_eq!(row.amount, "Moor S+");
     assert_eq!(row.denom, khaloni_poe2::pricing::Denom::None);
 }
+
+#[test]
+fn book_panel_suppresses_unleveled_recipe_rows() {
+    // The Runeshape Combinations book self-identifies via its title line;
+    // its level-less Skill/Support rows are recipe outputs, not rewards,
+    // and must not render "?" noise. (OCR often reads the cursive title as
+    // "combinalions", hence the fuzzy needle.)
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (rows, _) = price_lines(
+        &t,
+        &v,
+        &[
+            line("runeshape combinalions", 2),
+            line("support runic infusion", 30),
+            line("skill rain of blades", 60),
+        ],
+        &cfg,
+    );
+    assert!(rows.is_empty(), "recipe outputs must not produce rows, got {rows:?}");
+}

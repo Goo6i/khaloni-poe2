@@ -278,6 +278,11 @@ pub fn price_lines_with_rumours(
     gem: Option<&dyn GemPricer>,
 ) -> (Vec<Priced>, String) {
     let mut rows = Vec::new();
+    // The Runeshape Combinations book titles itself; its recipe-output rows
+    // get different treatment than reward rows (see GemRow::Unleveled).
+    let book_panel = lines
+        .iter()
+        .any(|l| l.unfiltered.contains("combination") || l.unfiltered.contains("combinalion"));
 
     for line in lines {
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
@@ -336,14 +341,25 @@ pub fn price_lines_with_rumours(
                         ),
                     }
                 }
-                GemRow::Unleveled => (
-                    UNKNOWN.to_string(),
-                    Tier::Unknown,
-                    Denom::None,
-                    UNKNOWN.to_string(),
-                    "gem-unleveled".to_string(),
-                    0.0,
-                ),
+                GemRow::Unleveled => {
+                    // On a reward panel a level-less skill/support row is
+                    // unreadable and "?" is honest feedback. In the Runeshape
+                    // Combinations BOOK (which flows through this same
+                    // pipeline and self-identifies via its title line) these
+                    // are recipe outputs, not rewards, and a column of "?"
+                    // is pure noise (live finding) — skip them there.
+                    if book_panel {
+                        continue;
+                    }
+                    (
+                        UNKNOWN.to_string(),
+                        Tier::Unknown,
+                        Denom::None,
+                        UNKNOWN.to_string(),
+                        "gem-unleveled".to_string(),
+                        0.0,
+                    )
+                }
             };
             rows.push(Priced {
                 y_top: line.y_top,
