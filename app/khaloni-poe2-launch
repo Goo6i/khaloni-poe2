@@ -12,9 +12,12 @@ mkdir -p "$HOME/.local/share/applications"
 cat > "$HOME/.local/share/applications/$APP_ID.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=khaloni-poe2
+Name=Khaloni PoE2
+Comment=Path of Exile 2 overlay: price checks, reward-panel pricing, rumours
 Exec=$BIN
-NoDisplay=true
+Icon=$(cd "$(dirname "$0")" && pwd)/assets/icons/exalted.png
+Terminal=false
+Categories=Game;Utility;
 EOF
 # Stale entries from before the project rename.
 rm -f "$HOME/.local/share/applications/dev.goo6i.poe2lens.desktop" \
