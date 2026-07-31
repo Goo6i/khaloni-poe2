@@ -23,7 +23,6 @@ rm -f "$HOME/.local/share/applications/dev.goo6i.poe2lens.desktop" \
 LOG_DIR="$HOME/.cache/khaloni-poe2"
 mkdir -p "$LOG_DIR"
 [ -f "$LOG_DIR/last-run.log" ] && mv -f "$LOG_DIR/last-run.log" "$LOG_DIR/prev-run.log"
-export KHALONI_DEBUG=1
 exec systemd-run --user --scope --unit="app-$APP_ID-$RANDOM.scope" \
   "$BIN" "$@" \
   2> "$LOG_DIR/last-run.log"
