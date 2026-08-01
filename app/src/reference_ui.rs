@@ -175,6 +175,19 @@ fn one_line(s: &str) -> String {
     cut
 }
 
+/// Affix text, plus a compact tier suffix ("… — T13 i80+ (200-214)": tier
+/// count, top-tier item level, top-tier roll range) when the roll ladder is
+/// known. Affixes without a reliable ladder stay bare text — no suffix is
+/// ever guessed. `tiers` is ilvl-ascending, so the top tier is the last.
+fn affix_row(a: &refdata::Affix) -> String {
+    match a.tiers.last() {
+        Some(top) => {
+            format!("{} — T{} i{}+ ({})", a.text, a.tiers.len(), top.ilvl, top.range)
+        }
+        None => a.text.clone(),
+    }
+}
+
 /// "Name — Category" when the catalog knows the class, bare name otherwise.
 fn item_row(i: &refdata::RefItem) -> String {
     match &i.category {
@@ -190,7 +203,7 @@ pub fn refresh(p: &mut Panel, r: &Reference) {
     let q = p.query.as_str();
     let rows: Vec<String> = match p.cat {
         Cat::Affixes => {
-            refdata::search_affixes(&r.affixes, q).into_iter().map(|a| one_line(&a.text)).collect()
+            refdata::search_affixes(&r.affixes, q).into_iter().map(|a| one_line(&affix_row(a))).collect()
         }
         // The catalog mixes bases and gems under namespace ITEM/GEM; "Bases"
         // means everything craftable that is not a gem (uniques have their

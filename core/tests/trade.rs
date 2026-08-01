@@ -267,6 +267,100 @@ fn disabling_category_searches_mods_only_across_all_bases() {
     assert!(!body["query"]["stats"][0]["filters"].as_array().unwrap().is_empty());
 }
 
+// --- upgrade finder: query side ---
+
+use khaloni_poe2_core::trade::{build_upgrade_query, upgrade_title};
+
+#[test]
+fn upgrade_query_meets_or_beats_both_current_values_in_same_category() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    // Synthetic rare with two numeric explicit mods whose stat ids the
+    // fixture catalog verifies elsewhere in this file.
+    let text = "Item Class: Amulets\nRarity: Rare\nTest Torc\nGold Amulet\n--------\n\
+        Item Level: 80\n--------\n+59 to maximum Mana\n+23% to Fire Resistance\n--------\n";
+    let item = parse_item(text).expect("parses");
+    assert_eq!(item.explicits.len(), 2, "fixture has exactly the two mods");
+    let q = build_upgrade_query(&item, &stats);
+
+    // Same-category constraint, applied the way build_query applies it.
+    assert_eq!(q.category.as_deref(), Some("accessory.amulet"));
+    assert!(q.category_enabled);
+
+    // Both mods filtered at min = the item's CURRENT value, and enabled:
+    // an upgrade must meet-or-beat every kept mod.
+    assert_eq!(q.filters.len(), 2);
+    let mana = q.filters.iter().find(|f| f.id == "explicit.stat_1050105434").expect("mana filter");
+    assert_eq!(mana.value.min, 59.0);
+    assert_eq!(mana.value.max, None, "upgrades are open-ended above the current roll");
+    assert!(!mana.disabled, "every kept mod constrains the search");
+    let fire = q.filters.iter().find(|f| f.id == "explicit.stat_3372524247").expect("fire filter");
+    assert_eq!(fire.value.min, 23.0);
+    assert!(!fire.disabled);
+
+    // The serialized body carries the category and both mins, cheapest-first.
+    let body = q.to_body();
+    assert_eq!(
+        body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
+        "accessory.amulet"
+    );
+    assert_eq!(body["sort"]["price"], "asc", "results come back cheapest-first");
+    let filters = body["query"]["stats"][0]["filters"].as_array().expect("filters");
+    assert!(filters
+        .iter()
+        .any(|f| f["id"] == "explicit.stat_1050105434" && f["value"]["min"] == 59));
+    assert!(filters
+        .iter()
+        .any(|f| f["id"] == "explicit.stat_3372524247" && f["value"]["min"] == 23));
+}
+
+#[test]
+fn upgrade_query_uses_current_roll_not_tier_floor() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let item = parse_item(BOW).expect("parse");
+    let q = build_upgrade_query(&item, &stats);
+    // The bow's phys mod is 157(155-169): build_query searches the tier
+    // floor (155); an upgrade must beat the actual roll (157).
+    let phys = q.filters.iter().find(|f| f.id == "explicit.stat_1509134228").expect("phys filter");
+    assert_eq!(phys.value.min, 157.0, "current roll, not the 155 tier floor");
+    // Decimal rolls keep their fraction: crafted crit is +3.48(3.11-3.8)%.
+    let crit = q.filters.iter().find(|f| f.id == "explicit.stat_518292764").expect("crit filter");
+    assert_eq!(crit.value.min, 3.48);
+    // Every filter is enabled: no preselect tiering in an upgrade search.
+    assert!(q.filters.iter().all(|f| !f.disabled));
+}
+
+#[test]
+fn upgrade_query_skips_unmatched_and_valueless_mods_not_guesses() {
+    // A catalog with one numeric stat and one valueless stat, so both skip
+    // paths are exercised against known entries.
+    let stats = StatIndex::from_json(
+        r##"{"result":[{"id":"explicit","entries":[
+            {"id":"explicit.stat_1050105434","text":"# to maximum Mana"},
+            {"id":"explicit.stat_frozen","text":"Cannot be Frozen"}]}]}"##,
+    )
+    .expect("synthetic catalog");
+    // Advanced format so the valueless line still classifies as an explicit.
+    let text = "Item Class: Amulets\nRarity: Rare\nTest Torc\nGold Amulet\n--------\n\
+        { Prefix Modifier \"Mazarine\" (Tier: 4) }\n+59 to maximum Mana\n\
+        { Suffix Modifier \"of Ice\" (Tier: 1) }\nCannot be Frozen\n\
+        { Suffix Modifier \"of Voidfire\" (Tier: 1) }\n+42 to Voidfire Mastery\n--------\n";
+    let item = parse_item(text).expect("parses");
+    assert_eq!(item.explicits.len(), 3, "all three lines parsed as explicits");
+    let q = build_upgrade_query(&item, &stats);
+    // "+42 to Voidfire Mastery" resolves to nothing (mirrors
+    // unknown_mod_resolves_to_none) and "Cannot be Frozen" resolves but has
+    // no numeric roll: both are dropped, never guessed onto some stat id.
+    assert_eq!(q.filters.len(), 1, "only the resolvable numeric mod filters");
+    assert_eq!(q.filters[0].id, "explicit.stat_1050105434");
+    assert_eq!(q.filters[0].value.min, 59.0);
+}
+
+#[test]
+fn upgrade_title_names_the_item_class() {
+    let item = parse_item(BOW).expect("parse");
+    assert_eq!(upgrade_title(&item), "upgrades: Bows");
+}
+
 use khaloni_poe2_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};
 
 #[test]
@@ -328,4 +422,60 @@ fn live_trade_smoke() {
     let l = c.fetch(&s.id, &s.hashes[..s.hashes.len().min(5)]).expect("live fetch");
     assert!(!l.is_empty());
     println!("live: {} listings, cheapest {} {}", l.len(), l[0].price_amount, l[0].price_currency);
+}
+
+// --- account features: session cookie + saved-search polling ---
+
+#[test]
+fn parse_search_url_roundtrips_a_pasted_search_link() {
+    use khaloni_poe2_core::trade::parse_search_url;
+    assert_eq!(
+        parse_search_url("https://www.pathofexile.com/trade2/search/poe2/Runes%20of%20Aldur/D6OM49MVf5"),
+        Some(("Runes of Aldur".to_string(), "D6OM49MVf5".to_string()))
+    );
+    assert_eq!(parse_search_url("https://example.com/nope"), None);
+}
+
+#[test]
+fn parse_saved_query_yields_a_repostable_body() {
+    use khaloni_poe2_core::trade::parse_saved_query;
+    // The saved-search GET returns the stored query (and usually a sort).
+    let body = parse_saved_query(
+        r#"{"id":"D6OM49MVf5","query":{"status":{"option":"any"},"stats":[{"type":"and","filters":[]}]},"sort":{"price":"asc"}}"#,
+    )
+    .expect("parses");
+    assert_eq!(body["query"]["status"]["option"], "any");
+    assert_eq!(body["sort"]["price"], "asc");
+
+    // A saved search without a stored sort still gets the default price
+    // sort: the POST endpoint requires one.
+    let body = parse_saved_query(r#"{"query":{"status":{"option":"any"}}}"#).expect("parses");
+    assert_eq!(body["sort"]["price"], "asc");
+
+    // No query at all is an error, not an empty search of everything.
+    assert!(parse_saved_query(r#"{"id":"x"}"#).is_err());
+    assert!(parse_saved_query("not json").is_err());
+}
+
+#[test]
+fn saved_search_ids_respects_the_rate_limiter() {
+    // A banned limiter must block the saved-search GET before any request
+    // leaves, exactly like the plain search path.
+    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    c.set_session("testsession");
+    c.search_limiter.apply_state("1:10:60");
+    match c.saved_search_ids("Runes of Aldur", "D6OM49MVf5") {
+        Err(TradeError::Cooldown(d)) => assert!(d.as_secs() >= 59),
+        other => panic!("expected Cooldown, got {other:?}"),
+    }
+}
+
+#[test]
+fn saved_search_against_unreachable_host_is_an_http_error() {
+    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    c.set_session("testsession");
+    match c.saved_search_ids("Runes of Aldur", "D6OM49MVf5") {
+        Err(TradeError::Http(_)) => {}
+        other => panic!("expected Http error, got {other:?}"),
+    }
 }

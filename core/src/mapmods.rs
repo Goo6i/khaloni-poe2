@@ -139,6 +139,20 @@ pub fn search_regex(mod_lines: &[&str], rules: &[ModRule]) -> String {
         .join("|")
 }
 
+/// A stash-search regex ORing the given needles verbatim: each needle is
+/// regex-escaped and its `#` placeholders widened to `\d+` — the same
+/// expansion `search_regex` applies — so a canonical mod text matches every
+/// roll. Empty input yields an empty string (the caller decides how to
+/// present "nothing selected"). Unlike `search_regex`, no classification or
+/// de-duplication happens here: the caller owns the selection.
+pub fn regex_for_needles(needles: &[String]) -> String {
+    needles
+        .iter()
+        .map(|n| regex_escape(n).replace('#', r"\d+"))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 fn regex_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -229,6 +243,28 @@ mod tests {
         let r = vec![ModRule::new("monsters gain # to # added damage", ModKind::Danger)];
         assert_eq!(classify("Monsters gain 5 to 12 added Damage", &r), Some(ModKind::Danger));
         assert_eq!(classify("Monsters gain added Damage", &r), None);
+    }
+
+    #[test]
+    fn regex_for_needles_escapes_and_ors() {
+        let needles = ["pack size".to_string(), "increased quantity".to_string()];
+        assert_eq!(regex_for_needles(&needles), "pack size|increased quantity");
+    }
+
+    #[test]
+    fn regex_for_needles_expands_hash_and_escapes_metachars() {
+        // '#' must widen to a number wildcard while regex metacharacters in
+        // the literal text (here '%') stay literal; '+' would need escaping.
+        let needles = ["monsters gain # to # added damage".to_string(), "+# to level".to_string()];
+        assert_eq!(
+            regex_for_needles(&needles),
+            r"monsters gain \d+ to \d+ added damage|\+\d+ to level"
+        );
+    }
+
+    #[test]
+    fn regex_for_needles_empty_input_is_empty() {
+        assert_eq!(regex_for_needles(&[]), "");
     }
 
     #[test]

@@ -29,6 +29,16 @@ pub const XILE_CATEGORIES: &[(&str, &str)] = &[
     ("ascendancy", "Ascendancy_Passives"),
     ("emotions", "Liquid_Emotions"),
     ("atlas", "Atlas_Nodes"),
+    // Mechanic references (cached since 2026-07-25, previously unwired):
+    // searchable in the F9 panel; panel-reading advisors for these
+    // mechanics need live fixtures first (KHALONI_REGION_DUMP).
+    ("ritual", "Ritual"),
+    ("expedition", "Expedition"),
+    ("breach", "Breach"),
+    ("delirium", "Delirium"),
+    ("strongbox", "Strongbox"),
+    ("traps", "Traps"),
+    ("charms", "Charms"),
 ];
 
 /// A cached-or-fetched file: reads `cache_dir/name`, else runs `fetch` once and
@@ -64,8 +74,13 @@ pub fn reference_data(cache_dir: &std::path::Path) -> Reference {
         let json = cached(cache_dir, &format!("xile_{slug}.json"), || rd::fetch_xile_json(file));
         categories.insert(slug.to_string(), rd::parse_xile_category(&json));
     }
+    // Affix text comes from EE2; the repoe mods export joins onto it (by
+    // internal stat id) to attach roll-tier ladders. A missing/failed mods
+    // file degrades to affixes without tiers, never to a missing panel.
+    let ee2_stats = cached(cache_dir, "ee2_stats.ndjson", || rd::fetch_ee2_ndjson("stats"));
+    let repoe_mods = cached(cache_dir, "repoe_mods.json", rd::fetch_repoe_mods);
     Reference {
-        affixes: rd::parse_affixes(&cached(cache_dir, "ee2_stats.ndjson", || rd::fetch_ee2_ndjson("stats"))),
+        affixes: rd::parse_affixes_tiered(&ee2_stats, &repoe_mods),
         items: rd::parse_ref_items(&cached(cache_dir, "ee2_items.ndjson", || rd::fetch_ee2_ndjson("items"))),
         uniques: rd::parse_xile_uniques(&cached(cache_dir, "xile_uniques.json", || rd::fetch_xile_json("Uniques"))),
         keystones: rd::parse_keystones(&cached(cache_dir, "xile_keystones.json", || rd::fetch_xile_json("Keystones"))),

@@ -85,6 +85,10 @@ impl HoverState {
             parsed.name.clone()
         };
         let count = parsed.stack_size.map(|(n, _)| n).unwrap_or(1);
+        // Sekhemas relics trade by their mods at every rarity (magic is the
+        // common case), so they appraise like rares; the name-lookup path
+        // below could only ever answer "?" for them (live finding).
+        let relic_with_mods = parsed.item_class == "Relics" && !parsed.explicits.is_empty();
         let lines = match parsed.rarity {
             item::Rarity::Rare => {
                 self.pending_appraisal = Some(parsed.clone());
@@ -118,6 +122,13 @@ impl HoverState {
                     denom: Denom::None,
                 }],
             },
+            _ if relic_with_mods => {
+                self.pending_appraisal = Some(parsed.clone());
+                vec![PopupLine {
+                    text: "searching trade...".into(),
+                    denom: Denom::None,
+                }]
+            }
             _ => match table.lookup(&title) {
                 Some(price) => {
                     let (denom, amount) = crate::pricing::denom_amount(price, count, divine_threshold);

@@ -162,6 +162,67 @@ pub fn hit(_p: &Panel, lay: &Layout, x: i32, y: i32) -> Option<Action> {
     None
 }
 
+/// Auto-advance from a `ZoneEnter` log event. Every XileHUD step carries an
+/// explicit `zone` field (the zone the player is in while doing it), so the
+/// match is `zone` against `step.zone`, case-insensitive.
+///
+/// The target is the FIRST not-yet-done step in that zone, in guide order:
+/// entering a zone proves everything before that point is behind the player,
+/// so all earlier steps (whole earlier acts plus the matched act's prior
+/// steps) get marked done and the view moves to the matched act with the
+/// step scrolled into sight. The matched step itself stays pending —
+/// arriving in a zone is not the same as doing what the guide says there.
+///
+/// Returns whether anything changed: entering the same zone twice is a
+/// no-op the second time, as is a zone the guide never mentions or one
+/// whose steps are all already checked (revisits must not yank the view).
+pub fn advance_to_zone(p: &mut Panel, zone: &str) -> bool {
+    let want = zone.trim().to_lowercase();
+    if want.is_empty() {
+        return false;
+    }
+    let mut target = None;
+    'find: for (ai, act) in p.acts.iter().enumerate() {
+        for (si, st) in act.steps.iter().enumerate() {
+            if st.zone.to_lowercase() == want && !p.done.contains(&step_id(act, si, st)) {
+                target = Some((ai, si));
+                break 'find;
+            }
+        }
+    }
+    let Some((ai, si)) = target else { return false };
+
+    let mut changed = false;
+    for (a, act) in p.acts.iter().enumerate().take(ai + 1) {
+        // Earlier acts complete entirely; the matched act only up to (not
+        // including) the matched step.
+        let upto = if a == ai { si } else { act.steps.len() };
+        for j in 0..upto {
+            if p.done.insert(step_id(act, j, &act.steps[j])) {
+                changed = true;
+            }
+        }
+    }
+    if p.act != ai {
+        p.act = ai;
+        changed = true;
+    }
+    // Minimal scroll adjustment: only move the window when the matched step
+    // is outside it, so a user-chosen scroll position survives revisits.
+    let scroll = if si < p.scroll {
+        si
+    } else if si >= p.scroll + VISIBLE_ROWS {
+        si + 1 - VISIBLE_ROWS
+    } else {
+        p.scroll
+    };
+    if p.scroll != scroll {
+        p.scroll = scroll;
+        changed = true;
+    }
+    changed
+}
+
 /// Reads the persisted done set: one step id per line. A missing or
 /// unreadable file is simply an empty set (first run).
 pub fn load_done(dir: &Path) -> HashSet<String> {

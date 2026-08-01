@@ -1,10 +1,10 @@
 //! Reference-data parsing for the lookup layer. Source is the repoe-fork
 //! PoE2 export (JSON objects keyed by an index string; each value carries an
 //! item's fields). Base items and uniques have clean, complete fields and
-//! are parsed here. Affix rendering is intentionally NOT done from these
-//! files: the PoE2 export omits stat_translations, so mod stat-ids cannot be
-//! turned into accurate readable text; that needs a translation source
-//! (poe2db) before an affix panel is worth shipping.
+//! are parsed here. Readable affix text comes from EE2 `stats.ndjson`, not
+//! from the repoe export; the repoe `mods.json` is joined onto it purely by
+//! internal stat id (EE2's `id` field) to attach roll-tier ladders — where
+//! that join is ambiguous, an affix simply carries no tiers.
 
 use serde::{Deserialize, Serialize};
 
@@ -380,6 +380,23 @@ pub fn fetch_ee2_ndjson(kind: &str) -> Result<String, String> {
     resp.text().map_err(|e| e.to_string())
 }
 
+/// Downloads the repoe-fork PoE2 `mods.json` export (mod families with stat
+/// ids, roll ranges, spawn weights, and required levels — the tier source the
+/// EE2 files lack). Callers cache the result; it is a ~13 MB file.
+pub fn fetch_repoe_mods() -> Result<String, String> {
+    let url = "https://repoe-fork.github.io/poe2/mods.json";
+    let http = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = http.get(url).send().map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("mods.json status {}", resp.status()));
+    }
+    resp.text().map_err(|e| e.to_string())
+}
+
 // --- Exiled-Exchange-2 data (the richer PoE2 source with readable affix text
 // that repoe-fork lacks). Both files are newline-delimited JSON (ndjson), one
 // object per line: stats.ndjson for affixes, items.ndjson for bases/uniques/
@@ -387,10 +404,23 @@ pub fn fetch_ee2_ndjson(kind: &str) -> Result<String, String> {
 
 /// A modifier the game can roll, with its in-game readable text (`#` marks the
 /// rolled value) and the trade stat ids it maps to. From EE2 `stats.ndjson`.
+/// `tiers` (from the repoe-fork mods export, joined on internal stat id) is
+/// the roll ladder where a reliable join exists, empty otherwise.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Affix {
     pub text: String,
     pub trade_ids: Vec<String>,
+    pub tiers: Vec<AffixTier>,
+}
+
+/// One tier of an affix ladder: the item level it starts rolling at and its
+/// value range (per-stat ranges joined with ", " for e.g. added-damage mods).
+/// Sorted ascending by `ilvl` inside `Affix::tiers`, so the last entry is the
+/// top tier.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AffixTier {
+    pub ilvl: u32,
+    pub range: String,
 }
 
 /// A catalog item (base, unique, or gem) from EE2 `items.ndjson`. `namespace`
@@ -405,8 +435,20 @@ pub struct RefItem {
 
 /// Parses EE2 `stats.ndjson` into affixes: each line's `ref` (readable text)
 /// plus every trade id under `trade.ids.*`. Lines without a `ref` are skipped.
+/// All tiers are empty; use [`parse_affixes_tiered`] to also join the repoe
+/// mods export.
 pub fn parse_affixes(ndjson: &str) -> Vec<Affix> {
-    let mut out = Vec::new();
+    parse_affixes_tiered(ndjson, "")
+}
+
+/// Like [`parse_affixes`], but joins the repoe-fork PoE2 `mods.json` export to
+/// attach roll-tier ladders. The join key is the internal stat id: EE2 lines
+/// carry it as `id`, repoe mods reference it in `stats[].id`. Only mods that
+/// join unambiguously get tiers (see [`affix_tiers`]); everything else keeps
+/// an empty ladder rather than a guessed one.
+pub fn parse_affixes_tiered(ndjson: &str, mods_json: &str) -> Vec<Affix> {
+    // First pass: collect (text, trade_ids, internal id) per EE2 line.
+    let mut rows: Vec<(String, Vec<String>, Option<String>)> = Vec::new();
     for line in ndjson.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -426,10 +468,150 @@ pub fn parse_affixes(ndjson: &str) -> Vec<Affix> {
                 }
             }
         }
-        out.push(Affix { text: text.to_string(), trade_ids });
+        let id = v.get("id").and_then(|i| i.as_str()).map(String::from);
+        rows.push((text.to_string(), trade_ids, id));
     }
+    let known: std::collections::HashSet<&str> =
+        rows.iter().filter_map(|(_, _, id)| id.as_deref()).collect();
+    let mut tiers_by_id = affix_tiers(mods_json, &known);
+    let mut out: Vec<Affix> = rows
+        .into_iter()
+        .map(|(text, trade_ids, id)| Affix {
+            text,
+            trade_ids,
+            tiers: id.and_then(|i| tiers_by_id.remove(i.as_str())).unwrap_or_default(),
+        })
+        .collect();
     out.sort_by(|a, b| a.text.cmp(&b.text));
     out
+}
+
+#[derive(Deserialize)]
+struct ModStat {
+    id: String,
+    #[serde(default)]
+    min: i64,
+    #[serde(default)]
+    max: i64,
+}
+
+#[derive(Deserialize)]
+struct SpawnWeight {
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    weight: i64,
+}
+
+#[derive(Deserialize)]
+struct ModRow {
+    #[serde(default)]
+    domain: String,
+    #[serde(default)]
+    generation_type: String,
+    #[serde(default)]
+    is_essence_only: bool,
+    #[serde(default)]
+    required_level: u32,
+    #[serde(default)]
+    spawn_weights: Vec<SpawnWeight>,
+    #[serde(default)]
+    stats: Vec<ModStat>,
+    /// Nullable in the export (internal-only mods have no display text). A
+    /// mod without text cannot be verified as a single display line, so it
+    /// never contributes tiers.
+    #[serde(default)]
+    text: Option<String>,
+}
+
+/// Builds roll-tier ladders from the repoe-fork `mods.json` export, keyed by
+/// internal stat id, restricted to ids in `known` (the ids EE2 can display).
+///
+/// The join is deliberately conservative — a mod contributes a tier only when
+/// it is:
+/// - an `item`-domain prefix/suffix that can actually spawn (some positive
+///   spawn weight, not essence-only);
+/// - a single display line (`text` without '\n'), so every stat on the mod
+///   belongs to the one readable affix line (multi-line hybrids like
+///   "+Armour / +ES" would otherwise leak their tiers into the pure ladders);
+/// - matched to exactly one known stat id (a mod whose stats hit two known
+///   ids is a hybrid of two displayable affixes; its ladder belongs to
+///   neither).
+///
+/// A stat often has parallel ladders for different item classes (e.g.
+/// `IncreasedMana1..13` on jewellery vs `IncreasedManaTwoHandWeapon1..11` on
+/// staves) that share a `type`; they split cleanly on the mod key with the
+/// trailing digits/underscores removed. One compact suffix can only show one
+/// ladder, so the one spanning the most item classes (most distinct positive
+/// spawn tags; ties: more tiers, then lexicographic key) is kept.
+fn affix_tiers(
+    mods_json: &str,
+    known: &std::collections::HashSet<&str>,
+) -> std::collections::HashMap<String, Vec<AffixTier>> {
+    use std::collections::{BTreeMap, HashMap};
+    let Ok(mods) = serde_json::from_str::<HashMap<String, ModRow>>(mods_json) else {
+        return HashMap::new();
+    };
+    // affix id -> ladder prefix -> mods. BTreeMap for the deterministic
+    // lexicographic tie-break.
+    let mut grouped: HashMap<&str, BTreeMap<&str, Vec<&ModRow>>> = HashMap::new();
+    for (key, m) in &mods {
+        let spawnable = m.spawn_weights.iter().any(|w| w.weight > 0);
+        let single_line = m.text.as_deref().is_some_and(|t| !t.contains('\n'));
+        if m.domain != "item"
+            || !(m.generation_type == "prefix" || m.generation_type == "suffix")
+            || m.is_essence_only
+            || !spawnable
+            || m.stats.is_empty()
+            || !single_line
+        {
+            continue;
+        }
+        let mut hits = m.stats.iter().filter(|s| known.contains(s.id.as_str()));
+        let (Some(hit), None) = (hits.next(), hits.next()) else {
+            continue;
+        };
+        let ladder = key.trim_end_matches(|c: char| c.is_ascii_digit() || c == '_');
+        grouped.entry(hit.id.as_str()).or_default().entry(ladder).or_default().push(m);
+    }
+    let mut out = HashMap::new();
+    for (affix_id, ladders) in grouped {
+        let best = ladders.into_iter().max_by_key(|(prefix, ms)| {
+            let tags: std::collections::HashSet<&str> = ms
+                .iter()
+                .flat_map(|m| &m.spawn_weights)
+                .filter(|w| w.weight > 0)
+                .map(|w| w.tag.as_str())
+                .collect();
+            // Reverse the name so max_by_key's "last wins on ties" picks the
+            // lexicographically smallest prefix deterministically.
+            (tags.len(), ms.len(), std::cmp::Reverse(*prefix))
+        });
+        let Some((_, mut ms)) = best else { continue };
+        ms.sort_by_key(|m| m.required_level);
+        let tiers = ms
+            .into_iter()
+            .map(|m| AffixTier { ilvl: m.required_level, range: format_ranges(&m.stats) })
+            .collect();
+        out.insert(affix_id.to_string(), tiers);
+    }
+    out
+}
+
+/// "min-max" per stat ("min" alone when the roll is fixed), joined with ", "
+/// for multi-stat single-line mods (added min/max damage).
+fn format_ranges(stats: &[ModStat]) -> String {
+    stats
+        .iter()
+        .map(|s| {
+            if s.min == s.max {
+                s.min.to_string()
+            } else {
+                format!("{}-{}", s.min, s.max)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Parses EE2 `items.ndjson` into catalog items, skipping empty names, sorted

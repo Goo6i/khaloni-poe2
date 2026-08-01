@@ -594,6 +594,51 @@ pub fn build_query_with_labels(
     )
 }
 
+/// Builds the gear-upgrade query for an equipped item: strictly-better
+/// pieces of the same gear class. The category constraint is applied the
+/// same way `build_query` applies it (`category_for` on the item class,
+/// enabled), and every resolvable explicit mod with a numeric roll becomes
+/// an ENABLED stat filter whose min is the item's CURRENT rolled value -
+/// not the tier floor `build_query` searches on - so a match must
+/// meet-or-beat the equipped item on every kept mod. Mods that fail stat
+/// resolution or carry no numeric value are skipped, never guessed.
+/// Rune-socket mods are skipped for the same reason `build_query` skips
+/// them: they are swappable gear, not the item's own explicits.
+///
+/// Results come back cheapest-first without any extra step here:
+/// `Query::to_body` always emits `"sort": {"price": "asc"}`.
+pub fn build_upgrade_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
+    let mut filters: Vec<StatFilter> = Vec::new();
+    for m in &item.explicits {
+        if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
+            continue;
+        }
+        let Some(entry) = stats.resolve(&m.text) else { continue };
+        if filters.iter().any(|f| f.id == entry.id) {
+            continue;
+        }
+        let Some(min) = first_number(&m.text) else { continue };
+        filters.push(StatFilter {
+            id: entry.id.clone(),
+            value: FilterValue { min, max: None },
+            disabled: false,
+        });
+    }
+    Query {
+        category: category_for(&item.item_class),
+        category_enabled: true,
+        type_name: None,
+        map_tier: None,
+        gem_level: None,
+        filters,
+    }
+}
+
+/// Panel/window title for an upgrade search, e.g. "upgrades: Bows".
+pub fn upgrade_title(item: &crate::item::Item) -> String {
+    format!("upgrades: {}", item.item_class)
+}
+
 /// Query for a specific cut skill gem at an exact level, e.g. "Detonate
 /// Living" (Level 20): category `gem.activegem`, the skill name as the base
 /// `type`, and an exact `gem_level` filter. This is how the reward panel
@@ -955,6 +1000,9 @@ pub struct TradeClient {
     base: String,
     league: String,
     http: reqwest::blocking::Client,
+    /// POESESSID cookie value; empty = anonymous. Only ever sent to `base`
+    /// (pathofexile.com in production), never logged.
+    session: String,
     pub search_limiter: RateLimiter,
     pub fetch_limiter: RateLimiter,
 }
@@ -973,9 +1021,27 @@ impl TradeClient {
             base: base.trim_end_matches('/').to_string(),
             league: league.to_string(),
             http,
+            session: String::new(),
             search_limiter: RateLimiter::from_header("5:10:60,15:60:300,30:300:1800"),
             fetch_limiter: RateLimiter::from_header("12:4:10,16:12:300"),
         })
+    }
+
+    /// Sets the POESESSID session cookie for the account-backed endpoints
+    /// (saved searches need the owning account). Empty clears it; every
+    /// request goes back to anonymous.
+    pub fn set_session(&mut self, poesessid: &str) {
+        self.session = poesessid.trim().to_string();
+    }
+
+    /// Attaches the session cookie when one is set; a no-op otherwise, so
+    /// the anonymous paths keep their exact pre-session request shape.
+    fn authed(&self, req: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+        if self.session.is_empty() {
+            req
+        } else {
+            req.header(reqwest::header::COOKIE, format!("POESESSID={}", self.session))
+        }
     }
 
     pub fn site_url(&self, search_id: &str) -> String {
@@ -1011,9 +1077,7 @@ impl TradeClient {
         self.search_limiter.record();
         let url = format!("{}/api/trade2/search/poe2/{}", self.base, self.league);
         let resp = self
-            .http
-            .post(&url)
-            .json(&query.to_body())
+            .authed(self.http.post(&url).json(&query.to_body()))
             .send()
             .map_err(|e| TradeError::Http(e.to_string()))?;
         Self::absorb_headers(&mut self.search_limiter, &resp);
@@ -1058,9 +1122,7 @@ impl TradeClient {
             "sort": {"have": "asc"},
         });
         let resp = self
-            .http
-            .post(&url)
-            .json(&body)
+            .authed(self.http.post(&url).json(&body))
             .send()
             .map_err(|e| TradeError::Http(e.to_string()))?;
         Self::absorb_headers(&mut self.search_limiter, &resp);
@@ -1114,8 +1176,7 @@ impl TradeClient {
             search_id
         );
         let resp = self
-            .http
-            .get(&url)
+            .authed(self.http.get(&url))
             .send()
             .map_err(|e| TradeError::Http(e.to_string()))?;
         Self::absorb_headers(&mut self.fetch_limiter, &resp);
@@ -1126,6 +1187,159 @@ impl TradeClient {
             return Err(TradeError::Http(format!("fetch status {}", resp.status())));
         }
         parse_fetch(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
+    }
+
+    /// Result-id list of a saved trade search: GET the saved query json from
+    /// `/api/trade2/search/poe2/{league}/{id}` (needs the session cookie -
+    /// saved searches belong to an account), then re-POST that query through
+    /// the normal search endpoint. The first page of ids is enough for the
+    /// live-search differ: a poll only needs to see what is new at the top.
+    /// Both requests count against the search limiter - the GET hits the same
+    /// rate-limit policy as the POST (verified: the trade site serves both
+    /// from the same `/api/trade2/search` family).
+    pub fn saved_search_ids(&mut self, league: &str, id: &str) -> Result<Vec<String>, TradeError> {
+        if let RateDecision::Wait(d) = self.search_limiter.check() {
+            return Err(TradeError::Cooldown(d));
+        }
+        self.search_limiter.record();
+        let url = format!("{}/api/trade2/search/poe2/{}/{}", self.base, league, id);
+        let resp = self
+            .authed(self.http.get(&url))
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Self::absorb_headers(&mut self.search_limiter, &resp);
+        if resp.status().as_u16() == 429 {
+            return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
+        }
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("saved search status {}", resp.status())));
+        }
+        let text = resp.text().map_err(|e| TradeError::Http(e.to_string()))?;
+        let body = parse_saved_query(&text)?;
+
+        if let RateDecision::Wait(d) = self.search_limiter.check() {
+            return Err(TradeError::Cooldown(d));
+        }
+        self.search_limiter.record();
+        let post_url = format!("{}/api/trade2/search/poe2/{}", self.base, league);
+        let resp = self
+            .authed(self.http.post(&post_url).json(&body))
+            .send()
+            .map_err(|e| TradeError::Http(e.to_string()))?;
+        Self::absorb_headers(&mut self.search_limiter, &resp);
+        if resp.status().as_u16() == 429 {
+            return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
+        }
+        if !resp.status().is_success() {
+            return Err(TradeError::Http(format!("search status {}", resp.status())));
+        }
+        let sr = parse_search(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)?;
+        Ok(sr.hashes)
+    }
+}
+
+/// Extracts the re-POSTable search body from a saved-search GET response:
+/// `{"query": ..., "sort": ...}`, with the default price sort filled in when
+/// the saved search stored none (the POST endpoint requires a sort).
+pub fn parse_saved_query(body: &str) -> Result<serde_json::Value, TradeError> {
+    let v: serde_json::Value = serde_json::from_str(body)?;
+    let query = v
+        .get("query")
+        .cloned()
+        .ok_or_else(|| TradeError::Http("saved search response has no query".into()))?;
+    let sort = v
+        .get("sort")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({"price": "asc"}));
+    Ok(serde_json::json!({"query": query, "sort": sort}))
+}
+
+/// Decodes `%XX` percent-escapes byte-wise (league names carry `%20`s in
+/// trade URLs). Malformed escapes pass through literally rather than erroring:
+/// a pasted URL should parse as far as it can.
+fn percent_decode(s: &str) -> String {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push(hi * 16 + lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Parses a pasted trade-site search URL,
+/// `https://www.pathofexile.com/trade2/search/poe2/{league}/{id}`, into
+/// (league, search id), URL-decoding the league ("Runes%20of%20Aldur" ->
+/// "Runes of Aldur"). Tolerates a trailing slash and query/fragment suffixes;
+/// anything not shaped like a two-segment poe2 search path is `None`, which
+/// the settings UI surfaces as a bad-URL hint.
+pub fn parse_search_url(url: &str) -> Option<(String, String)> {
+    let rest = url.trim().split_once("/trade2/search/poe2/")?.1;
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let mut parts = rest.split('/').filter(|p| !p.is_empty());
+    let league = percent_decode(parts.next()?);
+    let id = parts.next()?.to_string();
+    if parts.next().is_some() || league.is_empty() || id.is_empty() {
+        return None;
+    }
+    Some((league, id))
+}
+
+#[cfg(test)]
+mod search_url_tests {
+    use super::parse_search_url;
+
+    #[test]
+    fn parses_the_canonical_search_url_and_decodes_the_league() {
+        assert_eq!(
+            parse_search_url(
+                "https://www.pathofexile.com/trade2/search/poe2/Runes%20of%20Aldur/AbCd12eF"
+            ),
+            Some(("Runes of Aldur".to_string(), "AbCd12eF".to_string()))
+        );
+    }
+
+    #[test]
+    fn tolerates_trailing_slash_and_query_suffix() {
+        assert_eq!(
+            parse_search_url("https://www.pathofexile.com/trade2/search/poe2/Standard/xYz9/"),
+            Some(("Standard".to_string(), "xYz9".to_string()))
+        );
+        assert_eq!(
+            parse_search_url("https://www.pathofexile.com/trade2/search/poe2/Standard/xYz9?a=1"),
+            Some(("Standard".to_string(), "xYz9".to_string()))
+        );
+    }
+
+    #[test]
+    fn rejects_non_search_urls() {
+        // Missing id, wrong path family, extra segments, and plain junk all
+        // fail closed - the UI marks these red instead of silently polling
+        // a nonsense endpoint.
+        assert_eq!(parse_search_url("https://www.pathofexile.com/trade2/search/poe2/Standard"), None);
+        assert_eq!(parse_search_url("https://www.pathofexile.com/trade/search/League/abc"), None);
+        assert_eq!(
+            parse_search_url("https://www.pathofexile.com/trade2/search/poe2/a/b/c"),
+            None
+        );
+        assert_eq!(parse_search_url("not a url"), None);
+        assert_eq!(parse_search_url(""), None);
     }
 }
 

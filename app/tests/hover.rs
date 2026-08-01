@@ -115,3 +115,17 @@ fn unknown_unique_still_shows_the_question_mark() {
     let popup = hs.current.as_ref().expect("popup set");
     assert_eq!(popup.lines[0].text, khaloni_poe2_core::value::UNKNOWN);
 }
+
+#[test]
+fn magic_relics_route_to_trade_appraisal() {
+    // Sekhemas relics are usually Magic; their value is in the mods, so
+    // they must appraise instead of dead-ending at the "?" name lookup.
+    let clip = "Item Class: Relics\nRarity: Magic\nUrn Relic of Vitality\n--------\nItem Level: 62\n--------\n21% increased Honour restored\n";
+    let table = khaloni_poe2_core::ninja::PriceTable::default();
+    let uniques = std::collections::HashMap::new();
+    let mut h = khaloni_poe2::hover::HoverState::default();
+    h.trigger(clip, &table, &uniques, 1.0);
+    assert!(h.pending_appraisal.is_some(), "relic must queue an appraisal");
+    let p = h.current.expect("popup shown");
+    assert!(p.lines[0].text.contains("searching"), "got {:?}", p.lines[0].text);
+}

@@ -5,6 +5,7 @@
 //! window autosaves config.toml (atomically, via `Config::save`); the
 //! overlay hot-reloads it by mtime, so no IPC is needed.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -24,6 +25,7 @@ pub enum CaptureTarget {
     Leveling,
     Macro(usize),
     Shortcut(usize),
+    Upgrade,
 }
 
 /// The pure edit state behind the settings window: the config being edited,
@@ -54,6 +56,7 @@ impl EditModel {
             CaptureTarget::Settings => Some(&mut self.cfg.hotkey_settings),
             CaptureTarget::Reference => Some(&mut self.cfg.hotkey_reference),
             CaptureTarget::Leveling => Some(&mut self.cfg.hotkey_leveling),
+            CaptureTarget::Upgrade => Some(&mut self.cfg.hotkey_upgrade),
             CaptureTarget::Macro(i) => self.cfg.macros.get_mut(i).map(|m| &mut m.key),
             CaptureTarget::Shortcut(i) => {
                 self.cfg.resource_shortcuts.get_mut(i).map(|s| &mut s.key)
@@ -113,15 +116,17 @@ enum Section {
     CaptureOcr,
     MacrosShortcuts,
     Waystones,
+    Account,
 }
 
-const SECTIONS: [(Section, &str); 6] = [
+const SECTIONS: [(Section, &str); 7] = [
     (Section::Hotkeys, "Hotkeys"),
     (Section::Display, "Display"),
     (Section::Pricing, "Pricing"),
     (Section::CaptureOcr, "Capture & OCR"),
     (Section::MacrosShortcuts, "Macros & Shortcuts"),
     (Section::Waystones, "Waystones"),
+    (Section::Account, "Account"),
 ];
 
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -140,8 +145,15 @@ struct SettingsApp {
     /// Tracked explicitly instead of via widget focus so clicking a
     /// suggestion button (which steals focus) still lands.
     suggest: Option<(&'static str, usize)>,
+    /// Which needles the stash-regex builder has checked. Ephemeral by
+    /// design — the composed regex is a scratch artifact the user copies
+    /// into the game, not a setting, so it lives here and not in Config.
+    /// Keyed by needle text so it survives edits to the needle lists.
+    stash_selected: BTreeSet<String>,
     /// Change detection: Config has no PartialEq, but it serializes, so one
     /// toml snapshot per frame catches every widget edit in one place.
+    /// Wealth snapshots loaded once at window start (display only).
+    wealth_history: Vec<crate::wealth::WealthSnapshot>,
     last_serialized: String,
     last_edit: Instant,
     saved_at: Option<String>,
@@ -186,6 +198,8 @@ impl SettingsApp {
             leagues,
             mods,
             suggest: None,
+            stash_selected: BTreeSet::new(),
+            wealth_history: crate::wealth::load_history(10),
             last_serialized,
             last_edit: Instant::now(),
             saved_at: None,
@@ -282,6 +296,8 @@ impl eframe::App for SettingsApp {
             leagues,
             mods,
             suggest,
+            stash_selected,
+            wealth_history,
             ..
         } = self;
         let mod_list = mods.lock().unwrap().clone();
@@ -300,7 +316,12 @@ impl eframe::App for SettingsApp {
                         section_capture_ocr(ui, cfg, brightness_ok)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
-                    Section::Waystones => section_waystones(ui, cfg, &mod_list, suggest),
+                    Section::Account => {
+                        crate::settings_account::section_account(ui, cfg, wealth_history)
+                    }
+                    Section::Waystones => {
+                        section_waystones(ui, cfg, &mod_list, suggest, stash_selected)
+                    }
                 });
         });
 
@@ -398,12 +419,13 @@ fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Cap
         .num_columns(2)
         .spacing([16.0, 8.0])
         .show(ui, |ui| {
-            let rows: [(&str, &str, CaptureTarget); 5] = [
+            let rows: [(&str, &str, CaptureTarget); 6] = [
                 ("Price check", &cfg.hotkey_price_check, CaptureTarget::PriceCheck),
                 ("Overlay toggle", &cfg.hotkey_overlay, CaptureTarget::Overlay),
                 ("Settings panel", &cfg.hotkey_settings, CaptureTarget::Settings),
                 ("Reference search", &cfg.hotkey_reference, CaptureTarget::Reference),
                 ("Leveling guide", &cfg.hotkey_leveling, CaptureTarget::Leveling),
+                ("Upgrade check", &cfg.hotkey_upgrade, CaptureTarget::Upgrade),
             ];
             // Bindings are cloned so capture_button can take &mut capture
             // while cfg stays borrowed by the row labels.
@@ -623,6 +645,7 @@ fn section_waystones(
     cfg: &mut Config,
     mods: &[String],
     suggest: &mut Option<(&'static str, usize)>,
+    stash_selected: &mut BTreeSet<String>,
 ) {
     ui.heading("Waystones");
     ui.add_space(4.0);
@@ -638,6 +661,102 @@ fn section_waystones(
     string_list(ui, "Danger mod needles", "danger", &mut cfg.map_danger_needles, mods, suggest);
     ui.add_space(12.0);
     string_list(ui, "Reward mod needles", "good", &mut cfg.map_good_needles, mods, suggest);
+    ui.add_space(16.0);
+    stash_regex_builder(ui, &cfg.map_good_needles, stash_selected);
+}
+
+/// Interactive builder for an in-game stash search regex: check reward
+/// needles, preview the composed regex, copy it. Copying to the clipboard is
+/// fine here because this runs in the settings process — the overlay process
+/// must never write the clipboard (Ctrl+C item text is its input channel).
+fn stash_regex_builder(
+    ui: &mut egui::Ui,
+    user_good: &[String],
+    selected: &mut BTreeSet<String>,
+) {
+    ui.separator();
+    ui.label("Stash search regex");
+    ui.label(
+        egui::RichText::new(
+            "Pick reward mods to build a search string for the in-game \
+             stash search, then paste it there to find matching waystones.",
+        )
+        .weak(),
+    );
+    ui.add_space(4.0);
+    let options = stash_needle_options(user_good);
+    for needle in &options {
+        let mut on = selected.contains(needle);
+        if ui.checkbox(&mut on, needle).changed() {
+            if on {
+                selected.insert(needle.clone());
+            } else {
+                selected.remove(needle);
+            }
+        }
+    }
+    // Compose from the option list, not the set: options carry a stable
+    // display order, and needles whose config row was deleted (their
+    // selection lingers in the set) silently drop out of the regex.
+    let picked: Vec<String> =
+        options.into_iter().filter(|n| selected.contains(n)).collect();
+    let regex = khaloni_poe2_core::mapmods::regex_for_needles(&picked);
+    ui.add_space(4.0);
+    // Read-only preview: TextBuffer for &str rejects edits but still
+    // allows select-all, so the text stays inspectable.
+    ui.add(
+        egui::TextEdit::singleline(&mut regex.as_str())
+            .desired_width(f32::INFINITY)
+            .hint_text("select mods above"),
+    );
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(!regex.is_empty(), egui::Button::new("Copy"))
+            .clicked()
+        {
+            ui.ctx().copy_text(regex.clone());
+        }
+        let count = regex.chars().count();
+        if stash_regex_too_long(&regex) {
+            ui.colored_label(
+                egui::Color32::RED,
+                format!("{count}/{STASH_SEARCH_LIMIT} — too long for the in-game search"),
+            );
+        } else if !regex.is_empty() {
+            ui.weak(format!("{count}/{STASH_SEARCH_LIMIT}"));
+        }
+    });
+}
+
+/// The game's stash search field caps input at 50 characters; a longer
+/// regex gets truncated and silently matches the wrong things.
+pub const STASH_SEARCH_LIMIT: usize = 50;
+
+/// Whether `regex` exceeds the in-game limit. Chars, not bytes: the game
+/// counts what the user sees typed. Pure so it is unit-testable.
+pub fn stash_regex_too_long(regex: &str) -> bool {
+    regex.chars().count() > STASH_SEARCH_LIMIT
+}
+
+/// Checkbox options for the stash-regex builder: built-in reward needles
+/// first (rule order), then the user's reward needles that aren't already
+/// covered. Dedup is case-insensitive because built-ins are lowercase while
+/// free-typed user needles may not be. Pure so it is unit-testable.
+pub fn stash_needle_options(user_good: &[String]) -> Vec<String> {
+    use khaloni_poe2_core::mapmods::{default_rules, ModKind};
+    let mut out: Vec<String> = default_rules()
+        .into_iter()
+        .filter(|r| r.kind == ModKind::Good)
+        .map(|r| r.needle)
+        .collect();
+    for n in user_good {
+        let t = n.trim();
+        // Skip empties: the "+ Add" button creates blank rows while typing.
+        if !t.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(t)) {
+            out.push(t.to_string());
+        }
+    }
+    out
 }
 
 /// Editable needle list with autocomplete from the mod database. Suggestion

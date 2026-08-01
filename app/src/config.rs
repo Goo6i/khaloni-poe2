@@ -18,6 +18,14 @@ pub struct Macro {
     pub message: String,
 }
 
+/// A saved trade live-search: a pasted trade-site search URL, polled in the
+/// background; new listings raise an overlay alert.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveSearch {
+    pub name: String,
+    pub url: String,
+}
+
 /// An external-resource shortcut: pressing `key` copies the hovered item and
 /// opens `url` with `{name}` replaced by the item name (URL-encoded), e.g.
 /// "https://poe2db.tw/us/search?q={name}" or a wiki/scout URL.
@@ -137,6 +145,24 @@ pub struct Config {
     pub map_danger_needles: Vec<String>,
     #[serde(default)]
     pub map_good_needles: Vec<String>,
+    /// Path of Exile 2's Client.txt; None resolves the default Steam
+    /// location per OS. Drives leveling auto-advance (zone detection).
+    #[serde(default)]
+    pub client_log_path: Option<String>,
+    /// POESESSID session cookie, needed only for the account features
+    /// (live-search alerts, wealth tracker). Stored locally, sent only to
+    /// pathofexile.com. Empty = those features off.
+    #[serde(default)]
+    pub poesessid: String,
+    /// Account name for the stash/wealth endpoints. Empty = wealth off.
+    #[serde(default)]
+    pub account_name: String,
+    /// Saved trade searches to poll for new listings.
+    #[serde(default)]
+    pub live_searches: Vec<LiveSearch>,
+    /// Hotkey for the gear-upgrade check on the hovered item; empty = off.
+    #[serde(default)]
+    pub hotkey_upgrade: String,
     /// Milliseconds to wait after opening chat (Enter) before a macro starts
     /// typing, so the chat box is ready. Raise if the first characters drop.
     #[serde(default = "default_macro_open_delay_ms")]

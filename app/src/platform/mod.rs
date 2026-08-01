@@ -70,3 +70,41 @@ pub enum GameWindowEvent {
 pub struct RegionFrame {
     pub gray: GrayImage,
 }
+
+/// Held for the overlay's lifetime; a second overlay instance fails to
+/// acquire it and exits with a clear message instead of fighting the first
+/// over hotkeys, the D-Bus name, and the tray (which is exactly what
+/// happened when stale instances piled up).
+pub struct InstanceLock {
+    #[cfg(target_os = "linux")]
+    _sock: std::os::unix::net::UnixListener,
+    #[cfg(target_os = "windows")]
+    _mutex: isize,
+}
+
+#[cfg(target_os = "linux")]
+pub fn single_instance() -> anyhow::Result<InstanceLock> {
+    use std::os::linux::net::SocketAddrExt;
+    // Abstract-namespace socket: kernel-owned, vanishes with the process,
+    // no stale lockfiles to clean up after a crash.
+    let addr = std::os::unix::net::SocketAddr::from_abstract_name(b"khaloni-poe2-overlay")?;
+    let sock = std::os::unix::net::UnixListener::bind_addr(&addr)
+        .map_err(|_| anyhow::anyhow!("khaloni-poe2 is already running"))?;
+    Ok(InstanceLock { _sock: sock })
+}
+
+#[cfg(target_os = "windows")]
+pub fn single_instance() -> anyhow::Result<InstanceLock> {
+    // Leading :: — inside this module, bare `windows` is our backend
+    // submodule, not the external crate.
+    use ::windows::core::HSTRING;
+    use ::windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use ::windows::Win32::System::Threading::CreateMutexW;
+    let handle = unsafe { CreateMutexW(None, true, &HSTRING::from("khaloni-poe2-overlay")) }
+        .map_err(|e| anyhow::anyhow!("instance lock: {e}"))?;
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        anyhow::bail!("khaloni-poe2 is already running");
+    }
+    // Deliberately leaked: the mutex must live until process exit.
+    Ok(InstanceLock { _mutex: handle.0 as isize })
+}

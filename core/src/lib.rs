@@ -7,5 +7,6 @@ pub mod refdata;
 pub mod rumour;
 pub mod rumour_scan;
 pub mod scout;
+pub mod stash;
 pub mod trade;
 pub mod value;

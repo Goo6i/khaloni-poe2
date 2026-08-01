@@ -92,6 +92,54 @@ fn tier_ladder_order_enforced() {
 }
 
 #[test]
+fn stash_regex_assembles_from_a_selection() {
+    // A selection over the checkbox options must compose exactly like the
+    // core helper: escaped, '#' widened to \d+, OR-joined in option order.
+    let user = vec!["monsters gain # to # added damage".to_string()];
+    let options = khaloni_poe2::settings_ui::stash_needle_options(&user);
+    let picked: Vec<String> = options
+        .into_iter()
+        .filter(|n| n == "pack size" || n.contains("added damage"))
+        .collect();
+    // Built-in "pack size" sorts before the appended user needle.
+    assert_eq!(picked, ["pack size", "monsters gain # to # added damage"]);
+    assert_eq!(
+        khaloni_poe2_core::mapmods::regex_for_needles(&picked),
+        r"pack size|monsters gain \d+ to \d+ added damage"
+    );
+}
+
+#[test]
+fn stash_needle_options_union_built_ins_and_user_needles() {
+    let user = vec![
+        "pack size".to_string(),        // duplicates a built-in: dropped
+        "Pack Size".to_string(),        // case-insensitive duplicate: dropped
+        "  ".to_string(),               // blank row mid-typing: dropped
+        "my custom needle".to_string(), // genuinely new: appended
+    ];
+    let options = khaloni_poe2::settings_ui::stash_needle_options(&user);
+    // Every built-in Good needle appears exactly once.
+    let good: Vec<String> = khaloni_poe2_core::mapmods::default_rules()
+        .into_iter()
+        .filter(|r| r.kind == khaloni_poe2_core::mapmods::ModKind::Good)
+        .map(|r| r.needle)
+        .collect();
+    assert_eq!(&options[..good.len()], &good[..]);
+    assert_eq!(&options[good.len()..], ["my custom needle".to_string()]);
+}
+
+#[test]
+fn stash_regex_length_gate_is_exactly_50_chars() {
+    use khaloni_poe2::settings_ui::{stash_regex_too_long, STASH_SEARCH_LIMIT};
+    assert_eq!(STASH_SEARCH_LIMIT, 50);
+    assert!(!stash_regex_too_long(""));
+    assert!(!stash_regex_too_long(&"a".repeat(50)), "50 chars fits the game field");
+    assert!(stash_regex_too_long(&"a".repeat(51)), "51 chars gets truncated in-game");
+    // Chars, not bytes: 50 two-byte chars must still fit.
+    assert!(!stash_regex_too_long(&"é".repeat(50)));
+}
+
+#[test]
 fn mod_suggestions_rank_tightest_first_and_require_all_tokens() {
     let mods: Vec<String> = [
         "monsters deal #% of their damage as extra fire damage",

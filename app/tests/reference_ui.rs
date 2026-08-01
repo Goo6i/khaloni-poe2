@@ -24,17 +24,19 @@ fn hit_resolves_pill_search_and_close() {
 }
 
 #[test]
-fn all_thirteen_pills_are_present_and_wrap_within_the_panel() {
+fn all_category_pills_are_present_and_wrap_within_the_panel() {
     let p = reference_ui::Panel::default();
     let lay = reference_ui::layout(&p, &m);
-    assert_eq!(lay.pills.len(), 13);
+    // 5 fixed categories + every XILE_CATEGORIES entry: derived, so adding
+    // a dataset never silently breaks this test again.
+    assert_eq!(lay.pills.len(), 5 + khaloni_poe2::refcache::XILE_CATEGORIES.len());
     assert_eq!(lay.pills[0].1, Cat::Affixes);
     assert_eq!(lay.pills[5].1, Cat::Xile(0));
     assert_eq!(lay.pills[12].1, Cat::Xile(7));
     for (r, _) in &lay.pills {
         assert!(r.x >= 0 && r.x + r.w as i32 <= lay.w, "pill inside panel width");
     }
-    // With 13 pills and a narrow panel they cannot all share one row.
+    // With this many pills and a narrow panel they cannot all share one row.
     let first_y = lay.pills[0].0.y;
     assert!(lay.pills.iter().any(|(r, _)| r.y > first_y), "pills wrap to a second row");
 }

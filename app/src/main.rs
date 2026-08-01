@@ -449,6 +449,8 @@ type ScanGeom = std::sync::Arc<std::sync::Mutex<(Option<(u32, u32)>, Option<Rect
 enum PendingAction {
     /// Open the item in the browser via `Config::resource_shortcuts[i]`.
     Shortcut(usize),
+    /// Run the gear-upgrade search on the copied item.
+    UpgradeCheck,
 }
 
 /// Appraisal worker requests: Auto = fresh item, build the query and
@@ -460,6 +462,9 @@ enum AppraiseReq {
     /// Price a stackable currency (e.g. an omen) by its display name via the
     /// trade exchange; the result comes back on the exchange channel.
     Currency { name: String, for_row: bool },
+    /// Find strictly-better listings for an equipped item: same category,
+    /// every matched mod meets-or-beats the current roll, cheapest first.
+    Upgrade(khaloni_poe2_core::item::Item),
     /// Price a specific cut skill gem (reward-panel "Skill Level N: <name>")
     /// by name + level via item search; the result is written to the shared
     /// gem cache the OCR pricer reads.
@@ -623,6 +628,9 @@ fn overlay_mode() -> anyhow::Result<()> {
         if !cfg.hotkey_leveling.is_empty() {
             extra.push(("leveling".to_string(), cfg.hotkey_leveling.clone()));
         }
+        if !cfg.hotkey_upgrade.is_empty() {
+            extra.push(("upgrade".to_string(), cfg.hotkey_upgrade.clone()));
+        }
         let hk_tx = hk_tx.clone();
         rt.spawn(async move {
             if let Err(e) = khaloni_poe2::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
@@ -636,6 +644,30 @@ fn overlay_mode() -> anyhow::Result<()> {
     let (tray_tx, tray_rx) = mpsc::channel();
     if let Err(e) = khaloni_poe2::tray::spawn(tray_tx) {
         eprintln!("tray unavailable: {e}");
+    }
+
+    // Game-log tail: zone events drive the F10 leveling auto-advance. A
+    // missing Client.txt just means the feature stays dormant (the tail
+    // retries the open forever).
+    let (log_tx, log_rx) = mpsc::channel();
+    match cfg.client_log_path.as_ref().map(std::path::PathBuf::from).or_else(khaloni_poe2::gamelog_tail::default_log_path) {
+        Some(p) => {
+            khaloni_poe2::gamelog_tail::spawn(p, log_tx);
+        }
+        None => eprintln!("game log not found; leveling auto-advance off (set client_log_path)"),
+    }
+    // Live-search alerts + wealth snapshots: both no-op without credentials.
+    let (alert_tx, alert_rx) = mpsc::channel();
+    khaloni_poe2::livesearch::spawn(cfg.live_searches.clone(), cfg.poesessid.clone(), alert_tx);
+    {
+        let (wealth_tx, _wealth_rx) = mpsc::channel();
+        khaloni_poe2::wealth::spawn(
+            cfg.account_name.clone(),
+            cfg.league.clone(),
+            cfg.poesessid.clone(),
+            svc.clone(),
+            wealth_tx,
+        );
     }
 
     // Hover price check: the Injector runs a uinput virtual keyboard on
@@ -782,6 +814,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                         (title, q, labels, true)
                     }
                     AppraiseReq::Exact { title, query } => (title, query, Vec::new(), false),
+                    AppraiseReq::Upgrade(item) => {
+                        let q = khaloni_poe2_core::trade::build_upgrade_query(&item, &stats);
+                        let title = khaloni_poe2_core::trade::upgrade_title(&item);
+                        (title, q, Vec::new(), false)
+                    }
                     AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
                 let searched = if relaxed {
@@ -1315,6 +1352,9 @@ fn overlay_mode() -> anyhow::Result<()> {
     // for search typing / scrolling.
     let mut ref_panel: Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))> = None;
     let mut lvl_panel: Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))> = None;
+    // Last zone seen in the game log, applied when the leveling panel opens
+    // so it comes up already pointing at where the player is.
+    let mut last_zone: Option<String> = None;
     // An in-progress panel drag: (grab point in surface px, panel's global
     // position when the grab began). Deliberately NOT persisted anywhere, so
     // each new price check reopens the panel at its freshly-placed spot.
@@ -1414,6 +1454,25 @@ fn overlay_mode() -> anyhow::Result<()> {
                 khaloni_poe2::tray::TrayEvent::Quit => return Ok(()),
             }
         }
+        // Zone changes advance the leveling panel (open now, or on next
+        // open via last_zone). Whispers/joins go unused — the whisper
+        // queue was deliberately cut.
+        while let Ok(ev) = log_rx.try_recv() {
+            if let khaloni_poe2_core::gamelog::LogEvent::ZoneEnter(zone) = ev {
+                if let Some((p, _)) = lvl_panel.as_mut() {
+                    if khaloni_poe2::leveling_ui::advance_to_zone(p, &zone) {
+                        if let Some(dir) = Config::path().parent() {
+                            let _ = khaloni_poe2::leveling_ui::save_done(dir, &p.done);
+                        }
+                    }
+                }
+                last_zone = Some(zone);
+            }
+        }
+        while let Ok(alert) = alert_rx.try_recv() {
+            let khaloni_poe2::livesearch::Alert::NewListings { search, count } = alert;
+            hover.show_note(&format!("{search}: {count} new listing(s)"));
+        }
         while let Ok(hk) = hk_rx.try_recv() {
             match hk {
                 khaloni_poe2::platform::Hotkey::OverlayToggle => {
@@ -1487,7 +1546,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                                 .parent()
                                 .map(khaloni_poe2::leveling_ui::load_done)
                                 .unwrap_or_default();
-                            let p = khaloni_poe2::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
+                            let mut p = khaloni_poe2::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
+                            if let Some(z) = &last_zone {
+                                let _ = khaloni_poe2::leveling_ui::advance_to_zone(&mut p, z);
+                            }
                             let pos = (game_pos.0 + (game.w as i32) / 2 + 40, game_pos.1 + 140);
                             lvl_panel = Some((p, pos));
                         }
@@ -1516,6 +1578,13 @@ fn overlay_mode() -> anyhow::Result<()> {
                                 inj.submit(action_tx.clone(), 300);
                             }
                         }
+                    } else if id == "upgrade" {
+                        if let Some(inj) = &injector {
+                            if pending_action.is_none() {
+                                pending_action = Some(PendingAction::UpgradeCheck);
+                                inj.submit(action_tx.clone(), 300);
+                            }
+                        }
                     }
                 }
             }
@@ -1524,10 +1593,22 @@ fn overlay_mode() -> anyhow::Result<()> {
         // Drain copy-hovered action results (resource shortcuts, map analysis).
         while let Ok(result) = action_rx.try_recv() {
             let action = pending_action.take();
-            if let (Some(PendingAction::Shortcut(i)), Ok(text)) = (action, result) {
-                if let Some(sc) = cfg.resource_shortcuts.get(i) {
-                    open_resource(&sc.url, &text);
+            match (action, result) {
+                (Some(PendingAction::Shortcut(i)), Ok(text)) => {
+                    if let Some(sc) = cfg.resource_shortcuts.get(i) {
+                        open_resource(&sc.url, &text);
+                    }
                 }
+                (Some(PendingAction::UpgradeCheck), Ok(text)) => {
+                    match khaloni_poe2_core::item::parse_item(&text) {
+                        Ok(item) => {
+                            hover.show_note("searching upgrades...");
+                            let _ = appraise_req_tx.send(AppraiseReq::Upgrade(item));
+                        }
+                        Err(_) => hover.show_note("hover an equipped item first"),
+                    }
+                }
+                _ => {}
             }
         }
 

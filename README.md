@@ -131,8 +131,12 @@ the binary directly works except the hotkeys.
 | F7  | Price the item under the cursor |
 | F8  | Overlay on or off |
 | F9  | In-overlay reference search (affixes, bases, uniques, gems, keystones, currencies, more) |
-| F10 | In-overlay leveling checklist (act-by-act, progress persists) |
+| F10 | In-overlay leveling checklist (act-by-act, progress persists, auto-advances from the game log) |
 | F12 | Open the settings window |
+
+An optional upgrade-check hotkey (set it in Settings) searches the trade
+site for strictly-better versions of the hovered equipped item: same item
+class, every mod meets-or-beats your current roll, cheapest first.
 
 Panel detection, focus pausing, and price freshness are automatic; F8 is
 the manual override, and it stops the pipeline too, not just the drawing.
@@ -147,6 +151,13 @@ icon's "Open Settings", or `khaloni-poe2 --settings` all open it. Changes save
 automatically and apply to the running overlay within a second (hotkey
 changes need a relaunch). The tray icon (Plasma system tray) also toggles
 the overlay, pauses pricing, and quits.
+
+The Waystones section also builds stash-search regexes from your reward
+mods (with the 50-character in-game limit enforced), and the Account
+section holds the optional POESESSID-backed features: live-search alerts
+(saved trade searches polled in the background, new listings raise an
+overlay note) and a stash wealth tracker. The session cookie stays local
+and is only ever sent to pathofexile.com.
 
 The config file behind the window is `~/.config/khaloni-poe2/config.toml`;
 one field is file-only on purpose: `restore_token` (screencast portal
