@@ -117,9 +117,10 @@ enum Section {
     MacrosShortcuts,
     Waystones,
     Account,
+    Updates,
 }
 
-const SECTIONS: [(Section, &str); 7] = [
+const SECTIONS: [(Section, &str); 8] = [
     (Section::Hotkeys, "Hotkeys"),
     (Section::Display, "Display"),
     (Section::Pricing, "Pricing"),
@@ -127,6 +128,7 @@ const SECTIONS: [(Section, &str); 7] = [
     (Section::MacrosShortcuts, "Macros & Shortcuts"),
     (Section::Waystones, "Waystones"),
     (Section::Account, "Account"),
+    (Section::Updates, "Updates"),
 ];
 
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -152,6 +154,8 @@ struct SettingsApp {
     stash_selected: BTreeSet<String>,
     /// Change detection: Config has no PartialEq, but it serializes, so one
     /// toml snapshot per frame catches every widget edit in one place.
+    /// Update check/install state, driven by background threads.
+    updates: crate::settings_update::UpdateUi,
     /// Wealth snapshots loaded once at window start (display only).
     wealth_history: Vec<crate::wealth::WealthSnapshot>,
     last_serialized: String,
@@ -199,6 +203,7 @@ impl SettingsApp {
             mods,
             suggest: None,
             stash_selected: BTreeSet::new(),
+            updates: crate::settings_update::UpdateUi::default(),
             wealth_history: crate::wealth::load_history(10),
             last_serialized,
             last_edit: Instant::now(),
@@ -298,8 +303,10 @@ impl eframe::App for SettingsApp {
             suggest,
             stash_selected,
             wealth_history,
+            updates,
             ..
         } = self;
+        updates.poll();
         let mod_list = mods.lock().unwrap().clone();
         let tier_ok = model.tier_valid();
         let brightness_ok = model.brightness_valid();
@@ -316,6 +323,9 @@ impl eframe::App for SettingsApp {
                         section_capture_ocr(ui, cfg, brightness_ok)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
+                    Section::Updates => {
+                        crate::settings_update::section_updates(ui, cfg, updates)
+                    }
                     Section::Account => {
                         crate::settings_account::section_account(ui, cfg, wealth_history)
                     }

@@ -124,6 +124,18 @@ entry and starts the app in a systemd scope because the global shortcuts
 portal refuses to bind hotkeys for a process without an app id; running
 the binary directly works except the hotkeys.
 
+## Updates
+
+The app checks this project's GitHub releases on startup and, when a newer
+version exists, says so once in the overlay. Nothing downloads or changes
+on its own: Settings has an Updates section with the current version, a
+"Check now" button, and an install button that appears only when there is
+something to install. Downloads are verified against the release's
+published SHA-256 before anything is written, and the new binary takes
+effect the next time you start the app — an overlay never swaps itself out
+mid-game. The startup check can be turned off there too, and self-update is
+disabled automatically when running from a `cargo` build directory.
+
 ## Hotkeys
 
 | Key | Action |

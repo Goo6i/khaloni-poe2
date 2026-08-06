@@ -145,6 +145,10 @@ pub struct Config {
     pub map_danger_needles: Vec<String>,
     #[serde(default)]
     pub map_good_needles: Vec<String>,
+    /// Check GitHub releases for a newer version at startup. The check is
+    /// report-only; installing is always an explicit action.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
     /// Path of Exile 2's Client.txt; None resolves the default Steam
     /// location per OS. Drives leveling auto-advance (zone detection).
     #[serde(default)]

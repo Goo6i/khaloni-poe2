@@ -39,10 +39,15 @@ jobs:
           cp app/khaloni-poe2-launch dist/khaloni-poe2/
           cp README.md dist/khaloni-poe2/
           tar -C dist -czf "khaloni-poe2-${TAG}-linux-x86_64.tar.gz" khaloni-poe2
+          # The self-updater swaps only the executable, so publish it bare
+          # alongside the archive (archives stay the fresh-install path).
+          cp target/release/khaloni-poe2 "khaloni-poe2-${TAG}-linux-x86_64"
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: khaloni-poe2-*.tar.gz
+          files: |
+            khaloni-poe2-*.tar.gz
+            khaloni-poe2-*-linux-x86_64
           draft: false
 
   windows:
@@ -93,8 +98,36 @@ jobs:
           Copy-Item target/release/khaloni-poe2.exe dist/khaloni-poe2/
           Copy-Item README.md dist/khaloni-poe2/
           Compress-Archive -Path dist/khaloni-poe2 -DestinationPath "khaloni-poe2-$env:TAG-windows-x86_64.zip"
+          Copy-Item target/release/khaloni-poe2.exe "khaloni-poe2-$env:TAG-windows-x86_64.exe"
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: khaloni-poe2-*.zip
+          files: |
+            khaloni-poe2-*.zip
+            khaloni-poe2-*-windows-x86_64.exe
+          draft: false
+
+  # Hashes the published binaries themselves (not local copies), so the
+  # SHA256SUMS the updater verifies against always describes the exact
+  # bytes GitHub serves. Runs last because it needs both platform assets.
+  checksums:
+    name: Publish checksums
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hash the released binaries
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p sums && cd sums
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "khaloni-poe2-*-linux-x86_64" \
+            --pattern "khaloni-poe2-*-windows-x86_64.exe"
+          sha256sum khaloni-poe2-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: sums/SHA256SUMS
           draft: false

@@ -21,6 +21,8 @@ use khaloni_poe2::{
 use khaloni_poe2_core::ninja::NinjaClient;
 
 fn main() {
+    // Remove the binary a previous self-update replaced, if any.
+    khaloni_poe2::update::cleanup_backup();
     // Without a console (GUI subsystem, or a menu launch), diagnostics
     // must survive somewhere findable: on Windows stderr/stdout are
     // rebound to last-run.log in the cache dir (Linux menu launches
@@ -655,6 +657,13 @@ fn overlay_mode() -> anyhow::Result<()> {
             khaloni_poe2::gamelog_tail::spawn(p, log_tx);
         }
         None => eprintln!("game log not found; leveling auto-advance off (set client_log_path)"),
+    }
+    // Update check: report-only, background, silent on failure.
+    let (update_tx, update_rx) = mpsc::channel();
+    // Dev builds check too (knowing is useful, and it is read-only);
+    // only INSTALLING is refused there, in update::apply.
+    if cfg.check_updates {
+        khaloni_poe2::update::spawn_check(update_tx);
     }
     // Live-search alerts + wealth snapshots: both no-op without credentials.
     let (alert_tx, alert_rx) = mpsc::channel();
@@ -1468,6 +1477,11 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
                 last_zone = Some(zone);
             }
+        }
+        while let Ok(u) = update_rx.try_recv() {
+            // One passive note; installing lives in the settings window so
+            // an update never interrupts play.
+            hover.show_note(&format!("{} available — see Settings", u.version));
         }
         while let Ok(alert) = alert_rx.try_recv() {
             let khaloni_poe2::livesearch::Alert::NewListings { search, count } = alert;
