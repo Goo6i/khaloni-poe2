@@ -62,3 +62,42 @@ fn only_github_hosts_are_downloadable() {
     assert!(!host_allowed("ftp://github.com/x"));
     assert!(!host_allowed(""));
 }
+
+#[test]
+fn understands_a_real_published_release() {
+    // The actual GitHub payload for the v0.2.1 release (captured live), so
+    // a workflow change that stops publishing bare binaries or SHA256SUMS
+    // fails here instead of silently disabling everyone's updates.
+    let body: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/release_latest.json")).unwrap();
+
+    let plan = khaloni_poe2::update::plan_from_release(&body, "0.2.0")
+        .expect("an older build must see this release as an update");
+    assert_eq!(plan.version, "v0.2.1");
+    // The bare binary, never the archive, and always over a GitHub host.
+    assert!(!plan.asset_name.ends_with(".zip") && !plan.asset_name.ends_with(".tar.gz"));
+    assert!(plan.asset_url.starts_with("https://github.com/Goo6i/khaloni-poe2/releases/download/"));
+    assert!(plan.sums_url.ends_with("/SHA256SUMS"));
+
+    // Same version, and a newer one, both offer nothing.
+    assert_eq!(khaloni_poe2::update::plan_from_release(&body, "0.2.1"), None);
+    assert_eq!(khaloni_poe2::update::plan_from_release(&body, "9.9.9"), None);
+}
+
+#[test]
+fn a_release_without_checksums_offers_nothing() {
+    // Exactly the half-published state this project hit when the checksums
+    // job lost its runner: binaries up, SHA256SUMS missing. An updater that
+    // installed from it would be installing unverified bytes.
+    let body: serde_json::Value = serde_json::json!({
+        "tag_name": "v9.0.0",
+        "html_url": "https://github.com/Goo6i/khaloni-poe2/releases/tag/v9.0.0",
+        "assets": [
+            {"name": "khaloni-poe2-v9.0.0-linux-x86_64",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-linux-x86_64"},
+            {"name": "khaloni-poe2-v9.0.0-windows-x86_64.exe",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-windows-x86_64.exe"}
+        ]
+    });
+    assert_eq!(khaloni_poe2::update::plan_from_release(&body, "0.2.1"), None);
+}

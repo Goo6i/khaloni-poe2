@@ -130,44 +130,40 @@ fn http() -> anyhow::Result<reqwest::blocking::Client> {
         .build()?)
 }
 
-/// Asks GitHub for the latest release; `Ok(None)` when this build is
-/// current, when the release lacks the pieces needed to install safely, or
-/// when the tag is not parseable.
-pub fn check() -> anyhow::Result<Option<Update>> {
-    let client = http()?;
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let body: serde_json::Value = client.get(&url).send()?.error_for_status()?.json()?;
+/// What a release offers this build, before any bytes are fetched: the
+/// parsing half of `check`, split out so it is unit-testable against a
+/// real captured release payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Plan {
+    pub version: String,
+    pub notes_url: String,
+    pub asset_url: String,
+    pub asset_name: String,
+    pub sums_url: String,
+}
 
-    let tag = body.get("tag_name").and_then(|v| v.as_str()).unwrap_or_default();
-    if !is_newer(CURRENT, tag) {
-        return Ok(None);
+/// Reads a GitHub "latest release" payload. `None` when `current` is
+/// already up to date, when no raw binary exists for this platform, or
+/// when the release publishes no checksums to verify against.
+pub fn plan_from_release(body: &serde_json::Value, current: &str) -> Option<Plan> {
+    let tag = body.get("tag_name")?.as_str()?;
+    if !is_newer(current, tag) {
+        return None;
     }
-    let assets = body.get("assets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    let names: Vec<&str> =
-        assets.iter().filter_map(|a| a.get("name").and_then(|n| n.as_str())).collect();
-    let Some(asset_name) = pick_asset(names).map(str::to_string) else {
-        return Ok(None); // no raw binary for this platform in that release
-    };
-    let find_url = |want: &str| -> Option<String> {
+    let assets = body.get("assets")?.as_array()?;
+    let names: Vec<&str> = assets.iter().filter_map(|a| a.get("name")?.as_str()).collect();
+    let asset_name = pick_asset(names)?.to_string();
+    let url_of = |want: &str| -> Option<String> {
         assets.iter().find_map(|a| {
-            (a.get("name").and_then(|n| n.as_str())? == want)
+            (a.get("name")?.as_str()? == want)
                 .then(|| a.get("browser_download_url")?.as_str().map(str::to_string))
                 .flatten()
         })
     };
-    let Some(asset_url) = find_url(&asset_name).filter(|u| host_allowed(u)) else {
-        return Ok(None);
-    };
+    let asset_url = url_of(&asset_name).filter(|u| host_allowed(u))?;
     // Unverifiable download = no update offered, by design.
-    let Some(sums_url) = find_url("SHA256SUMS").filter(|u| host_allowed(u)) else {
-        return Ok(None);
-    };
-    let sums = client.get(&sums_url).send()?.error_for_status()?.text()?;
-    let Some(sha256) = sha_for(&sums, &asset_name) else {
-        return Ok(None);
-    };
-
-    Ok(Some(Update {
+    let sums_url = url_of("SHA256SUMS").filter(|u| host_allowed(u))?;
+    Some(Plan {
         version: tag.to_string(),
         notes_url: body
             .get("html_url")
@@ -176,6 +172,29 @@ pub fn check() -> anyhow::Result<Option<Update>> {
             .to_string(),
         asset_url,
         asset_name,
+        sums_url,
+    })
+}
+
+/// Asks GitHub for the latest release; `Ok(None)` when this build is
+/// current, when the release lacks the pieces needed to install safely, or
+/// when the tag is not parseable.
+pub fn check() -> anyhow::Result<Option<Update>> {
+    let client = http()?;
+    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+    let body: serde_json::Value = client.get(&url).send()?.error_for_status()?.json()?;
+    let Some(plan) = plan_from_release(&body, CURRENT) else {
+        return Ok(None);
+    };
+    let sums = client.get(&plan.sums_url).send()?.error_for_status()?.text()?;
+    let Some(sha256) = sha_for(&sums, &plan.asset_name) else {
+        return Ok(None);
+    };
+    Ok(Some(Update {
+        version: plan.version,
+        notes_url: plan.notes_url,
+        asset_url: plan.asset_url,
+        asset_name: plan.asset_name,
         sha256,
     }))
 }
