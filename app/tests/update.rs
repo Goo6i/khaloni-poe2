@@ -101,3 +101,45 @@ fn a_release_without_checksums_offers_nothing() {
     });
     assert_eq!(khaloni_poe2::update::plan_from_release(&body, "0.2.1"), None);
 }
+
+#[test]
+fn per_asset_checksum_files_are_read_in_both_shapes() {
+    use khaloni_poe2::update::sha_from_file;
+    let h = "c".repeat(64);
+    // A bare digest (what many tools emit) …
+    assert_eq!(sha_from_file(&format!("{h}\n"), "khaloni-poe2-v1-linux-x86_64"), Some(h.clone()));
+    // … and a sha256sum line naming the asset.
+    assert_eq!(
+        sha_from_file(&format!("{h}  khaloni-poe2-v1-linux-x86_64\n"), "khaloni-poe2-v1-linux-x86_64"),
+        Some(h.clone())
+    );
+    // Uppercase is normalized; junk and wrong names still yield nothing.
+    assert_eq!(sha_from_file(&h.to_uppercase(), "x"), Some(h));
+    assert_eq!(sha_from_file("not a hash", "x"), None);
+    assert_eq!(sha_from_file(&format!("{}  other-asset\n", "d".repeat(64)), "x"), None);
+}
+
+#[test]
+fn per_asset_checksum_wins_over_the_combined_file() {
+    // Both present: the file published by the same job that built the
+    // binary is the one to trust.
+    let body: serde_json::Value = serde_json::json!({
+        "tag_name": "v9.0.0",
+        "assets": [
+            {"name": "khaloni-poe2-v9.0.0-linux-x86_64",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-linux-x86_64"},
+            {"name": "khaloni-poe2-v9.0.0-linux-x86_64.sha256",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-linux-x86_64.sha256"},
+            {"name": "khaloni-poe2-v9.0.0-windows-x86_64.exe",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-windows-x86_64.exe"},
+            {"name": "khaloni-poe2-v9.0.0-windows-x86_64.exe.sha256",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/khaloni-poe2-v9.0.0-windows-x86_64.exe.sha256"},
+            {"name": "SHA256SUMS",
+             "browser_download_url": "https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/SHA256SUMS"}
+        ]
+    });
+    let plan = khaloni_poe2::update::plan_from_release(&body, "0.2.1").expect("newer release");
+    assert_eq!(plan.sums_url, format!("https://github.com/Goo6i/khaloni-poe2/releases/download/v9.0.0/{}.sha256", plan.asset_name));
+    // The .sha256 sidecar must never be mistaken for the binary itself.
+    assert!(!plan.asset_name.ends_with(".sha256"));
+}

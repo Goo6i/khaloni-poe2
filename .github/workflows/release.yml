@@ -42,17 +42,27 @@ jobs:
           # The self-updater swaps only the executable, so publish it bare
           # alongside the archive (archives stay the fresh-install path).
           cp target/release/khaloni-poe2 "khaloni-poe2-${TAG}-linux-x86_64"
+          # Published by this job, not a separate one: a third job needing
+          # its own hosted runner failed to be scheduled three releases
+          # running ("not acquired by Runner of type hosted").
+          sha256sum "khaloni-poe2-${TAG}-linux-x86_64" > "khaloni-poe2-${TAG}-linux-x86_64.sha256"
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             khaloni-poe2-*.tar.gz
             khaloni-poe2-*-linux-x86_64
+            khaloni-poe2-*-linux-x86_64.sha256
           draft: false
 
   windows:
     name: Windows zip
     runs-on: windows-latest
+    # Serialized after linux only so this job can compose the combined
+    # SHA256SUMS from both platforms' checksums without needing a third
+    # hosted runner (which GitHub failed to schedule three attempts
+    # running). Costs ~10 min of release latency; windows is the long pole.
+    needs: linux
     steps:
       - uses: actions/checkout@v4
 
@@ -99,35 +109,32 @@ jobs:
           Copy-Item README.md dist/khaloni-poe2/
           Compress-Archive -Path dist/khaloni-poe2 -DestinationPath "khaloni-poe2-$env:TAG-windows-x86_64.zip"
           Copy-Item target/release/khaloni-poe2.exe "khaloni-poe2-$env:TAG-windows-x86_64.exe"
+          $asset = "khaloni-poe2-$env:TAG-windows-x86_64.exe"
+          $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$hash  $asset" | Out-File -Encoding ascii "$asset.sha256"
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             khaloni-poe2-*.zip
             khaloni-poe2-*-windows-x86_64.exe
+            khaloni-poe2-*-windows-x86_64.exe.sha256
           draft: false
 
-  # Hashes the published binaries themselves (not local copies), so the
-  # SHA256SUMS the updater verifies against always describes the exact
-  # bytes GitHub serves. Runs last because it needs both platform assets.
-  checksums:
-    name: Publish checksums
-    needs: [linux, windows]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Hash the released binaries
+      # Clients released before per-asset .sha256 files existed (v0.2.1)
+      # look for a combined SHA256SUMS, so keep publishing one. Composed
+      # here, in the job that finishes last, from both sidecars.
+      - name: Publish combined SHA256SUMS
+        shell: pwsh
         env:
           TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p sums && cd sums
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "khaloni-poe2-*-linux-x86_64" \
-            --pattern "khaloni-poe2-*-windows-x86_64.exe"
-          sha256sum khaloni-poe2-* > SHA256SUMS
-          cat SHA256SUMS
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: sums/SHA256SUMS
-          draft: false
+          New-Item -ItemType Directory -Force sums | Out-Null
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --pattern "*-linux-x86_64.sha256" --dir sums
+          $linux = Get-Content (Get-ChildItem sums/*-linux-x86_64.sha256 | Select-Object -First 1).FullName
+          $winAsset = "khaloni-poe2-$env:TAG-windows-x86_64.exe"
+          $windows = Get-Content "$winAsset.sha256"
+          @($linux, $windows) | Out-File -Encoding ascii sums/SHA256SUMS
+          Get-Content sums/SHA256SUMS
+          gh release upload $env:TAG sums/SHA256SUMS --repo $env:GITHUB_REPOSITORY --clobber

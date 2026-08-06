@@ -90,6 +90,18 @@ pub fn pick_asset<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<&'a st
     })
 }
 
+/// The hash from a per-asset checksum file: either a bare 64-hex digest
+/// or a `sha256sum` line naming the asset. Per-asset files are what the
+/// release jobs publish now (each alongside the binary it built), which
+/// needs no third CI job to coordinate.
+pub fn sha_from_file(text: &str, asset: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.len() == 64 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(trimmed.to_lowercase());
+    }
+    sha_for(text, asset)
+}
+
 /// The hash for `asset` from a `sha256sum`-style file ("<hex>  <name>").
 pub fn sha_for(sums: &str, asset: &str) -> Option<String> {
     sums.lines().find_map(|line| {
@@ -161,8 +173,12 @@ pub fn plan_from_release(body: &serde_json::Value, current: &str) -> Option<Plan
         })
     };
     let asset_url = url_of(&asset_name).filter(|u| host_allowed(u))?;
-    // Unverifiable download = no update offered, by design.
-    let sums_url = url_of("SHA256SUMS").filter(|u| host_allowed(u))?;
+    // Unverifiable download = no update offered, by design. Prefer the
+    // per-asset checksum its own build job publishes; fall back to a
+    // combined SHA256SUMS so releases made before that change still work.
+    let sums_url = url_of(&format!("{asset_name}.sha256"))
+        .or_else(|| url_of("SHA256SUMS"))
+        .filter(|u| host_allowed(u))?;
     Some(Plan {
         version: tag.to_string(),
         notes_url: body
@@ -187,7 +203,7 @@ pub fn check() -> anyhow::Result<Option<Update>> {
         return Ok(None);
     };
     let sums = client.get(&plan.sums_url).send()?.error_for_status()?.text()?;
-    let Some(sha256) = sha_for(&sums, &plan.asset_name) else {
+    let Some(sha256) = sha_from_file(&sums, &plan.asset_name) else {
         return Ok(None);
     };
     Ok(Some(Update {
