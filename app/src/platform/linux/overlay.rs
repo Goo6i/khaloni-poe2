@@ -51,6 +51,14 @@ struct App {
     button_down: bool,
     /// Editing keystrokes, drained by the main loop while a box is focused.
     keys: Vec<Key>,
+    /// Key currently held for synthetic repeat: its raw code (to match the
+    /// release event), the mapped key, and when it next fires. Wayland
+    /// delivers exactly one press per physical press, so holding Backspace
+    /// only streams deletes if the client synthesizes the repeats itself.
+    held: Option<(u32, Key, std::time::Instant)>,
+    /// Compositor-announced repeat timing (initial delay, then interval);
+    /// None when the compositor disabled repeat.
+    repeat: Option<(std::time::Duration, std::time::Duration)>,
     exit: bool,
 }
 
@@ -89,6 +97,12 @@ impl Overlay {
             pointer_pos: (0, 0),
             button_down: false,
             keys: Vec::new(),
+            held: None,
+            // Sane defaults until the compositor announces its own timing.
+            repeat: Some((
+                std::time::Duration::from_millis(400),
+                std::time::Duration::from_millis(35),
+            )),
             exit: false,
         };
 
@@ -175,8 +189,18 @@ impl Overlay {
         self.app.button_down
     }
 
-    /// Drains editing keystrokes received since the last call.
+    /// Drains editing keystrokes received since the last call, including
+    /// synthetic repeats for a held key (Wayland sends one press only).
     pub fn take_keys(&mut self) -> Vec<Key> {
+        if let (Some((_, key, next)), Some((_, interval))) =
+            (&mut self.app.held, self.app.repeat)
+        {
+            let now = std::time::Instant::now();
+            while *next <= now {
+                self.app.keys.push(*key);
+                *next += interval;
+            }
+        }
         std::mem::take(&mut self.app.keys)
     }
 
@@ -382,6 +406,7 @@ impl KeyboardHandler for App {
         _: &wl_surface::WlSurface,
         _: u32,
     ) {
+        self.held = None;
     }
     fn press_key(
         &mut self,
@@ -409,6 +434,16 @@ impl KeyboardHandler for App {
                 }
             }
         }
+        // Arm the repeat with whatever the press produced. Enter and Escape
+        // stay single-shot: repeating a commit or a close is never what
+        // holding the key means.
+        if let Some(&k) = self.keys.last() {
+            if !matches!(k, Key::Enter | Key::Escape) {
+                if let Some((delay, _)) = self.repeat {
+                    self.held = Some((event.raw_code, k, std::time::Instant::now() + delay));
+                }
+            }
+        }
     }
     fn release_key(
         &mut self,
@@ -416,9 +451,29 @@ impl KeyboardHandler for App {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: KeyEvent,
+        event: KeyEvent,
     ) {
+        if self.held.as_ref().is_some_and(|(rc, _, _)| *rc == event.raw_code) {
+            self.held = None;
+        }
     }
+    fn update_repeat_info(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        info: smithay_client_toolkit::seat::keyboard::RepeatInfo,
+    ) {
+        use smithay_client_toolkit::seat::keyboard::RepeatInfo;
+        self.repeat = match info {
+            RepeatInfo::Repeat { rate, delay } => Some((
+                std::time::Duration::from_millis(u64::from(delay)),
+                std::time::Duration::from_secs(1) / rate.get(),
+            )),
+            RepeatInfo::Disable => None,
+        };
+    }
+
     fn update_modifiers(
         &mut self,
         _: &Connection,

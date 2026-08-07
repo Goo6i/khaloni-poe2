@@ -727,7 +727,18 @@ pub fn build_query_with_labels(
 /// Results come back cheapest-first without any extra step here:
 /// `Query::to_body` always emits `"sort": {"price": "asc"}`.
 pub fn build_upgrade_query(item: &crate::item::Item, stats: &StatIndex) -> Query {
+    build_upgrade_query_with_labels(item, stats).0
+}
+
+/// Like [`build_upgrade_query`], but also returns one label per filter so
+/// the result seeds an interactive panel: the upgrade search's thresholds
+/// are exactly the rows a user wants to raise before searching again.
+pub fn build_upgrade_query_with_labels(
+    item: &crate::item::Item,
+    stats: &StatIndex,
+) -> (Query, Vec<FilterLabel>) {
     let mut filters: Vec<StatFilter> = Vec::new();
+    let mut labels: Vec<FilterLabel> = Vec::new();
     for m in &item.explicits {
         if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
             continue;
@@ -742,16 +753,25 @@ pub fn build_upgrade_query(item: &crate::item::Item, stats: &StatIndex) -> Query
             value: FilterValue { min, max: None },
             disabled: false,
         });
+        labels.push(FilterLabel {
+            text: strip_range_annotations(&m.text),
+            tier: m.header.as_ref().and_then(|h| h.tier),
+            min: min as i64,
+            tag: "explicit",
+        });
     }
-    Query {
-        category: category_for(&item.item_class),
-        category_enabled: true,
-        type_name: None,
-        map_tier: None,
-        gem_level: None,
-        weapon: None,
-        filters,
-    }
+    (
+        Query {
+            category: category_for(&item.item_class),
+            category_enabled: true,
+            type_name: None,
+            map_tier: None,
+            gem_level: None,
+            weapon: None,
+            filters,
+        },
+        labels,
+    )
 }
 
 /// Panel/window title for an upgrade search, e.g. "upgrades: Bows".

@@ -1030,7 +1030,10 @@ fn overlay_mode(
                     }
                     continue;
                 }
-                let (title, q, labels, facts, relaxed) = match req {
+                // `relaxed` picks the search style (drop weakest filters on
+                // zero hits); `seeds_panel` says whether the response opens a
+                // fresh panel - Exact responses update the one already open.
+                let (title, q, labels, facts, relaxed, seeds_panel) = match req {
                     AppraiseReq::Auto(item) => {
                         let title = if item.name.is_empty() {
                             item.base_type.clone().unwrap_or_default()
@@ -1083,13 +1086,26 @@ fn overlay_mode(
                             weapon: khaloni_poe2_core::derived::weapon_stats(&item),
                             pseudo_rows,
                         };
-                        (title, q, labels, Some(facts), true)
+                        (title, q, labels, Some(facts), true, true)
                     }
-                    AppraiseReq::Exact { title, query } => (title, query, Vec::new(), None, false),
+                    AppraiseReq::Exact { title, query } => {
+                        (title, query, Vec::new(), None, false, false)
+                    }
                     AppraiseReq::Upgrade(item) => {
-                        let q = khaloni_poe2_core::trade::build_upgrade_query(&item, &stats);
+                        let (q, labels) =
+                            khaloni_poe2_core::trade::build_upgrade_query_with_labels(&item, &stats);
                         let title = khaloni_poe2_core::trade::upgrade_title(&item);
-                        (title, q, Vec::new(), None, false)
+                        // The panel seeds from this response like an Auto
+                        // one; without the query the result was silently
+                        // dropped on arrival and the hotkey looked dead.
+                        let facts = ItemFacts {
+                            rarity: rarity_label(&item.rarity),
+                            item_level: item.item_level,
+                            requires_level: requires_level(&item),
+                            weapon: khaloni_poe2_core::derived::weapon_stats(&item),
+                            pseudo_rows: Vec::new(),
+                        };
+                        (title, q, labels, Some(facts), false, true)
                     }
                     AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
@@ -1142,7 +1158,7 @@ fn overlay_mode(
                 let _ = tx.send(AppraiseDone {
                     title,
                     outcome,
-                    query: relaxed.then_some(q),
+                    query: seeds_panel.then_some(q),
                     labels,
                     facts,
                     search_id,
