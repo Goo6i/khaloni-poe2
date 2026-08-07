@@ -26,6 +26,9 @@ const BTN_H: i32 = 28;
 const BTN_GAP: i32 = 10;
 const LISTING_H: i32 = 22;
 const CLOSE: i32 = 20;
+/// Value-box height: heading line, the headline number, and the
+/// range/reliability line beneath it.
+const EST_H: i32 = 74;
 const LABEL_MIN_W: i32 = 150;
 const CHAR_W: i32 = 7;
 const WIDTH_MIN: i32 = 440;
@@ -53,12 +56,30 @@ pub struct BaseToggle {
     pub enabled: bool,
 }
 
+/// What the value box shows, pre-formatted so layout and drawing share
+/// exactly one source of truth for the strings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EstimateView {
+    /// e.g. "5.5" with `denom` carrying which orb icon to draw.
+    pub amount: String,
+    pub denom: crate::pricing::Denom,
+    /// e.g. "Range: 0.62-49 div  ·  from 23 listings".
+    pub detail: String,
+    /// "Very Low" … "High".
+    pub reliability: String,
+    /// True below Medium: the renderer paints the word red.
+    pub shaky: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Panel {
     pub title: String,
     pub base: Option<BaseToggle>,
     pub mods: Vec<ModRow>,
     pub listings: Vec<String>,
+    /// Headline value, spread, and confidence for the current listings.
+    /// None until a search returns something priceable.
+    pub estimate: Option<EstimateView>,
     pub status: String,
     pub search_id: Option<String>,
 }
@@ -106,6 +127,9 @@ pub struct Layout {
     pub close: Rect,
     pub status_pos: (i32, i32),
     pub listing_pos: Vec<(i32, i32)>,
+    /// The value box, when there is an estimate to show. Present above the
+    /// buttons so the answer sits between the filters and the actions.
+    pub estimate_box: Option<Rect>,
 }
 
 /// Formats a value-box number: whole numbers show without a decimal point
@@ -205,6 +229,12 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
         y += ROW_H;
     }
     y += 6;
+    // Value box: heading, big number, then the detail/reliability line.
+    let estimate_box = panel.estimate.as_ref().map(|_| {
+        let r = Rect { x: PAD, y, w: (w - PAD * 2) as u32, h: EST_H as u32 };
+        y += EST_H + 8;
+        r
+    });
     let buttons = vec![
         (Rect { x: PAD, y, w: 110, h: BTN_H as u32 }, Action::Search, "Search"),
         (Rect { x: PAD + 110 + BTN_GAP, y, w: 130, h: BTN_H as u32 }, Action::OpenSite, "Open site"),
@@ -226,6 +256,7 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
         close,
         status_pos,
         listing_pos,
+        estimate_box,
     }
 }
 
@@ -300,6 +331,7 @@ mod tests {
 
     fn panel(mods: Vec<ModRow>, nlist: usize) -> Panel {
         Panel {
+            estimate: None,
             title: "Horror Bane".into(),
             base: None,
             mods,
@@ -307,6 +339,30 @@ mod tests {
             status: String::new(),
             search_id: None,
         }
+    }
+
+    #[test]
+    fn the_value_box_only_takes_space_when_there_is_a_value() {
+        // No estimate: no box, and the panel is shorter by exactly the box.
+        let p = panel(vec![row(0, "explicit")], 2);
+        let bare = layout(&p, &|s| 7 * s.len() as i32);
+        assert!(bare.estimate_box.is_none());
+
+        let mut with = p.clone();
+        with.estimate = Some(EstimateView {
+            amount: "5.5".into(),
+            denom: crate::pricing::Denom::Divine,
+            detail: "Range: 0.62-49 div  -  from 23 listing(s)".into(),
+            reliability: "Very Low".into(),
+            shaky: true,
+        });
+        let lay = layout(&with, &|s| 7 * s.len() as i32);
+        let b = lay.estimate_box.expect("a value means a box");
+        assert!(lay.size.1 > bare.size.1, "the box must claim vertical space");
+        // Sits between the filters and the actions, inside the panel.
+        assert!(b.y > lay.rows[0].check.y, "box must follow the mod rows");
+        assert!(lay.buttons.iter().all(|(r, _, _)| r.y > b.y), "buttons follow the box");
+        assert!(b.x + b.w as i32 <= lay.size.0, "box must fit the panel width");
     }
 
     #[test]

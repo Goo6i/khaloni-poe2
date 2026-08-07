@@ -1,7 +1,7 @@
 //! Renders representative overlay elements to a PNG so the visual design can
 //! be reviewed without the game running. Not shipped; a dev aid.
 
-use khaloni_poe2::appraise_ui::{BaseToggle, ModRow, Panel};
+use khaloni_poe2::appraise_ui::{BaseToggle, EstimateView, ModRow, Panel};
 use khaloni_poe2::pricing::{Denom, Tier};
 use khaloni_poe2::render::{Placed, Renderer};
 use tiny_skia::{Color, Pixmap};
@@ -23,6 +23,13 @@ fn main() -> anyhow::Result<()> {
 
     // Appraisal panel: grouped implicit/explicit mods + base toggle + listings.
     let panel = Panel {
+        estimate: Some(EstimateView {
+            amount: "5.5".into(),
+            denom: Denom::Divine,
+            detail: "Range: 0.62-49 div  -  from 23 listing(s)".into(),
+            reliability: "Very Low".into(),
+            shaky: true,
+        }),
         title: "Horror Bane".into(),
         base: Some(BaseToggle { label: "Base: Expert Dualstring Bow".into(), enabled: true }),
         mods: vec![
@@ -37,8 +44,8 @@ fn main() -> anyhow::Result<()> {
     let lay = khaloni_poe2::appraise_ui::layout(&panel, &|s| r.appraisal_label_width(s));
     r.draw_appraisal(&mut pm, &panel, &lay, (360, 60), None, "");
 
-    let out = "/tmp/claude-1000/-home-mohammed/overlay-preview.png";
-    pm.save_png(out)?;
+    let out = std::env::args().nth(1).unwrap_or_else(|| "/tmp/overlay-preview.png".to_string());
+    pm.save_png(&out)?;
     eprintln!("wrote {out}");
     Ok(())
 }

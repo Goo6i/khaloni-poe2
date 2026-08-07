@@ -554,6 +554,53 @@ impl Renderer {
             let style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
             self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, line, &style);
         }
+        // Value box last so it sits over the panel fill: a bordered card
+        // with the heading, the headline number + orb icon, then the
+        // range/count line and a reliability word that turns red when the
+        // listings disagree too much to trust the number.
+        if let (Some(rect), Some(est)) = (&lay.estimate_box, &panel.estimate) {
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, panel_border());
+            let head = TextStyle { kind: FontKind::Annotation, px: OLD_PX, color: rgb(C_INK2) };
+            let center = |txt_w: f32| bx + (rect.w as f32 - txt_w) / 2.0;
+            let heading = "Estimated Value";
+            let hw = self.text_width(FontKind::Annotation, heading, OLD_PX);
+            self.draw_text(pm, center(hw), by + 16.0, heading, &head);
+
+            let big = TextStyle { kind: FontKind::Amount, px: AMOUNT_PX, color: rgb(C_GOLD) };
+            // No "~"/"≈" prefix: Fontin has neither glyph and renders a
+            // dash, which reads as a negative sign.
+            let amount = est.amount.clone();
+            let aw = self.text_width(FontKind::Amount, &amount, AMOUNT_PX);
+            let icon = self.icon_for(est.denom);
+            let iw = if icon.is_some() { ICON_GAP + ICON_SIZE as f32 } else { 0.0 };
+            let ax0 = center(aw + iw);
+            self.draw_text(pm, ax0, by + 42.0, &amount, &big);
+            if let Some(img) = icon {
+                self.composite_icon(
+                    pm,
+                    img,
+                    (ax0 + aw + ICON_GAP).round() as i32,
+                    (by + 42.0 - AMOUNT_PX * 0.75) as i32,
+                );
+            }
+
+            let detail = format!("{}   Reliability: {}", est.detail, est.reliability);
+            let dw = self.text_width(FontKind::Annotation, &detail, OLD_PX);
+            let dx = center(dw);
+            self.draw_text(pm, dx, by + 62.0, &est.detail, &head);
+            // The reliability word carries its own color, so it is drawn as
+            // a second run rather than as part of the detail string.
+            let lead = format!("{}   Reliability: ", est.detail);
+            let lw = self.text_width(FontKind::Annotation, &lead, OLD_PX);
+            let rel_style = TextStyle {
+                kind: FontKind::Annotation,
+                px: OLD_PX,
+                color: if est.shaky { rgb(C_RED) } else { rgb(C_INK) },
+            };
+            self.draw_text(pm, dx + self.text_width(FontKind::Annotation, &est.detail, OLD_PX), by + 62.0, "   Reliability: ", &head);
+            self.draw_text(pm, dx + lw, by + 62.0, &est.reliability, &rel_style);
+        }
     }
 
     /// Draws the reference-browser panel from the SAME layout the click

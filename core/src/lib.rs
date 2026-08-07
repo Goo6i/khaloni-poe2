@@ -1,3 +1,4 @@
+pub mod estimate;
 pub mod gamelog;
 pub mod item;
 pub mod mapmods;

@@ -271,6 +271,47 @@ fn sync_input_region(
     )
 }
 
+/// Formats a computed estimate for the panel's value box. Divine display
+/// kicks in on the same threshold the rest of the overlay uses, and the
+/// listing count is always shown: this is arithmetic over listings we
+/// actually fetched, not an opinion, and it should read that way.
+fn estimate_view(
+    est: &khaloni_poe2_core::estimate::Estimate,
+    table: &khaloni_poe2_core::ninja::PriceTable,
+    cfg: &Config,
+) -> khaloni_poe2::appraise_ui::EstimateView {
+    use khaloni_poe2_core::estimate::Reliability;
+    let div = table.lookup("Divine Orb").map(|p| p.exalted).filter(|v| *v > 0.0);
+    let fmt = |ex: f64| -> (String, khaloni_poe2::pricing::Denom) {
+        match div {
+            Some(rate) if ex / rate >= cfg.divine_threshold => (
+                khaloni_poe2_core::value::format_amount(ex / rate),
+                khaloni_poe2::pricing::Denom::Divine,
+            ),
+            _ => (khaloni_poe2_core::value::format_amount(ex), khaloni_poe2::pricing::Denom::Exalted),
+        }
+    };
+    let (amount, denom) = fmt(est.exalted);
+    let (lo, lo_d) = fmt(est.low);
+    let (hi, hi_d) = fmt(est.high);
+    let unit = |d: khaloni_poe2::pricing::Denom| match d {
+        khaloni_poe2::pricing::Denom::Divine => "div",
+        _ => "ex",
+    };
+    let range = if lo_d == hi_d {
+        format!("{lo}-{hi} {}", unit(hi_d))
+    } else {
+        format!("{lo} {} - {hi} {}", unit(lo_d), unit(hi_d))
+    };
+    khaloni_poe2::appraise_ui::EstimateView {
+        amount,
+        denom,
+        detail: format!("Range: {range}  -  from {} listing(s)", est.count),
+        reliability: est.reliability.label().to_string(),
+        shaky: est.reliability < Reliability::Medium,
+    }
+}
+
 /// Built-in map-mod seed rules plus the config's extra needles, lowercased.
 fn build_map_rules(cfg: &Config) -> Vec<khaloni_poe2_core::mapmods::ModRule> {
     let mut r = khaloni_poe2_core::mapmods::default_rules();
@@ -527,6 +568,9 @@ struct AppraiseDone {
     query: Option<khaloni_poe2_core::trade::Query>,
     labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
     search_id: Option<String>,
+    /// Computed from the listings this search actually returned (never a
+    /// model's opinion), or None when nothing priceable came back.
+    estimate: Option<khaloni_poe2_core::estimate::Estimate>,
 }
 
 /// The live overlay drives the Linux backends (and the Linux OCR stack)
@@ -856,12 +900,33 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     other => other.to_string(),
                 });
+                // Normalize every listing to exalted before estimating;
+                // listings priced in a currency the table does not carry
+                // are dropped rather than guessed at.
+                let estimate = outcome.as_ref().ok().and_then(|ls| {
+                    let table = &svc_gem.snapshot().table;
+                    let ex: Vec<f64> = ls
+                        .iter()
+                        .filter_map(|l| {
+                            if l.price_currency == "exalted" {
+                                Some(l.price_amount)
+                            } else {
+                                cur_id_to_name
+                                    .get(&l.price_currency)
+                                    .and_then(|n| table.lookup(n))
+                                    .map(|p| l.price_amount * p.exalted)
+                            }
+                        })
+                        .collect();
+                    khaloni_poe2_core::estimate::estimate(&ex)
+                });
                 let _ = tx.send(AppraiseDone {
                     title,
                     outcome,
                     query: relaxed.then_some(q),
                     labels,
                     search_id,
+                    estimate,
                 });
             }
         });
@@ -1743,11 +1808,16 @@ fn overlay_mode() -> anyhow::Result<()> {
                             enabled: query.category_enabled,
                         }
                     });
+                    let estimate = done
+                        .estimate
+                        .as_ref()
+                        .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
                     let panel = khaloni_poe2::appraise_ui::Panel {
                         title: done.title,
                         base,
                         mods,
                         listings,
+                        estimate,
                         status,
                         search_id: done.search_id,
                     };
@@ -1776,6 +1846,10 @@ fn overlay_mode() -> anyhow::Result<()> {
                 (None, Some((panel, _, _))) if panel.title == done.title => {
                     let (listings, status) = listings_of(&done.outcome);
                     panel.listings = listings;
+                    panel.estimate = done
+                        .estimate
+                        .as_ref()
+                        .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
                     panel.status = status;
                     if done.search_id.is_some() {
                         panel.search_id = done.search_id;
