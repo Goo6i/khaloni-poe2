@@ -11,4 +11,19 @@ fn main() {
     if os == "linux" || os == "windows" {
         println!("cargo::rustc-cfg=ocr");
     }
+    if os == "linux" {
+        // Steam runs launch options inside its legacy runtime, whose
+        // LD_LIBRARY_PATH pins ancient libraries (libcurl among them) that
+        // break the system libtesseract's version requirements — the
+        // loader then kills the process before main() runs, which is fatal
+        // for the --launch wrapper. DT_RPATH with old-style dtags outranks
+        // LD_LIBRARY_PATH, so the system library directories win no matter
+        // what environment Steam wraps around the binary. Both Arch- and
+        // Debian-family lib dirs are listed; entries that do not exist on
+        // a given distro are simply skipped.
+        println!("cargo::rustc-link-arg=-Wl,--disable-new-dtags");
+        println!(
+            "cargo::rustc-link-arg=-Wl,-rpath,/usr/lib/x86_64-linux-gnu:/usr/lib:/lib/x86_64-linux-gnu"
+        );
+    }
 }
