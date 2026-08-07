@@ -94,11 +94,14 @@ jobs:
           # VCPKG_ROOT; the runner image only exports VCPKG_INSTALLATION_ROOT.
           VCPKG_ROOT: C:\vcpkg
 
+      # The standard model, not tessdata_fast: every OCR threshold in this
+      # repo was tuned against this exact file, and the fast model misses
+      # rows the fixtures expect.
       - name: Fetch eng traineddata
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist/khaloni-poe2 | Out-Null
-          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata -OutFile dist/khaloni-poe2/eng.traineddata
+          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -OutFile dist/khaloni-poe2/eng.traineddata
 
       - name: Package
         shell: pwsh

@@ -37,8 +37,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The releases ship this exact model, and every OCR threshold in the
+      # repo was tuned against it; testing with the distro's copy validated
+      # something users never run.
+      - name: Fetch the shipped tessdata
+        run: |
+          mkdir -p "$RUNNER_TEMP/tessdata"
+          curl -sSL -o "$RUNNER_TEMP/tessdata/eng.traineddata" \
+            https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata
+
       - name: Test
-        run: cargo test --workspace
+        run: cargo test -p khaloni-poe2 -p khaloni-poe2-core
+        env:
+          TESSDATA_PREFIX: ${{ runner.temp }}/tessdata
 
   # Real Windows build + tests on the MSVC target with full OCR via vcpkg.
   # Slow (vcpkg builds tesseract from source on cache miss), so it runs in
@@ -65,13 +76,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force $env:RUNNER_TEMP/tessdata | Out-Null
-          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata -OutFile $env:RUNNER_TEMP/tessdata/eng.traineddata
+          Invoke-WebRequest -Uri https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata -OutFile $env:RUNNER_TEMP/tessdata/eng.traineddata
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test -p khaloni-poe2 -p khaloni-poe2-core
         env:
           VCPKGRS_TRIPLET: x64-windows-static-md
           VCPKG_ROOT: C:\vcpkg

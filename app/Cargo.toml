@@ -21,7 +21,6 @@ serde_json = "1"
 # on its own executor thread, and our workspace compiles zbus in tokio mode
 # (ashpd), which panics there without a reactor. No a11y tree until that
 # upstream combination is fixed.
-eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "wayland", "wgpu", "x11"] }
 sha2 = "0.11.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
@@ -41,6 +40,9 @@ path = "src/main.rs"
 # leptess: tesseract/leptonica link natively, so OCR is Linux-only until the
 # SP3 packaging task (see app/src/platform/windows/mod.rs).
 [target.'cfg(target_os = "linux")'.dependencies]
+# accesskit stays off: its AT-SPI bridge opens a zbus connection on its own
+# executor thread and panics without a tokio reactor (see settings_ui).
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "wayland", "x11", "wgpu"] }
 smithay-client-toolkit = "0.19"
 wayland-client = "0.31"
 pipewire = "0.10"
@@ -61,6 +63,9 @@ leptess = "0.14"
 leptess-stub = { path = "leptess-stub" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# No wayland/x11 features here: those pull wayland-sys, which does not
+# compile for windows targets.
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "wgpu"] }
 arboard = "3.6.1"
 global-hotkey = "0.8.0"
 softbuffer = "0.4.8"
