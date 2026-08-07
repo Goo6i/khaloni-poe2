@@ -572,6 +572,12 @@ struct ItemFacts {
     rarity: String,
     item_level: Option<u32>,
     requires_level: Option<u32>,
+    /// Computed DPS figures, present only when the item states an attack
+    /// rate (see core::derived).
+    weapon: Option<khaloni_poe2_core::derived::WeaponStats>,
+    /// Pseudo-total rows: label, the item's own total, and the index of
+    /// the disabled pseudo filter appended to the query for it.
+    pseudo_rows: Vec<(String, f64, usize)>,
 }
 
 struct AppraiseDone {
@@ -587,6 +593,27 @@ struct AppraiseDone {
     /// Computed from the listings this search actually returned (never a
     /// model's opinion), or None when nothing priceable came back.
     estimate: Option<khaloni_poe2_core::estimate::Estimate>,
+}
+
+/// Writes one weapon bound into the query, dropping the whole section when
+/// the last bound clears so an empty block never serializes.
+fn set_weapon_bound(
+    query: &mut khaloni_poe2_core::trade::Query,
+    bound: khaloni_poe2::evaluate_ui::WeaponBound,
+    min: Option<f64>,
+) {
+    use khaloni_poe2::evaluate_ui::WeaponBound as B;
+    let w = query.weapon.get_or_insert_with(Default::default);
+    *match bound {
+        B::Dps => &mut w.dps,
+        B::Pdps => &mut w.pdps,
+        B::Edps => &mut w.edps,
+        B::Crit => &mut w.crit,
+        B::Aps => &mut w.aps,
+    } = min;
+    if w.is_empty() {
+        query.weapon = None;
+    }
 }
 
 /// The rarity word the item text carried. `Rarity::Other` keeps whatever the
@@ -927,15 +954,52 @@ fn overlay_mode() -> anyhow::Result<()> {
                         } else {
                             item.name.clone()
                         };
+                        let (mut q, labels) =
+                            khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
+                        // Pseudo totals ride along as DISABLED filters: a
+                        // pseudo aggregates mods the query already filters
+                        // individually, and sending both over-constrains.
+                        // The user opts in from the panel.
+                        let pseudo = khaloni_poe2_core::derived::pseudo_totals(&item);
+                        let mut pseudo_rows = Vec::new();
+                        for (id, label, total) in [
+                            ("pseudo.pseudo_total_life", "Total Life", pseudo.total_life),
+                            (
+                                "pseudo.pseudo_total_energy_shield",
+                                "Total Energy Shield",
+                                pseudo.total_es,
+                            ),
+                            (
+                                "pseudo.pseudo_total_elemental_resistance",
+                                "Total Elemental Resistance",
+                                pseudo.total_elemental_resistance,
+                            ),
+                            (
+                                "pseudo.pseudo_total_attributes",
+                                "Total Attributes",
+                                pseudo.total_attributes,
+                            ),
+                        ] {
+                            if total <= 0.0 {
+                                continue;
+                            }
+                            if let Some(mut f) =
+                                khaloni_poe2_core::trade::pseudo_filter(&stats, id, total)
+                            {
+                                f.disabled = true;
+                                q.filters.push(f);
+                                pseudo_rows.push((label.to_string(), total, q.filters.len() - 1));
+                            }
+                        }
                         // Header facts are read here, while the parsed item
                         // still exists; the main loop never sees it.
                         let facts = ItemFacts {
                             rarity: rarity_label(&item.rarity),
                             item_level: item.item_level,
                             requires_level: requires_level(&item),
+                            weapon: khaloni_poe2_core::derived::weapon_stats(&item),
+                            pseudo_rows,
                         };
-                        let (q, labels) =
-                            khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
                         (title, q, labels, Some(facts), true)
                     }
                     AppraiseReq::Exact { title, query } => (title, query, Vec::new(), None, false),
@@ -1863,7 +1927,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     let affix_ix = reference
                         .get()
                         .map(|r| khaloni_poe2_core::refdata::affix_index(&r.affixes));
-                    let rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = done
+                    let mut rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = done
                         .labels
                         .iter()
                         .enumerate()
@@ -1900,7 +1964,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                                 min: f.value.min,
                                 max: f.value.max,
                                 enabled: !f.disabled,
-                                filter_index: Some(i),
+                                target: Some(khaloni_poe2::evaluate_ui::Target::Stat(i)),
                                 hidden: false,
                             })
                         })
@@ -1908,6 +1972,54 @@ fn overlay_mode() -> anyhow::Result<()> {
                     // Gear carries a base-type toggle so the user can search
                     // mods-only; items priced by their base (waystones, whose
                     // category is None) get no toggle.
+                    let facts = done.facts;
+                    // Weapon figures lead the card the way the tooltip's own
+                    // property block does; each is searchable as an
+                    // equipment_filters minimum, off until the user opts in.
+                    if let Some(w) = facts.as_ref().and_then(|f| f.weapon) {
+                        use khaloni_poe2::evaluate_ui::{StatRow, Target, WeaponBound};
+                        let head: Vec<StatRow> = [
+                            ("Physical DPS", w.phys_dps, WeaponBound::Pdps),
+                            ("Elemental DPS", w.ele_dps, WeaponBound::Edps),
+                            ("Chaos DPS", w.chaos_dps, WeaponBound::Dps),
+                            ("Total DPS", w.total_dps, WeaponBound::Dps),
+                            ("Critical Hit Chance", w.crit_chance, WeaponBound::Crit),
+                            ("Attacks per Second", w.aps, WeaponBound::Aps),
+                        ]
+                        .into_iter()
+                        .filter(|(_, v, _)| *v > 0.0)
+                        .map(|(label, value, bound)| StatRow {
+                            label: label.to_string(),
+                            badge: None,
+                            score: None,
+                            // One decimal: the box shows what would be
+                            // searched, and 420.75 as a bound reads as noise.
+                            min: (value * 10.0).round() / 10.0,
+                            max: None,
+                            enabled: false,
+                            target: Some(Target::Weapon(bound)),
+                            hidden: false,
+                        })
+                        .collect();
+                        rows.splice(0..0, head);
+                    }
+                    // Pseudo totals collapse behind "Show N more": they
+                    // duplicate mods already listed, so they earn a line
+                    // only when the user asks for them.
+                    for (label, total, fi) in
+                        facts.as_ref().map(|f| f.pseudo_rows.as_slice()).unwrap_or_default()
+                    {
+                        rows.push(khaloni_poe2::evaluate_ui::StatRow {
+                            label: label.clone(),
+                            badge: None,
+                            score: None,
+                            min: *total,
+                            max: None,
+                            enabled: false,
+                            target: Some(khaloni_poe2::evaluate_ui::Target::Stat(*fi)),
+                            hidden: true,
+                        });
+                    }
                     let base = query.category.as_deref().map(|c| {
                         khaloni_poe2::evaluate_ui::BaseToggle {
                             label: format!("Base: {}", pretty_category(c)),
@@ -1918,7 +2030,6 @@ fn overlay_mode() -> anyhow::Result<()> {
                         .estimate
                         .as_ref()
                         .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
-                    let facts = done.facts;
                     let panel = khaloni_poe2::evaluate_ui::Panel {
                         header: khaloni_poe2::evaluate_ui::ItemHeader {
                             name: done.title,
@@ -2014,13 +2125,19 @@ fn overlay_mode() -> anyhow::Result<()> {
                     Some(khaloni_poe2::evaluate_ui::Action::ToggleRow(i)) => {
                         if let Some(row) = panel.rows.get_mut(i) {
                             row.enabled = !row.enabled;
-                            // The row's checkbox and the query filter are one
-                            // state shown twice; they are written together so
-                            // they cannot disagree about what gets searched.
-                            if let Some(f) =
-                                row.filter_index.and_then(|fi| query.filters.get_mut(fi))
-                            {
-                                f.disabled = !row.enabled;
+                            // The row's checkbox and the query are one state
+                            // shown twice; they are written together so they
+                            // cannot disagree about what gets searched.
+                            match row.target {
+                                Some(khaloni_poe2::evaluate_ui::Target::Stat(fi)) => {
+                                    if let Some(f) = query.filters.get_mut(fi) {
+                                        f.disabled = !row.enabled;
+                                    }
+                                }
+                                Some(khaloni_poe2::evaluate_ui::Target::Weapon(b)) => {
+                                    set_weapon_bound(query, b, row.enabled.then_some(row.min));
+                                }
+                                None => {}
                             }
                         }
                     }
@@ -2227,7 +2344,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                         // The row is what was clicked; the filter behind it is
                         // what gets searched. Both are written from the one
                         // parse so the drawn box and the query cannot differ.
-                        let fi = panel.rows.get(row_i).and_then(|r| r.filter_index);
+                        let target = panel.rows.get(row_i).and_then(|r| r.target);
                         if let Some(row) = panel.rows.get_mut(row_i) {
                             match field {
                                 khaloni_poe2::evaluate_ui::Field::Min => {
@@ -2236,15 +2353,30 @@ fn overlay_mode() -> anyhow::Result<()> {
                                 khaloni_poe2::evaluate_ui::Field::Max => row.max = parsed,
                             }
                         }
-                        if let Some(f) = fi.and_then(|fi| query.filters.get_mut(fi)) {
-                            match field {
-                                khaloni_poe2::evaluate_ui::Field::Min => {
-                                    f.value.min = parsed.unwrap_or(0.0);
-                                }
-                                khaloni_poe2::evaluate_ui::Field::Max => {
-                                    f.value.max = parsed;
+                        match target {
+                            Some(khaloni_poe2::evaluate_ui::Target::Stat(fi)) => {
+                                if let Some(f) = query.filters.get_mut(fi) {
+                                    match field {
+                                        khaloni_poe2::evaluate_ui::Field::Min => {
+                                            f.value.min = parsed.unwrap_or(0.0);
+                                        }
+                                        khaloni_poe2::evaluate_ui::Field::Max => {
+                                            f.value.max = parsed;
+                                        }
+                                    }
                                 }
                             }
+                            // Weapon bounds are minimums only (hit() never
+                            // yields a Max edit for them), and only a row
+                            // that is switched on has a live bound.
+                            Some(khaloni_poe2::evaluate_ui::Target::Weapon(b)) => {
+                                if let Some(row) = panel.rows.get(row_i) {
+                                    if row.enabled {
+                                        set_weapon_bound(query, b, Some(row.min));
+                                    }
+                                }
+                            }
+                            None => {}
                         }
                         editing = None;
                         edit_buf.clear();

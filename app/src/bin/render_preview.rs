@@ -15,13 +15,28 @@ fn mod_row(label: &str, kind: ev::AffixKind, tier: u8, score: f32, min: f64, i: 
         min,
         max: None,
         enabled: true,
-        filter_index: Some(i),
+        target: Some(ev::Target::Stat(i)),
         hidden: false,
     }
 }
 
-/// A derived line (DPS, totals): drawn like the tooltip shows it, never
-/// searched, so it gets no checkbox and no gutters.
+/// A computed weapon figure: searchable as an equipment_filters minimum,
+/// so it gets a checkbox and a min box but never a max box.
+fn weapon_row(label: &str, min: f64, bound: ev::WeaponBound, enabled: bool) -> ev::StatRow {
+    ev::StatRow {
+        label: label.into(),
+        badge: None,
+        score: None,
+        min,
+        max: None,
+        enabled,
+        target: Some(ev::Target::Weapon(bound)),
+        hidden: false,
+    }
+}
+
+/// A display-only property line: nothing searchable behind it, so no
+/// checkbox and no boxes.
 fn derived(label: &str) -> ev::StatRow {
     ev::StatRow {
         label: label.into(),
@@ -30,8 +45,22 @@ fn derived(label: &str) -> ev::StatRow {
         min: 0.0,
         max: None,
         enabled: false,
-        filter_index: None,
+        target: None,
         hidden: false,
+    }
+}
+
+/// A pseudo-total row: an ordinary stat filter, collapsed by default.
+fn pseudo_row(label: &str, min: f64, i: usize) -> ev::StatRow {
+    ev::StatRow {
+        label: label.into(),
+        badge: None,
+        score: None,
+        min,
+        max: None,
+        enabled: false,
+        target: Some(ev::Target::Stat(i)),
+        hidden: true,
     }
 }
 
@@ -49,9 +78,9 @@ fn main() -> anyhow::Result<()> {
             base: Some(ev::BaseToggle { label: "Expert Dualstring Bow".into(), enabled: true }),
         },
         rows: vec![
-            derived("Physical DPS: 412.6"),
-            derived("Total DPS: 731.9"),
-            derived("Critical Hit Chance: 11.5%"),
+            weapon_row("Physical DPS", 412.6, ev::WeaponBound::Pdps, true),
+            weapon_row("Total DPS", 731.9, ev::WeaponBound::Dps, false),
+            weapon_row("Critical Hit Chance", 11.5, ev::WeaponBound::Crit, false),
             mod_row("Adds 40 to 75 Physical Damage", ev::AffixKind::Prefix, 2, 4.6, 40.0, 0),
             mod_row("+180 to maximum Life", ev::AffixKind::Prefix, 9, 0.8, 180.0, 1),
             mod_row("24% increased Critical Damage Bonus", ev::AffixKind::Suffix, 1, 4.0, 24.0, 2),
@@ -64,6 +93,8 @@ fn main() -> anyhow::Result<()> {
                 hidden: true,
                 ..mod_row("+12 to Dexterity", ev::AffixKind::Suffix, 7, 1.1, 12.0, 5)
             },
+            pseudo_row("Total Elemental Resistance", 31.0, 6),
+            pseudo_row("Total Attributes", 12.0, 7),
         ],
         show_hidden: false,
         strictness: ev::Strictness::Broad,

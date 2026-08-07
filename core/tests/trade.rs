@@ -1,5 +1,5 @@
 use khaloni_poe2_core::item::parse_item;
-use khaloni_poe2_core::trade::StatIndex;
+use khaloni_poe2_core::trade::{pseudo_filter, Query, StatIndex, WeaponFilters};
 
 const STATS_JSON: &str = include_str!("fixtures/trade_stats.json");
 const BOW: &str = include_str!("fixtures/item1-inventory-rare-bow.txt");
@@ -227,6 +227,7 @@ fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
         type_name: None,
         map_tier: None,
         gem_level: None,
+        weapon: None,
         filters: vec![
             StatFilter {
                 id: "explicit.stat_attack_speed".into(),
@@ -482,6 +483,17 @@ fn saved_search_against_unreachable_host_is_an_http_error() {
 
 #[test]
 fn relaxing_a_query_lowers_only_live_minimums() {
+    // Weapon bounds relax with everything else.
+    let q = Query {
+        weapon: Some(WeaponFilters { dps: Some(400.0), aps: Some(1.5), ..Default::default() }),
+        ..Default::default()
+    };
+    let relaxed = khaloni_poe2_core::trade::relax_query(&q, 0.10);
+    let w = relaxed.weapon.unwrap();
+    assert!((w.dps.unwrap() - 360.0).abs() < 1e-9);
+    assert!((w.aps.unwrap() - 1.35).abs() < 1e-9);
+    assert_eq!(w.pdps, None);
+
     use khaloni_poe2_core::trade::relax_query;
     let item = khaloni_poe2_core::item::parse_item(BOW).unwrap();
     let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
@@ -501,4 +513,58 @@ fn relaxing_a_query_lowers_only_live_minimums() {
             assert!((f.value.min - min0 * 0.9).abs() < 1e-9, "filter {i} not relaxed by 10%");
         }
     }
+}
+
+#[test]
+fn weapon_bounds_serialize_into_equipment_filters() {
+    let mut q = Query {
+        category: Some("weapon.bow".into()),
+        category_enabled: true,
+        ..Default::default()
+    };
+    // Unset weapon bounds leave no trace in the body.
+    assert!(q.to_body()["query"]["filters"].get("equipment_filters").is_none());
+    q.weapon = Some(WeaponFilters::default());
+    assert!(q.to_body()["query"]["filters"].get("equipment_filters").is_none());
+
+    q.weapon = Some(WeaponFilters {
+        dps: Some(467.5),
+        pdps: Some(420.0),
+        aps: Some(1.1),
+        ..Default::default()
+    });
+    let body = q.to_body();
+    let eq = &body["query"]["filters"]["equipment_filters"];
+    // The trade2 section name: "weapon_filters" is PoE1's and is rejected.
+    assert_eq!(eq["disabled"], false);
+    assert_eq!(eq["filters"]["dps"]["min"], 467.5);
+    assert_eq!(eq["filters"]["pdps"]["min"], 420);
+    assert_eq!(eq["filters"]["aps"]["min"], 1.1);
+    // Bounds are minimums only, and unset keys are absent, not null.
+    assert!(eq["filters"]["dps"].get("max").is_none());
+    assert!(eq["filters"].get("edps").is_none());
+    assert!(eq["filters"].get("crit").is_none());
+}
+
+#[test]
+fn pseudo_filters_resolve_only_against_the_real_catalog() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let f = pseudo_filter(&stats, "pseudo.pseudo_total_elemental_resistance", 75.0)
+        .expect("the catalog lists this pseudo stat");
+    assert_eq!(f.id, "pseudo.pseudo_total_elemental_resistance");
+    assert_eq!(f.value.min, 75.0);
+    assert_eq!(f.value.max, None);
+    assert!(!f.disabled);
+
+    // An id the site does not know must yield nothing, never a guess.
+    assert_eq!(pseudo_filter(&stats, "pseudo.pseudo_total_swagger", 1.0), None);
+
+    // Pseudo filters ride in the same stats list as mod filters.
+    let mut q = Query { filters: vec![f], ..Default::default() };
+    q.filters.push(pseudo_filter(&stats, "pseudo.pseudo_total_strength", 80.0).unwrap());
+    let body = q.to_body();
+    let sent = body["query"]["stats"][0]["filters"].as_array().unwrap();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1]["id"], "pseudo.pseudo_total_strength");
+    assert_eq!(sent[1]["value"]["min"], 80);
 }

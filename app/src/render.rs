@@ -582,7 +582,7 @@ impl Renderer {
             // Rows with no filter behind them (derived stats, unmatched
             // mods) are display-only: no checkbox, no value boxes, nothing
             // that implies they go to the search.
-            let filterable = row.filter_index.is_some();
+            let filterable = row.target.is_some();
             if filterable {
                 self.eval_check(pm, &g.check, ax, ay, row.enabled);
             }
@@ -646,10 +646,14 @@ impl Renderer {
             // The focused one shows the live buffer with a caret and takes a
             // gold border.
             let box_style = TextStyle { kind: FontKind::Amount, px: EVAL_BOX_PX, color: ink };
+            // Weapon bounds are open-ended minimums: no max box, so the
+            // card cannot suggest an upper bound the search will not send.
+            let has_max = matches!(row.target, Some(crate::evaluate_ui::Target::Stat(_)));
             for (field, bx, val) in [
-                (Field::Min, &g.min_box, fmt_num(row.min)),
-                (Field::Max, &g.max_box, row.max.map(fmt_num).unwrap_or_default()),
+                (Field::Min, &g.min_box, Some(fmt_num(row.min))),
+                (Field::Max, &g.max_box, has_max.then(|| row.max.map(fmt_num).unwrap_or_default())),
             ] {
+                let Some(val) = val else { continue };
                 let focused = editing == Some((i, field));
                 let (bx0, by0) = (ax + bx.x as f32, ay + bx.y as f32);
                 let (bw, bh) = (bx.w as f32, bx.h as f32);

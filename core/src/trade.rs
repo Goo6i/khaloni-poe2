@@ -48,26 +48,38 @@ const GROUP_PRIORITY: [&str; 3] = ["explicit", "implicit", "pseudo"];
 
 pub struct StatIndex {
     groups: HashMap<String, HashMap<String, StatEntry>>,
+    /// Every entry keyed by its stat id, for the lookups that start from an
+    /// id rather than mod text (pseudo aggregates, which no single mod line
+    /// spells out).
+    by_id: HashMap<String, StatEntry>,
 }
 
 impl StatIndex {
     pub fn from_json(s: &str) -> Result<StatIndex, TradeError> {
         let parsed: StatsResponse = serde_json::from_str(s)?;
         let mut groups = HashMap::new();
+        let mut by_id = HashMap::new();
         for g in parsed.result {
             let mut by_text = HashMap::new();
             for e in g.entries {
-                by_text.insert(
-                    e.text.clone(),
-                    StatEntry {
-                        id: e.id,
-                        text: e.text,
-                    },
-                );
+                let entry = StatEntry {
+                    id: e.id,
+                    text: e.text,
+                };
+                by_id.insert(entry.id.clone(), entry.clone());
+                by_text.insert(entry.text.clone(), entry);
             }
             groups.insert(g.id, by_text);
         }
-        Ok(StatIndex { groups })
+        Ok(StatIndex { groups, by_id })
+    }
+
+    /// Looks a stat up by its trade id (e.g.
+    /// "pseudo.pseudo_total_elemental_resistance"). `None` when the catalog
+    /// this index was built from has no such stat, so a caller can never
+    /// search an id the site does not know.
+    pub fn entry_by_id(&self, id: &str) -> Option<&StatEntry> {
+        self.by_id.get(id)
     }
 
     /// Resolves a parsed item mod's raw text to its stat entry: strips the
@@ -381,6 +393,50 @@ fn ser_opt_num<S: serde::Serializer>(v: &Option<f64>, s: S) -> Result<S::Ok, S::
     }
 }
 
+/// Weapon damage bounds, each a MINIMUM (`None` = unset). These are the
+/// trade site's own computed weapon numbers - total DPS, physical DPS,
+/// elemental DPS, critical hit chance, attacks per second - not item mods,
+/// so they live in their own filter section rather than in `stats`.
+///
+/// Serialized into `filters.equipment_filters`, NOT `filters.weapon_filters`:
+/// verified live 2026-08-07 against `/api/trade2/data/filters`, whose only
+/// group carrying `dps`/`pdps`/`edps`/`crit`/`aps` is `equipment_filters`.
+/// A probe POST with a `weapon_filters` group is rejected outright with
+/// `{"error":{"code":2,"message":"Unknown filter group: weapon_filters"}}`
+/// (that is the PoE1 trade name; trade2 renamed the section), while the same
+/// body under `equipment_filters` returns results.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct WeaponFilters {
+    /// Total damage per second.
+    pub dps: Option<f64>,
+    /// Physical damage per second.
+    pub pdps: Option<f64>,
+    /// Elemental damage per second.
+    pub edps: Option<f64>,
+    /// Critical hit chance, in percent (decimal, e.g. 6.5).
+    pub crit: Option<f64>,
+    /// Attacks per second (decimal, e.g. 1.45).
+    pub aps: Option<f64>,
+}
+
+impl WeaponFilters {
+    /// The `(trade key, bound)` pairs in the site's own filter order.
+    fn pairs(&self) -> [(&'static str, Option<f64>); 5] {
+        [
+            ("dps", self.dps),
+            ("pdps", self.pdps),
+            ("edps", self.edps),
+            ("crit", self.crit),
+            ("aps", self.aps),
+        ]
+    }
+
+    /// True when no bound is set, so the whole block is omitted from the body.
+    pub fn is_empty(&self) -> bool {
+        self.pairs().iter().all(|(_, v)| v.is_none())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Query {
     pub category: Option<String>,
@@ -399,6 +455,10 @@ pub struct Query {
     /// (exact: `{min: n, max: n}`). Set with category "gem.activegem" and the
     /// gem's skill name as `type_name` to price a specific cut gem.
     pub gem_level: Option<i64>,
+    /// Weapon damage bounds -> `filters.equipment_filters.filters.{dps,pdps,
+    /// edps,crit,aps}`. `None` (or an all-unset `WeaponFilters`) omits the
+    /// whole section.
+    pub weapon: Option<WeaponFilters>,
     pub filters: Vec<StatFilter>,
 }
 
@@ -448,6 +508,22 @@ impl Query {
                 "misc_filters".into(),
                 serde_json::json!({"filters": {"gem_level": {"min": level, "max": level}}}),
             );
+        }
+        // Weapon damage bounds are open-ended minimums ("this fast or faster",
+        // "this much DPS or more"), so each carries a `min` and no `max`.
+        if let Some(w) = &self.weapon {
+            let mut wf = serde_json::Map::new();
+            for (key, bound) in w.pairs() {
+                if let Some(v) = bound {
+                    wf.insert(key.into(), serde_json::json!({"min": num_json(v)}));
+                }
+            }
+            if !wf.is_empty() {
+                filters.insert(
+                    "equipment_filters".into(),
+                    serde_json::json!({"disabled": false, "filters": wf}),
+                );
+            }
         }
         if !filters.is_empty() {
             query["filters"] = serde_json::Value::Object(filters);
@@ -549,11 +625,34 @@ fn tier_floor(text: &str) -> Option<i64> {
 /// (-10%)"), which surfaces the comparable items an exact-roll search
 /// misses. Disabled filters and open minimums are left alone, and values
 /// are floored at zero so a relaxation can never invert a bound.
+/// A search filter on a pseudo aggregate stat ("+# total to Fire
+/// Resistance" summed across every mod that grants it). Resolved through
+/// the live stat catalog: an id the site does not list yields `None`
+/// rather than a filter the search API would reject.
+pub fn pseudo_filter(stats: &StatIndex, pseudo_id: &str, min: f64) -> Option<StatFilter> {
+    let entry = stats.entry_by_id(pseudo_id)?;
+    Some(StatFilter {
+        id: entry.id.clone(),
+        value: FilterValue { min, max: None },
+        disabled: false,
+    })
+}
+
 pub fn relax_query(query: &Query, pct: f64) -> Query {
     let mut out = query.clone();
     for f in &mut out.filters {
         if !f.disabled && f.value.min > 0.0 {
             f.value.min = (f.value.min * (1.0 - pct)).max(0.0);
+        }
+    }
+    // Weapon bounds are minimums like any other; a Broad search must not
+    // hold DPS to the exact roll while relaxing every mod around it.
+    if let Some(w) = &mut out.weapon {
+        for v in [&mut w.dps, &mut w.pdps, &mut w.edps, &mut w.crit, &mut w.aps]
+            .into_iter()
+            .flatten()
+        {
+            *v *= 1.0 - pct;
         }
     }
     out
@@ -602,6 +701,7 @@ pub fn build_query_with_labels(
             type_name,
             map_tier,
             gem_level: None,
+            weapon: None,
             filters,
         },
         labels,
@@ -644,6 +744,7 @@ pub fn build_upgrade_query(item: &crate::item::Item, stats: &StatIndex) -> Query
         type_name: None,
         map_tier: None,
         gem_level: None,
+        weapon: None,
         filters,
     }
 }
@@ -665,6 +766,7 @@ pub fn build_gem_query(skill: &str, level: i64) -> Query {
         type_name: Some(skill.to_string()),
         map_tier: None,
         gem_level: Some(level),
+        weapon: None,
         filters: Vec::new(),
     }
 }
@@ -910,6 +1012,7 @@ impl TradeClient {
                 type_name: query.type_name.clone(),
                 map_tier: query.map_tier,
                 gem_level: query.gem_level,
+                weapon: query.weapon,
                 filters,
             };
             let result = self.search(&trimmed)?;

@@ -90,8 +90,29 @@ pub struct TierBadge {
     pub tier: u8,
 }
 
+/// What a searchable row feeds when its checkbox is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// Index into the Query's stat filters (item mods, pseudo totals).
+    Stat(usize),
+    /// One of the trade site's computed weapon numbers. These are
+    /// open-ended minimums ("this much DPS or more"), so a row carrying
+    /// one gets a min box and no max box.
+    Weapon(WeaponBound),
+}
+
+/// The trade site's equipment_filters keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponBound {
+    Dps,
+    Pdps,
+    Edps,
+    Crit,
+    Aps,
+}
+
 /// One line of the card. Covers both derived stats (DPS, total Attributes)
-/// and real mods; `filter_index` is what makes a row searchable.
+/// and real mods; `target` is what makes a row searchable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatRow {
     /// Text as the game words it, e.g. "23 to Accuracy Rating".
@@ -106,8 +127,8 @@ pub struct StatRow {
     pub min: f64,
     pub max: Option<f64>,
     pub enabled: bool,
-    /// Index into the Query's filters; None for display-only rows.
-    pub filter_index: Option<usize>,
+    /// What the row drives in the search; None for display-only rows.
+    pub target: Option<Target>,
     /// Rows the player rarely filters on, collapsed behind "Show N more"
     /// so the card stays as short as the tooltip it imitates.
     pub hidden: bool,
@@ -484,15 +505,17 @@ pub fn hit(panel: &Panel, lay: &Layout, x: i32, y: i32) -> Option<Action> {
         // Actions carry the index into `panel.rows`, never the visible
         // position: collapsing rows must not renumber what a click means.
         let idx = lay.visible_rows[i];
-        if panel.rows[idx].filter_index.is_none() {
-            // Display-only line (derived stat, unmatched mod): it has no
-            // filter to drive, so it swallows nothing and offers nothing.
+        let Some(target) = panel.rows[idx].target else {
+            // Display-only line (unmatched mod, unsearchable stat): it has
+            // no filter to drive, so it swallows nothing and offers nothing.
             continue;
-        }
+        };
         if inside(&g.min_box, x, y) {
             return Some(Action::Edit(idx, Field::Min));
         }
-        if inside(&g.max_box, x, y) {
+        // Weapon bounds are minimums only; their max box is not drawn and
+        // must not be editable.
+        if matches!(target, Target::Stat(_)) && inside(&g.max_box, x, y) {
             return Some(Action::Edit(idx, Field::Max));
         }
         let band = Rect {
@@ -526,7 +549,7 @@ mod tests {
             min: i as f64,
             max: None,
             enabled: true,
-            filter_index: Some(i),
+            target: Some(Target::Stat(i)),
             hidden: false,
         }
     }
@@ -537,7 +560,7 @@ mod tests {
 
     /// A derived line (DPS, total attributes): drawn, never searched.
     fn display_only(i: usize) -> StatRow {
-        StatRow { filter_index: None, badge: None, score: None, ..row(i) }
+        StatRow { target: None, badge: None, score: None, ..row(i) }
     }
 
     fn panel(rows: Vec<StatRow>) -> Panel {
