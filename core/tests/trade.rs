@@ -479,3 +479,26 @@ fn saved_search_against_unreachable_host_is_an_http_error() {
         other => panic!("expected Http error, got {other:?}"),
     }
 }
+
+#[test]
+fn relaxing_a_query_lowers_only_live_minimums() {
+    use khaloni_poe2_core::trade::relax_query;
+    let item = khaloni_poe2_core::item::parse_item(BOW).unwrap();
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let (mut q, _) = khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
+    assert!(!q.filters.is_empty(), "the bow fixture yields filters");
+    // Disable one filter to prove a relaxation leaves it untouched.
+    q.filters[0].disabled = true;
+    let before: Vec<(f64, bool)> = q.filters.iter().map(|f| (f.value.min, f.disabled)).collect();
+
+    let relaxed = relax_query(&q, 0.10);
+    assert_eq!(relaxed.filters.len(), q.filters.len());
+    for (i, f) in relaxed.filters.iter().enumerate() {
+        let (min0, disabled) = before[i];
+        if disabled || min0 <= 0.0 {
+            assert_eq!(f.value.min, min0, "filter {i} must be untouched");
+        } else {
+            assert!((f.value.min - min0 * 0.9).abs() < 1e-9, "filter {i} not relaxed by 10%");
+        }
+    }
+}

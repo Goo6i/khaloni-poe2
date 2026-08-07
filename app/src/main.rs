@@ -234,22 +234,25 @@ fn open_url(url: &str) {
 }
 
 /// Sets the overlay's pointer input region to the union bounding box of
-/// every open interactive panel (appraisal, reference, leveling), or clears
+/// every open interactive panel (evaluate, reference, leveling), or clears
 /// it when none is open. One region because the layer surface supports a
 /// single rect; the union is slightly generous when panels are far apart,
 /// but clicks between them still fall through to nothing (hit() misses).
 fn sync_input_region(
     overlay: &mut khaloni_poe2::platform::overlay::Overlay,
     renderer: &khaloni_poe2::render::Renderer,
-    apanel: &Option<(khaloni_poe2::appraise_ui::Panel, khaloni_poe2_core::trade::Query, (i32, i32))>,
+    apanel: &Option<(khaloni_poe2::evaluate_ui::Panel, khaloni_poe2_core::trade::Query, (i32, i32))>,
     ref_panel: &Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
     lvl_panel: &Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
 ) -> anyhow::Result<()> {
     let out = overlay.output_pos();
-    let measure = |s: &str| renderer.appraisal_label_width(s);
+    // One measurer for every panel: they all draw their text in the same
+    // face and size, and the input region must match the drawn geometry
+    // exactly or clicks land off the controls they look like they hit.
+    let measure = |s: &str| renderer.evaluate_label_width(s);
     let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::new();
     if let Some((p, _, pos)) = apanel {
-        let lay = khaloni_poe2::appraise_ui::layout(p, &measure);
+        let lay = khaloni_poe2::evaluate_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.size.0, lay.size.1));
     }
     if let Some((p, pos)) = ref_panel {
@@ -279,7 +282,7 @@ fn estimate_view(
     est: &khaloni_poe2_core::estimate::Estimate,
     table: &khaloni_poe2_core::ninja::PriceTable,
     cfg: &Config,
-) -> khaloni_poe2::appraise_ui::EstimateView {
+) -> khaloni_poe2::evaluate_ui::EstimateView {
     use khaloni_poe2_core::estimate::Reliability;
     let div = table.lookup("Divine Orb").map(|p| p.exalted).filter(|v| *v > 0.0);
     let fmt = |ex: f64| -> (String, khaloni_poe2::pricing::Denom) {
@@ -303,7 +306,7 @@ fn estimate_view(
     } else {
         format!("{lo} {} - {hi} {}", unit(lo_d), unit(hi_d))
     };
-    khaloni_poe2::appraise_ui::EstimateView {
+    khaloni_poe2::evaluate_ui::EstimateView {
         amount,
         denom,
         detail: format!("Range: {range}  -  from {} listing(s)", est.count),
@@ -467,17 +470,17 @@ fn headless() -> anyhow::Result<()> {
 
 /// What one tick draws+presents: the row labels, the header line (the
 /// div=>ex rate), whether prices are stale, the hover popup (with its
-/// anchor), and the interactive appraisal panel (with its anchor).
+/// anchor), and the interactive Evaluate panel (with its anchor).
 type FrameState = (
     Vec<khaloni_poe2::render::Placed>,
     String,
     bool,
     Option<(hover::Popup, (i32, i32))>,
-    Option<(khaloni_poe2::appraise_ui::Panel, (i32, i32))>,
+    Option<(khaloni_poe2::evaluate_ui::Panel, (i32, i32))>,
     Vec<khaloni_poe2::render::RumourBadge>,
-    // Focused value box (filter index, field, live edit buffer), so typed
+    // Focused value box (row index, field, live edit buffer), so typed
     // digits repaint even though the committed panel values are unchanged.
-    Option<(usize, khaloni_poe2::appraise_ui::Field, String)>,
+    Option<(usize, khaloni_poe2::evaluate_ui::Field, String)>,
     // In-overlay reference search and leveling checklist panels.
     Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
     Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
@@ -560,6 +563,17 @@ impl khaloni_poe2::pricing::GemPricer for GemCache {
     }
 }
 
+/// The item-card facts the Evaluate header shows, read off the parsed item
+/// in the trade worker. They travel with the response because the panel is
+/// built on the main loop, which only ever sees the query and the labels —
+/// and a header must state what the item says, not a plausible default.
+struct ItemFacts {
+    /// "Rare", "Magic", … exactly as the item text words it.
+    rarity: String,
+    item_level: Option<u32>,
+    requires_level: Option<u32>,
+}
+
 struct AppraiseDone {
     title: String,
     outcome: Result<Vec<khaloni_poe2_core::trade::Listing>, String>,
@@ -567,10 +581,61 @@ struct AppraiseDone {
     /// Exact response updates listings on the panel the user already has.
     query: Option<khaloni_poe2_core::trade::Query>,
     labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
+    /// Header facts, likewise Auto-only: nothing else builds a panel.
+    facts: Option<ItemFacts>,
     search_id: Option<String>,
     /// Computed from the listings this search actually returned (never a
     /// model's opinion), or None when nothing priceable came back.
     estimate: Option<khaloni_poe2_core::estimate::Estimate>,
+}
+
+/// The rarity word the item text carried. `Rarity::Other` keeps whatever the
+/// game wrote rather than being folded into a family we did not read.
+fn rarity_label(r: &khaloni_poe2_core::item::Rarity) -> String {
+    use khaloni_poe2_core::item::Rarity as R;
+    match r {
+        R::Normal => "Normal".to_string(),
+        R::Magic => "Magic".to_string(),
+        R::Rare => "Rare".to_string(),
+        R::Unique => "Unique".to_string(),
+        R::Currency => "Currency".to_string(),
+        R::Gem => "Gem".to_string(),
+        R::Quest => "Quest".to_string(),
+        R::Other(s) => s.clone(),
+    }
+}
+
+/// The level requirement off the item's own "Requires: Level 78, 163 Dex"
+/// line (the parser keeps every section's raw lines). None when the item
+/// text has no such line — several classes and chat links omit it, and an
+/// absent line must show as absent, not as level 1.
+fn requires_level(item: &khaloni_poe2_core::item::Item) -> Option<u32> {
+    item.sections
+        .iter()
+        .flatten()
+        .find_map(|l| l.strip_prefix("Requires:"))
+        .and_then(|rest| {
+            // "Level 78, 163 Dex" -> 78; attribute requirements are listed
+            // after the level and are not what the header line states.
+            let after = rest.split(',').find_map(|p| {
+                let p = p.trim();
+                p.strip_prefix("Level ").or_else(|| p.strip_prefix("Level: "))
+            })?;
+            after.trim().parse().ok()
+        })
+}
+
+/// Core's affix family -> the Evaluate panel's badge family. Two enums on
+/// purpose: core cannot depend on the app crate, and the UI type is free to
+/// diverge (a badge is a drawing concern, a generation type is data).
+fn ui_affix_kind(k: khaloni_poe2_core::refdata::AffixKind) -> khaloni_poe2::evaluate_ui::AffixKind {
+    use khaloni_poe2::evaluate_ui::AffixKind as U;
+    use khaloni_poe2_core::refdata::AffixKind as C;
+    match k {
+        C::Prefix => U::Prefix,
+        C::Suffix => U::Suffix,
+        C::Other => U::Other,
+    }
 }
 
 /// The live overlay drives the Linux backends (and the Linux OCR stack)
@@ -855,22 +920,29 @@ fn overlay_mode() -> anyhow::Result<()> {
                     }
                     continue;
                 }
-                let (title, q, labels, relaxed) = match req {
+                let (title, q, labels, facts, relaxed) = match req {
                     AppraiseReq::Auto(item) => {
                         let title = if item.name.is_empty() {
                             item.base_type.clone().unwrap_or_default()
                         } else {
                             item.name.clone()
                         };
+                        // Header facts are read here, while the parsed item
+                        // still exists; the main loop never sees it.
+                        let facts = ItemFacts {
+                            rarity: rarity_label(&item.rarity),
+                            item_level: item.item_level,
+                            requires_level: requires_level(&item),
+                        };
                         let (q, labels) =
                             khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
-                        (title, q, labels, true)
+                        (title, q, labels, Some(facts), true)
                     }
-                    AppraiseReq::Exact { title, query } => (title, query, Vec::new(), false),
+                    AppraiseReq::Exact { title, query } => (title, query, Vec::new(), None, false),
                     AppraiseReq::Upgrade(item) => {
                         let q = khaloni_poe2_core::trade::build_upgrade_query(&item, &stats);
                         let title = khaloni_poe2_core::trade::upgrade_title(&item);
-                        (title, q, Vec::new(), false)
+                        (title, q, Vec::new(), None, false)
                     }
                     AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
@@ -925,6 +997,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     outcome,
                     query: relaxed.then_some(q),
                     labels,
+                    facts,
                     search_id,
                     estimate,
                 });
@@ -1409,16 +1482,17 @@ fn overlay_mode() -> anyhow::Result<()> {
     // popup rect: move-away dismissal measures against these. None while
     // no popup is up.
     let mut popup_at: Option<((i32, i32), Rect)> = None;
-    // Interactive appraisal panel: model + the query its checkboxes edit
+    // Interactive Evaluate panel: model + the query its checkboxes edit
     // + placed top-left (global logical). While Some, the overlay's input
-    // region covers the panel and clicks resolve through appraise_ui.
+    // region covers the panel and clicks resolve through evaluate_ui.
     let mut apanel: Option<(
-        khaloni_poe2::appraise_ui::Panel,
+        khaloni_poe2::evaluate_ui::Panel,
         khaloni_poe2_core::trade::Query,
         (i32, i32),
     )> = None;
-    // Which filter box is being typed into, and the digits typed so far.
-    let mut editing: Option<(usize, khaloni_poe2::appraise_ui::Field)> = None;
+    // Which value box is being typed into (index into `panel.rows`, which is
+    // what evaluate_ui's actions carry), and the digits typed so far.
+    let mut editing: Option<(usize, khaloni_poe2::evaluate_ui::Field)> = None;
     let mut edit_buf = String::new();
     // In-overlay reference search panel (F9) and leveling checklist (F10),
     // each with its placed top-left in global logical coordinates. While
@@ -1783,27 +1857,59 @@ fn overlay_mode() -> anyhow::Result<()> {
                 // "searching trade..." popup was anchored.
                 (Some(query), _) => {
                     let (listings, status) = listings_of(&done.outcome);
-                    let mut mods: Vec<khaloni_poe2::appraise_ui::ModRow> = done
+                    // Affix index once per panel, not once per row: it is a
+                    // map over the whole affix export (tens of thousands of
+                    // entries) and every row looks into the same one.
+                    let affix_ix = reference
+                        .get()
+                        .map(|r| khaloni_poe2_core::refdata::affix_index(&r.affixes));
+                    let rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = done
                         .labels
                         .iter()
                         .enumerate()
-                        .map(|(i, l)| khaloni_poe2::appraise_ui::ModRow {
-                            label: l.text.clone(),
-                            tier: l.tier,
-                            min: query.filters[i].value.min,
-                            max: query.filters[i].value.max,
-                            enabled: !query.filters[i].disabled,
-                            filter_index: i,
-                            tag: l.tag.to_string(),
+                        .filter_map(|(i, l)| {
+                            let f = query.filters.get(i)?;
+                            // The filter's min IS the item's own roll at build
+                            // time (build_query_with_labels seeds it from the
+                            // rolled value), so it is what the tier ladder and
+                            // the score are read against.
+                            let rolled = f.value.min;
+                            // A miss, or an affix with no ladder joined to it,
+                            // gets no badge and no score. An unknown roll is
+                            // shown as unknown; it is never approximated.
+                            let affix = affix_ix
+                                .as_ref()
+                                .and_then(|ix| {
+                                    ix.get(&khaloni_poe2_core::refdata::normalize_mod_text(&l.text))
+                                })
+                                .filter(|a| !a.tiers.is_empty());
+                            let badge = affix.and_then(|a| {
+                                khaloni_poe2_core::rollquality::tier_of(&a.tiers, rolled).map(
+                                    |tier| khaloni_poe2::evaluate_ui::TierBadge {
+                                        kind: ui_affix_kind(a.kind),
+                                        tier,
+                                    },
+                                )
+                            });
+                            let score = affix
+                                .and_then(|a| khaloni_poe2_core::rollquality::score(&a.tiers, rolled));
+                            Some(khaloni_poe2::evaluate_ui::StatRow {
+                                label: l.text.clone(),
+                                badge,
+                                score,
+                                min: f.value.min,
+                                max: f.value.max,
+                                enabled: !f.disabled,
+                                filter_index: Some(i),
+                                hidden: false,
+                            })
                         })
                         .collect();
-                    // Group implicits first, then explicits, then map (EE2 order).
-                    mods.sort_by_key(|m| khaloni_poe2::appraise_ui::tag_rank(&m.tag));
                     // Gear carries a base-type toggle so the user can search
                     // mods-only; items priced by their base (waystones, whose
                     // category is None) get no toggle.
                     let base = query.category.as_deref().map(|c| {
-                        khaloni_poe2::appraise_ui::BaseToggle {
+                        khaloni_poe2::evaluate_ui::BaseToggle {
                             label: format!("Base: {}", pretty_category(c)),
                             enabled: query.category_enabled,
                         }
@@ -1812,18 +1918,32 @@ fn overlay_mode() -> anyhow::Result<()> {
                         .estimate
                         .as_ref()
                         .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
-                    let panel = khaloni_poe2::appraise_ui::Panel {
-                        title: done.title,
-                        base,
-                        mods,
+                    let facts = done.facts;
+                    let panel = khaloni_poe2::evaluate_ui::Panel {
+                        header: khaloni_poe2::evaluate_ui::ItemHeader {
+                            name: done.title,
+                            // Rare is the fallback only when the response
+                            // carried no facts at all (it always does for an
+                            // Auto search); the rest stay absent when absent.
+                            rarity: facts
+                                .as_ref()
+                                .map(|f| f.rarity.clone())
+                                .unwrap_or_else(|| "Rare".to_string()),
+                            item_level: facts.as_ref().and_then(|f| f.item_level),
+                            requires_level: facts.as_ref().and_then(|f| f.requires_level),
+                            base,
+                        },
+                        rows,
+                        show_hidden: false,
+                        strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
                         listings,
                         estimate,
                         status,
                         search_id: done.search_id,
                     };
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
-                    let lay = khaloni_poe2::appraise_ui::layout(&panel, &|s| {
-                        renderer.appraisal_label_width(s)
+                    let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
+                        renderer.evaluate_label_width(s)
                     });
                     let pos = khaloni_poe2::popup_pos::place(origin, lay.size, game_rect);
                     hover.current = None;
@@ -1843,7 +1963,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     apanel = Some((panel, query, pos));
                 }
                 // Exact response: update the open panel in place.
-                (None, Some((panel, _, _))) if panel.title == done.title => {
+                (None, Some((panel, _, _))) if panel.header.name == done.title => {
                     let (listings, status) = listings_of(&done.outcome);
                     panel.listings = listings;
                     panel.estimate = done
@@ -1854,13 +1974,18 @@ fn overlay_mode() -> anyhow::Result<()> {
                     if done.search_id.is_some() {
                         panel.search_id = done.search_id;
                     }
+                    // Listings and the value box grow the card downwards, so
+                    // the buttons under them move: without this the region
+                    // still describes the pre-search panel and the Search
+                    // button stops answering after the first search.
+                    sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                 }
                 // Panel was closed while the search ran: drop the result.
                 (None, _) => {}
             }
         }
         // Panel clicks: geometry from the same layout the renderer drew.
-        // The appraisal panel gets first claim on each click (preserving its
+        // The Evaluate panel gets first claim on each click (preserving its
         // drag-grab semantics); clicks outside it spill into
         // `leftover_clicks` for the reference/leveling panels below.
         let out_pos = overlay.output_pos();
@@ -1872,7 +1997,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                     leftover_clicks.push((cx, cy));
                     continue;
                 };
-                let lay = khaloni_poe2::appraise_ui::layout(panel, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::evaluate_ui::layout(panel, &|s| renderer.evaluate_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 let inside = local.0 >= 0
                     && local.0 < lay.size.0
@@ -1882,36 +2007,62 @@ fn overlay_mode() -> anyhow::Result<()> {
                     leftover_clicks.push((cx, cy));
                     continue;
                 }
-                match khaloni_poe2::appraise_ui::hit(panel, &lay, local.0, local.1) {
-                    Some(khaloni_poe2::appraise_ui::Action::ToggleMod(fi)) => {
-                        if let Some(f) = query.filters.get_mut(fi) {
-                            f.disabled = !f.disabled;
-                        }
-                        if let Some(m) = panel.mods.iter_mut().find(|m| m.filter_index == fi) {
-                            m.enabled = !m.enabled;
+                match khaloni_poe2::evaluate_ui::hit(panel, &lay, local.0, local.1) {
+                    // Row indices, not filter indices: evaluate_ui's actions
+                    // address `panel.rows`, and the filter behind a row is
+                    // whatever that row's `filter_index` names.
+                    Some(khaloni_poe2::evaluate_ui::Action::ToggleRow(i)) => {
+                        if let Some(row) = panel.rows.get_mut(i) {
+                            row.enabled = !row.enabled;
+                            // The row's checkbox and the query filter are one
+                            // state shown twice; they are written together so
+                            // they cannot disagree about what gets searched.
+                            if let Some(f) =
+                                row.filter_index.and_then(|fi| query.filters.get_mut(fi))
+                            {
+                                f.disabled = !row.enabled;
+                            }
                         }
                     }
                     // Dropping the base searches the mods across every base.
-                    Some(khaloni_poe2::appraise_ui::Action::ToggleBase) => {
+                    Some(khaloni_poe2::evaluate_ui::Action::ToggleBase) => {
                         query.category_enabled = !query.category_enabled;
-                        if let Some(b) = panel.base.as_mut() {
+                        if let Some(b) = panel.header.base.as_mut() {
                             b.enabled = query.category_enabled;
                         }
                     }
                     // Clicking a value box focuses it for keyboard entry.
-                    Some(khaloni_poe2::appraise_ui::Action::Edit(fi, field)) => {
-                        editing = Some((fi, field));
+                    Some(khaloni_poe2::evaluate_ui::Action::Edit(i, field)) => {
+                        editing = Some((i, field));
                         edit_buf.clear();
                         overlay.set_keyboard(true)?;
                     }
-                    Some(khaloni_poe2::appraise_ui::Action::Search) => {
+                    Some(khaloni_poe2::evaluate_ui::Action::SetStrictness(s)) => {
+                        panel.strictness = s;
+                    }
+                    // Expanding the collapsed rows changes the panel's height,
+                    // so the input region has to follow it.
+                    Some(khaloni_poe2::evaluate_ui::Action::ToggleHidden) => {
+                        panel.show_hidden = !panel.show_hidden;
+                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                    }
+                    Some(khaloni_poe2::evaluate_ui::Action::Search) => {
                         panel.status = "searching...".into();
+                        // Broad relaxes every kept minimum by 10% before the
+                        // search runs; Quick sends the user's own numbers
+                        // verbatim, since their toggles ARE the intent.
+                        let q = match panel.strictness {
+                            khaloni_poe2::evaluate_ui::Strictness::Broad => {
+                                khaloni_poe2_core::trade::relax_query(query, 0.10)
+                            }
+                            khaloni_poe2::evaluate_ui::Strictness::Quick => query.clone(),
+                        };
                         let _ = appraise_req_tx.send(AppraiseReq::Exact {
-                            title: panel.title.clone(),
-                            query: query.clone(),
+                            title: panel.header.name.clone(),
+                            query: q,
                         });
                     }
-                    Some(khaloni_poe2::appraise_ui::Action::OpenSite) => {
+                    Some(khaloni_poe2::evaluate_ui::Action::OpenSite) => {
                         // Feedback in the status line, since opening the browser
                         // gives no in-overlay cue on its own.
                         match &panel.search_id {
@@ -1927,7 +2078,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                             None => panel.status = "run a search first".into(),
                         }
                     }
-                    Some(khaloni_poe2::appraise_ui::Action::Close) => {
+                    Some(khaloni_poe2::evaluate_ui::Action::Close) => {
                         apanel = None;
                         editing = None;
                         panel_drag = None;
@@ -1962,11 +2113,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         } else {
             leftover_clicks = overlay.take_clicks();
         }
-        // Reference/leveling panel clicks: whatever the appraisal panel did
+        // Reference/leveling panel clicks: whatever the Evaluate panel did
         // not claim, in priority order reference then leveling.
         for (cx, cy) in leftover_clicks {
             if let Some((p, pos)) = ref_panel.as_mut() {
-                let lay = khaloni_poe2::reference_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::reference_ui::layout(p, &|s| renderer.evaluate_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
                     match khaloni_poe2::reference_ui::hit(p, &lay, local.0, local.1) {
@@ -1996,7 +2147,7 @@ fn overlay_mode() -> anyhow::Result<()> {
                 }
             }
             if let Some((p, pos)) = lvl_panel.as_mut() {
-                let lay = khaloni_poe2::leveling_ui::layout(p, &|s| renderer.appraisal_label_width(s));
+                let lay = khaloni_poe2::leveling_ui::layout(p, &|s| renderer.evaluate_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
                     match khaloni_poe2::leveling_ui::hit(p, &lay, local.0, local.1) {
@@ -2041,7 +2192,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         // to both the query filter and the panel row, Escape cancels.
         if editing.is_some() {
             for key in overlay.take_keys() {
-                let Some((fi, field)) = editing else { break };
+                let Some((row_i, field)) = editing else { break };
                 let Some((panel, query, _)) = apanel.as_mut() else {
                     editing = None;
                     overlay.set_keyboard(false)?;
@@ -2073,20 +2224,26 @@ fn overlay_mode() -> anyhow::Result<()> {
                         } else {
                             cleaned.parse().ok()
                         };
-                        if let Some(f) = query.filters.get_mut(fi) {
+                        // The row is what was clicked; the filter behind it is
+                        // what gets searched. Both are written from the one
+                        // parse so the drawn box and the query cannot differ.
+                        let fi = panel.rows.get(row_i).and_then(|r| r.filter_index);
+                        if let Some(row) = panel.rows.get_mut(row_i) {
                             match field {
-                                khaloni_poe2::appraise_ui::Field::Min => {
-                                    f.value.min = parsed.unwrap_or(0.0);
+                                khaloni_poe2::evaluate_ui::Field::Min => {
+                                    row.min = parsed.unwrap_or(0.0)
                                 }
-                                khaloni_poe2::appraise_ui::Field::Max => {
-                                    f.value.max = parsed;
-                                }
+                                khaloni_poe2::evaluate_ui::Field::Max => row.max = parsed,
                             }
                         }
-                        if let Some(m) = panel.mods.iter_mut().find(|m| m.filter_index == fi) {
+                        if let Some(f) = fi.and_then(|fi| query.filters.get_mut(fi)) {
                             match field {
-                                khaloni_poe2::appraise_ui::Field::Min => m.min = parsed.unwrap_or(0.0),
-                                khaloni_poe2::appraise_ui::Field::Max => m.max = parsed,
+                                khaloni_poe2::evaluate_ui::Field::Min => {
+                                    f.value.min = parsed.unwrap_or(0.0);
+                                }
+                                khaloni_poe2::evaluate_ui::Field::Max => {
+                                    f.value.max = parsed;
+                                }
                             }
                         }
                         editing = None;
@@ -2242,7 +2399,7 @@ fn overlay_mode() -> anyhow::Result<()> {
         // does not (the always-on-top layer would draw over the coverer).
         let on_screen = game_present && (game_visible || !cfg.pause_when_hidden);
         let show_rows = scanning && on_screen;
-        // The appraisal panel renders whenever it is open and the game is
+        // The Evaluate panel renders whenever it is open and the game is
         // present, even while unfocused: editing a value box steals keyboard
         // focus from the game, and the panel must not blink out mid-edit.
         let show = show_rows
@@ -2394,22 +2551,22 @@ fn overlay_mode() -> anyhow::Result<()> {
                             renderer.draw_popup(pm, p, *anchor);
                         }
                         if let Some((p, anchor)) = panel {
-                            let lay = khaloni_poe2::appraise_ui::layout(p, &|s| {
-                                renderer.appraisal_label_width(s)
+                            let lay = khaloni_poe2::evaluate_ui::layout(p, &|s| {
+                                renderer.evaluate_label_width(s)
                             });
-                            let ed = edit_state.as_ref().map(|(fi, f, _)| (*fi, *f));
+                            let ed = edit_state.as_ref().map(|(i, f, _)| (*i, *f));
                             let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
-                            renderer.draw_appraisal(pm, p, &lay, *anchor, ed, buf);
+                            renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf);
                         }
                         if let Some((p, anchor)) = ref_state {
                             let lay = khaloni_poe2::reference_ui::layout(p, &|s| {
-                                renderer.appraisal_label_width(s)
+                                renderer.evaluate_label_width(s)
                             });
                             renderer.draw_reference(pm, p, &lay, *anchor);
                         }
                         if let Some((p, anchor)) = lvl_state {
                             let lay = khaloni_poe2::leveling_ui::layout(p, &|s| {
-                                renderer.appraisal_label_width(s)
+                                renderer.evaluate_label_width(s)
                             });
                             renderer.draw_leveling(pm, p, &lay, *anchor);
                         }
@@ -2441,7 +2598,42 @@ fn mean_gray_brightness(img: &image::GrayImage) -> u64 {
 
 #[cfg(test)]
 mod main_tests {
-    use super::urlencode;
+    use super::{rarity_label, requires_level, urlencode};
+
+    fn item(text: &str) -> khaloni_poe2_core::item::Item {
+        khaloni_poe2_core::item::parse_item(text).expect("fixture parses")
+    }
+
+    /// The Evaluate header states what the item text says: its rarity word,
+    /// and the level line only when the item carries one.
+    #[test]
+    fn header_facts_come_from_the_item_text() {
+        let bow = item(concat!(
+            "Item Class: Bows\n",
+            "Rarity: Rare\n",
+            "Horror Bane\n",
+            "Advanced Zealot Bow\n",
+            "--------\n",
+            "Requires: Level 78, 163 Dex\n",
+            "--------\n",
+            "Item Level: 81\n",
+        ));
+        assert_eq!(rarity_label(&bow.rarity), "Rare");
+        assert_eq!(requires_level(&bow), Some(78));
+        assert_eq!(bow.item_level, Some(81));
+
+        // No "Requires:" line: absent, not defaulted to a level.
+        let ring = item(concat!(
+            "Item Class: Rings\n",
+            "Rarity: Magic\n",
+            "Kraken Grip Sapphire Ring\n",
+            "--------\n",
+            "Item Level: 74\n",
+        ));
+        assert_eq!(rarity_label(&ring.rarity), "Magic");
+        assert_eq!(requires_level(&ring), None);
+    }
+
     #[test]
     fn urlencode_handles_spaces_and_apostrophes() {
         assert_eq!(urlencode("Cold as ice"), "Cold%20as%20ice");

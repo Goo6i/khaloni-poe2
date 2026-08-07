@@ -5,6 +5,7 @@ pub mod mapmods;
 pub mod matcher;
 pub mod ninja;
 pub mod refdata;
+pub mod rollquality;
 pub mod rumour;
 pub mod rumour_scan;
 pub mod scout;

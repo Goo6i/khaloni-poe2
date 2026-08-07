@@ -1,14 +1,121 @@
 //! Renders representative overlay elements to a PNG so the visual design can
 //! be reviewed without the game running. Not shipped; a dev aid.
 
-use khaloni_poe2::appraise_ui::{BaseToggle, EstimateView, ModRow, Panel};
+use khaloni_poe2::evaluate_ui as ev;
 use khaloni_poe2::pricing::{Denom, Tier};
 use khaloni_poe2::render::{Placed, Renderer};
 use tiny_skia::{Color, Pixmap};
 
+/// A mod line with a tier badge, a roll score, and a filter behind it.
+fn mod_row(label: &str, kind: ev::AffixKind, tier: u8, score: f32, min: f64, i: usize) -> ev::StatRow {
+    ev::StatRow {
+        label: label.into(),
+        badge: Some(ev::TierBadge { kind, tier }),
+        score: Some(score),
+        min,
+        max: None,
+        enabled: true,
+        filter_index: Some(i),
+        hidden: false,
+    }
+}
+
+/// A derived line (DPS, totals): drawn like the tooltip shows it, never
+/// searched, so it gets no checkbox and no gutters.
+fn derived(label: &str) -> ev::StatRow {
+    ev::StatRow {
+        label: label.into(),
+        badge: None,
+        score: None,
+        min: 0.0,
+        max: None,
+        enabled: false,
+        filter_index: None,
+        hidden: false,
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let r = Renderer::new()?;
-    let mut pm = Pixmap::new(980, 760).unwrap();
+
+    // Evaluate item card: a rare weapon as the game would show it, plus the
+    // tiering and scoring gutters and the filter column the game does not.
+    let ep = ev::Panel {
+        header: ev::ItemHeader {
+            name: "Horror Bane".into(),
+            rarity: "Rare".into(),
+            item_level: Some(81),
+            requires_level: Some(67),
+            base: Some(ev::BaseToggle { label: "Expert Dualstring Bow".into(), enabled: true }),
+        },
+        rows: vec![
+            derived("Physical DPS: 412.6"),
+            derived("Total DPS: 731.9"),
+            derived("Critical Hit Chance: 11.5%"),
+            mod_row("Adds 40 to 75 Physical Damage", ev::AffixKind::Prefix, 2, 4.6, 40.0, 0),
+            mod_row("+180 to maximum Life", ev::AffixKind::Prefix, 9, 0.8, 180.0, 1),
+            mod_row("24% increased Critical Damage Bonus", ev::AffixKind::Suffix, 1, 4.0, 24.0, 2),
+            mod_row("+23 to Accuracy Rating", ev::AffixKind::Suffix, 5, 1.7, 23.0, 3),
+            ev::StatRow {
+                enabled: false,
+                ..mod_row("+31% to Lightning Resistance", ev::AffixKind::Suffix, 3, 2.9, 31.0, 4)
+            },
+            ev::StatRow {
+                hidden: true,
+                ..mod_row("+12 to Dexterity", ev::AffixKind::Suffix, 7, 1.1, 12.0, 5)
+            },
+        ],
+        show_hidden: false,
+        strictness: ev::Strictness::Broad,
+        estimate: Some(ev::EstimateView {
+            amount: "5.5".into(),
+            denom: Denom::Divine,
+            detail: "Range: 3.1-9.4 div  -  from 23 listings".into(),
+            reliability: "Very Low".into(),
+            shaky: true,
+        }),
+        listings: vec!["4.8 div  Vaalstep#3311".into(), "6.2 div  Emberlark#8074".into()],
+        status: "23 shown".into(),
+        search_id: Some("k9f2".into()),
+    };
+
+    // Second state of the same card: a magic item, hidden rows expanded, a
+    // max box being typed into, and no estimate yet.
+    let ep2 = ev::Panel {
+        header: ev::ItemHeader {
+            name: "Kraken Grip Sapphire Ring".into(),
+            rarity: "Magic".into(),
+            item_level: Some(74),
+            requires_level: None,
+            base: None,
+        },
+        show_hidden: true,
+        strictness: ev::Strictness::Quick,
+        estimate: None,
+        listings: Vec::new(),
+        status: "searching...".into(),
+        rows: vec![
+            derived("Energy Shield: 46"),
+            mod_row("+35% to Cold Resistance", ev::AffixKind::Suffix, 2, 3.4, 35.0, 0),
+            ev::StatRow {
+                badge: Some(ev::TierBadge { kind: ev::AffixKind::Other, tier: 1 }),
+                ..mod_row("+18 to maximum Mana", ev::AffixKind::Prefix, 6, 1.2, 18.0, 1)
+            },
+            ev::StatRow { hidden: true, ..mod_row("+9 to Intelligence", ev::AffixKind::Suffix, 8, 0.4, 9.0, 2) },
+        ],
+        search_id: None,
+    };
+
+    // Lay the cards out from their own measured sizes, so the canvas fits
+    // whatever the panels turn out to be rather than a hardcoded guess that
+    // silently clips when a label grows.
+    let elay = ev::layout(&ep, &|s| r.evaluate_label_width(s));
+    let elay2 = ev::layout(&ep2, &|s| r.evaluate_label_width(s));
+    let (x1, y) = (360, 60);
+    let x2 = x1 + elay.size.0 + 40;
+    let w = (x2 + elay2.size.0 + 40) as u32;
+    let h = (y + elay.size.1.max(elay2.size.1) + 60).max(400) as u32;
+    let mut pm = Pixmap::new(w, h).unwrap();
     // Simulate the game behind the overlay: a muted dark backdrop.
     pm.fill(Color::from_rgba8(0x22, 0x1c, 0x16, 0xFF));
 
@@ -21,28 +128,8 @@ fn main() -> anyhow::Result<()> {
     ];
     r.draw_frame(&mut pm, &labels, "1 div = 487 ex", false);
 
-    // Appraisal panel: grouped implicit/explicit mods + base toggle + listings.
-    let panel = Panel {
-        estimate: Some(EstimateView {
-            amount: "5.5".into(),
-            denom: Denom::Divine,
-            detail: "Range: 0.62-49 div  -  from 23 listing(s)".into(),
-            reliability: "Very Low".into(),
-            shaky: true,
-        }),
-        title: "Horror Bane".into(),
-        base: Some(BaseToggle { label: "Base: Expert Dualstring Bow".into(), enabled: true }),
-        mods: vec![
-            ModRow { label: "+25% to Lightning Resistance".into(), tier: Some(3), min: 25.0, max: None, enabled: true, filter_index: 0, tag: "implicit".into() },
-            ModRow { label: "Adds 40 to 75 Physical Damage".into(), tier: Some(2), min: 40.0, max: None, enabled: true, filter_index: 1, tag: "explicit".into() },
-            ModRow { label: "+180 to maximum Life".into(), tier: Some(4), min: 180.0, max: Some(200.0), enabled: false, filter_index: 2, tag: "explicit".into() },
-        ],
-        listings: vec!["1 div  Xyz#1234".into(), "2 div  Abc#5678".into()],
-        status: "8 shown".into(),
-        search_id: Some("abc".into()),
-    };
-    let lay = khaloni_poe2::appraise_ui::layout(&panel, &|s| r.appraisal_label_width(s));
-    r.draw_appraisal(&mut pm, &panel, &lay, (360, 60), None, "");
+    r.draw_evaluate(&mut pm, &ep, &elay, (x1, y), None, "");
+    r.draw_evaluate(&mut pm, &ep2, &elay2, (x2, y), Some((1, ev::Field::Max)), "42");
 
     let out = std::env::args().nth(1).unwrap_or_else(|| "/tmp/overlay-preview.png".to_string());
     pm.save_png(&out)?;

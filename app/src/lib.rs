@@ -1,4 +1,3 @@
-pub mod appraise_ui;
 pub mod autoregion;
 pub mod brightness;
 pub mod leveling_ui;
@@ -13,6 +12,7 @@ pub mod update;
 pub mod wealth;
 pub mod config;
 pub mod coord;
+pub mod evaluate_ui;
 pub mod gamelog_tail;
 pub mod hover;
 pub mod ocr;

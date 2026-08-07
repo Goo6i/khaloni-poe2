@@ -402,25 +402,70 @@ pub fn fetch_repoe_mods() -> Result<String, String> {
 // object per line: stats.ndjson for affixes, items.ndjson for bases/uniques/
 // gems. ---
 
+/// Which affix family a mod rolls in, from the repoe mods export's
+/// `generation_type` field. Only `"prefix"` and `"suffix"` map to a family;
+/// every other generation type the export carries (`unique`, `corrupted`,
+/// `essence`, `torment`, …) — and any affix with no reliable mod join at all —
+/// is [`AffixKind::Other`], never a guess.
+///
+/// This is core's own type. The app has a separate UI-side `AffixKind` for its
+/// tiering badge and maps between them; core cannot depend on the app crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+pub enum AffixKind {
+    Prefix,
+    Suffix,
+    /// Not a rollable prefix/suffix, or not known to be one.
+    #[default]
+    Other,
+}
+
+/// Maps a repoe `generation_type` string to a family. Anything unmapped is
+/// [`AffixKind::Other`].
+fn affix_kind(generation_type: &str) -> AffixKind {
+    match generation_type {
+        "prefix" => AffixKind::Prefix,
+        "suffix" => AffixKind::Suffix,
+        _ => AffixKind::Other,
+    }
+}
+
+/// The family of a whole ladder: the one its tiers agree on. An empty ladder,
+/// or one whose tiers disagree (a mod key group that mixes a prefix and a
+/// suffix — not present in the real export, but cheap to refuse), is `Other`
+/// rather than an arbitrary pick.
+fn ladder_kind(tiers: &[AffixTier]) -> AffixKind {
+    let mut it = tiers.iter().map(|t| t.kind);
+    match it.next() {
+        Some(first) if it.all(|k| k == first) => first,
+        _ => AffixKind::Other,
+    }
+}
+
 /// A modifier the game can roll, with its in-game readable text (`#` marks the
 /// rolled value) and the trade stat ids it maps to. From EE2 `stats.ndjson`.
 /// `tiers` (from the repoe-fork mods export, joined on internal stat id) is
-/// the roll ladder where a reliable join exists, empty otherwise.
+/// the roll ladder where a reliable join exists, empty otherwise. `kind` is
+/// the family the joined ladder rolls in — `Other` whenever there is no
+/// ladder, or (never observed in the real export) a ladder disagrees with
+/// itself about its generation type.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Affix {
     pub text: String,
     pub trade_ids: Vec<String>,
     pub tiers: Vec<AffixTier>,
+    pub kind: AffixKind,
 }
 
-/// One tier of an affix ladder: the item level it starts rolling at and its
-/// value range (per-stat ranges joined with ", " for e.g. added-damage mods).
-/// Sorted ascending by `ilvl` inside `Affix::tiers`, so the last entry is the
-/// top tier.
+/// One tier of an affix ladder: the item level it starts rolling at, its
+/// value range (per-stat ranges joined with ", " for e.g. added-damage mods),
+/// and the family the mod behind it rolls in. Sorted ascending by `ilvl`
+/// inside `Affix::tiers`, so the last entry is the top tier (T1 as players
+/// count them — see [`crate::rollquality`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AffixTier {
     pub ilvl: u32,
     pub range: String,
+    pub kind: AffixKind,
 }
 
 /// A catalog item (base, unique, or gem) from EE2 `items.ndjson`. `namespace`
@@ -476,10 +521,10 @@ pub fn parse_affixes_tiered(ndjson: &str, mods_json: &str) -> Vec<Affix> {
     let mut tiers_by_id = affix_tiers(mods_json, &known);
     let mut out: Vec<Affix> = rows
         .into_iter()
-        .map(|(text, trade_ids, id)| Affix {
-            text,
-            trade_ids,
-            tiers: id.and_then(|i| tiers_by_id.remove(i.as_str())).unwrap_or_default(),
+        .map(|(text, trade_ids, id)| {
+            let tiers: Vec<AffixTier> =
+                id.and_then(|i| tiers_by_id.remove(i.as_str())).unwrap_or_default();
+            Affix { kind: ladder_kind(&tiers), text, trade_ids, tiers }
         })
         .collect();
     out.sort_by(|a, b| a.text.cmp(&b.text));
@@ -526,6 +571,9 @@ struct ModRow {
 
 /// Builds roll-tier ladders from the repoe-fork `mods.json` export, keyed by
 /// internal stat id, restricted to ids in `known` (the ids EE2 can display).
+/// Each tier also records its mod's `generation_type` as an [`AffixKind`], so
+/// a ladder carries the prefix/suffix classification the eligibility filter
+/// below already had to establish.
 ///
 /// The join is deliberately conservative — a mod contributes a tier only when
 /// it is:
@@ -591,7 +639,11 @@ fn affix_tiers(
         ms.sort_by_key(|m| m.required_level);
         let tiers = ms
             .into_iter()
-            .map(|m| AffixTier { ilvl: m.required_level, range: format_ranges(&m.stats) })
+            .map(|m| AffixTier {
+                ilvl: m.required_level,
+                range: format_ranges(&m.stats),
+                kind: affix_kind(&m.generation_type),
+            })
             .collect();
         out.insert(affix_id.to_string(), tiers);
     }
@@ -644,6 +696,51 @@ pub fn parse_ref_items(ndjson: &str) -> Vec<RefItem> {
 }
 
 /// Case-insensitive substring search over affix readable text.
+/// Canonical form for matching a rolled mod line against an affix's
+/// template: lowercased, sign-stripped, every number run replaced by the
+/// `#` placeholder the templates use. "+23 to Accuracy Rating" and
+/// "+# to Accuracy Rating" both become "# to accuracy rating".
+pub fn normalize_mod_text(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_ascii_digit() {
+            out.push('#');
+            // Consume the whole number, including interior decimal points
+            // ("1.45"), but not a trailing sentence period.
+            while i < chars.len()
+                && (chars[i].is_ascii_digit()
+                    || (chars[i] == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit)))
+            {
+                i += 1;
+            }
+            continue;
+        }
+        match c {
+            // Signs are template noise: "+#" and "#" must agree.
+            '+' => {}
+            '#' => out.push('#'),
+            _ => out.extend(c.to_lowercase()),
+        }
+        i += 1;
+    }
+    // Collapse runs of whitespace so spacing differences cannot miss.
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Affixes keyed by `normalize_mod_text`, for looking up a rolled line's
+/// tier ladder. First entry wins on collision, which keeps the mapping
+/// deterministic across runs.
+pub fn affix_index(affixes: &[Affix]) -> std::collections::HashMap<String, &Affix> {
+    let mut map = std::collections::HashMap::new();
+    for a in affixes {
+        map.entry(normalize_mod_text(&a.text)).or_insert(a);
+    }
+    map
+}
+
 pub fn search_affixes<'a>(affixes: &'a [Affix], query: &str) -> Vec<&'a Affix> {
     let q = query.to_lowercase();
     affixes.iter().filter(|a| a.text.to_lowercase().contains(&q)).collect()

@@ -3,7 +3,8 @@
 //! the real files' shapes; the rules under test are the conservative-join
 //! filters (a mod contributes tiers only when the join is unambiguous).
 
-use khaloni_poe2_core::refdata::{parse_affixes, parse_affixes_tiered};
+use khaloni_poe2_core::refdata::{parse_affixes, parse_affixes_tiered, AffixKind};
+use khaloni_poe2_core::rollquality;
 
 /// EE2 stats.ndjson shape: `ref` readable text, `trade.ids.*`, and the
 /// internal stat id under `id` (the join key). One line has no `id`.
@@ -46,9 +47,12 @@ fn ladder_is_grouped_sorted_and_range_formatted() {
     assert_eq!(ilvls, [1, 11, 22], "tiers sorted ascending by required level");
     assert_eq!(s.tiers[0].range, "5-8");
     assert_eq!(s.tiers[2].range, "13", "fixed roll collapses to a single number");
+    assert_eq!(s.kind, AffixKind::Suffix, "family comes from the mods' generation_type");
+    assert!(s.tiers.iter().all(|t| t.kind == AffixKind::Suffix), "every rung is classified");
     // Affixes the mods file does not cover keep an empty ladder.
     let life = affixes.iter().find(|a| a.text == "# to maximum Life").unwrap();
     assert!(life.tiers.is_empty());
+    assert_eq!(life.kind, AffixKind::Other, "no ladder -> no family, never a guess");
     // As does the line with no internal id at all.
     let rarity = affixes.iter().find(|a| a.text.contains("Rarity")).unwrap();
     assert!(rarity.tiers.is_empty());
@@ -75,6 +79,63 @@ fn ineligible_mods_contribute_no_tiers() {
     let affixes = parse_affixes_tiered(STATS, &mods);
     let s = affixes.iter().find(|a| a.text == "# to Strength").unwrap();
     assert!(s.tiers.is_empty(), "unspawnable/essence-only/unique/off-domain/textless mods are all excluded");
+    assert_eq!(s.kind, AffixKind::Other, "an excluded mod's generation_type classifies nothing");
+}
+
+#[test]
+fn generation_type_sets_the_affix_family() {
+    let mods = wrap_mods(&[
+        &format!(r##""IncreasedLife1":{}"##, simple_mod("prefix", 1, "base_maximum_life", 10, 19)),
+        &format!(r##""IncreasedLife2":{}"##, simple_mod("prefix", 11, "base_maximum_life", 20, 29)),
+        &format!(r##""Strength1":{}"##, simple_mod("suffix", 1, "additional_strength", 5, 8)),
+    ]);
+    let affixes = parse_affixes_tiered(STATS, &mods);
+    let life = affixes.iter().find(|a| a.text == "# to maximum Life").unwrap();
+    assert_eq!(life.kind, AffixKind::Prefix);
+    assert_eq!(life.tiers.len(), 2);
+    let str_ = affixes.iter().find(|a| a.text == "# to Strength").unwrap();
+    assert_eq!(str_.kind, AffixKind::Suffix);
+    // Untouched affixes stay Other, and the enum's default is Other too.
+    let mana = affixes.iter().find(|a| a.text == "# to maximum Mana").unwrap();
+    assert_eq!(mana.kind, AffixKind::Other);
+    assert_eq!(AffixKind::default(), AffixKind::Other);
+}
+
+#[test]
+fn a_ladder_that_disagrees_with_itself_has_no_family() {
+    // Same ladder key group ("Mixed"), one rung a prefix and one a suffix:
+    // the rungs keep what they are, but the affix refuses to pick.
+    let mods = wrap_mods(&[
+        &format!(r##""Mixed1":{}"##, simple_mod("prefix", 1, "additional_strength", 5, 8)),
+        &format!(r##""Mixed2":{}"##, simple_mod("suffix", 11, "additional_strength", 9, 12)),
+    ]);
+    let affixes = parse_affixes_tiered(STATS, &mods);
+    let s = affixes.iter().find(|a| a.text == "# to Strength").unwrap();
+    assert_eq!(s.tiers.len(), 2, "the ladder itself is still built");
+    assert_eq!(s.tiers[0].kind, AffixKind::Prefix);
+    assert_eq!(s.tiers[1].kind, AffixKind::Suffix);
+    assert_eq!(s.kind, AffixKind::Other, "a self-contradicting ladder is unclassified");
+}
+
+/// The tiering badge end to end: a ladder parsed out of the mods export, then
+/// a rolled value placed on it by [`rollquality`].
+#[test]
+fn parsed_ladders_score_rolled_values() {
+    let mods = wrap_mods(&[
+        &format!(r##""Strength1":{}"##, simple_mod("suffix", 1, "additional_strength", 5, 8)),
+        &format!(r##""Strength2":{}"##, simple_mod("suffix", 11, "additional_strength", 9, 12)),
+        &format!(r##""Strength3":{}"##, simple_mod("suffix", 22, "additional_strength", 13, 20)),
+    ]);
+    let affixes = parse_affixes_tiered(STATS, &mods);
+    let s = affixes.iter().find(|a| a.text == "# to Strength").unwrap();
+    // Highest-ilvl rung is T1, matching how players read the badge.
+    assert_eq!(rollquality::tier_of(&s.tiers, 20.0), Some(1));
+    assert_eq!(rollquality::tier_of(&s.tiers, 6.0), Some(3));
+    assert!((rollquality::score(&s.tiers, 20.0).unwrap() - 5.0).abs() < 1e-6);
+    assert!(rollquality::score(&s.tiers, 5.0).unwrap().abs() < 1e-6);
+    // Nothing to score against -> no number.
+    let life = affixes.iter().find(|a| a.text == "# to maximum Life").unwrap();
+    assert_eq!(rollquality::score(&life.tiers, 80.0), None);
 }
 
 #[test]
@@ -139,4 +200,20 @@ fn plain_parse_and_garbage_mods_yield_empty_tiers() {
     let affixes = parse_affixes_tiered(STATS, "not json at all");
     assert!(affixes.iter().all(|a| a.tiers.is_empty()), "unparseable mods degrade to no tiers");
     assert_eq!(affixes.len(), 5, "affix text itself still parses");
+}
+
+
+#[test]
+fn a_rolled_line_finds_its_template() {
+    use khaloni_poe2_core::refdata::normalize_mod_text as n;
+    // The rolled value, the sign, and the case must all fall away so the
+    // line and its template agree.
+    assert_eq!(n("+23 to Accuracy Rating"), n("+# to Accuracy Rating"));
+    assert_eq!(n("23 to Accuracy Rating"), n("# to Accuracy Rating"));
+    assert_eq!(n("24% to Critical Damage Bonus"), n("#% to Critical Damage Bonus"));
+    // Decimals and multi-number mods collapse the same way.
+    assert_eq!(n("Adds 26 to 39 Physical Damage"), n("Adds # to # Physical Damage"));
+    assert_eq!(n("1.45% increased Attack Speed"), n("#% increased Attack Speed"));
+    // Genuinely different mods must not collide.
+    assert_ne!(n("+23 to Accuracy Rating"), n("+# to maximum Life"));
 }

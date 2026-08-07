@@ -98,9 +98,39 @@ const C_BLUE: (u8, u8, u8) = (0x2E, 0x5A, 0x8A); // decent border
 const C_BLUE_LT: (u8, u8, u8) = (0x7F, 0xA8, 0xD6); // decent text (readable on dark)
 const C_JUNK_LT: (u8, u8, u8) = (0xB7, 0xAB, 0x97); // junk text
 const C_RED: (u8, u8, u8) = (0x8B, 0x3A, 0x2E); // stale / danger
+// Suffix badges: a warm amber against the prefixes' C_BLUE_LT, so the two
+// affix families split cool/warm at a glance without inventing a hue
+// outside the design system.
+const C_SUFFIX: (u8, u8, u8) = (0xD9, 0x9A, 0x4A);
+// Dark inset behind an editable value box (same well as the reference
+// panel's search field).
+const C_WELL: (u8, u8, u8) = (0x12, 0x0D, 0x08);
+
+// Evaluate item-card type scale: a large small-caps name, tooltip-sized
+// property lines, and deliberately small gutter type so the mod text stays
+// the thing the eye lands on.
+const EVAL_NAME_PX: f32 = 24.0;
+const EVAL_PROP_PX: f32 = 15.0;
+const EVAL_COL_PX: f32 = 11.0;
+const EVAL_BADGE_PX: f32 = 13.0;
+const EVAL_SCORE_PX: f32 = 14.0;
+const EVAL_BOX_PX: f32 = 14.0;
 
 fn rgb(c: (u8, u8, u8)) -> Color {
     Color::from_rgba8(c.0, c.1, c.2, 0xFF)
+}
+
+/// Formats a value-box number: whole numbers show without a decimal point
+/// (`155`), fractional ones keep their digits (`3.5`). Matches how the trade
+/// search body is serialized, so the box shows exactly what gets searched.
+fn fmt_num(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{}", v as i64)
+    } else {
+        // Trim to at most 2 decimals, then drop trailing zeros.
+        let s = format!("{v:.2}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
 }
 
 /// Price text color per value tier (same grey/blue/gold ladder as settings,
@@ -131,7 +161,7 @@ fn best_border_color() -> Color {
     rgb(C_GOLD)
 }
 
-/// Neutral bronze hairline for container panels (popup, appraisal, total),
+/// Neutral bronze hairline for container panels (popup, Evaluate, total),
 /// matching the settings window's chrome rather than a value-tier accent.
 fn panel_border() -> Color {
     rgb(C_BRONZE)
@@ -193,14 +223,6 @@ impl Renderer {
     fn text_width(&self, kind: FontKind, text: &str, px: f32) -> f32 {
         let font = self.font_for(kind);
         text.chars().map(|c| font.metrics(c, px).advance_width).sum()
-    }
-
-    /// Rendered pixel width of an appraisal row label, so the panel layout can
-    /// size the mod-text column against the exact glyphs it will draw (matching
-    /// `draw_appraisal`'s font and size). Used by both the renderer and the
-    /// main loop's hit-test so their geometry stays identical.
-    pub fn appraisal_label_width(&self, text: &str) -> i32 {
-        self.text_width(FontKind::Annotation, text, POPUP_LINE_PX).ceil() as i32
     }
 
     fn draw_text(&self, pm: &mut Pixmap, x: f32, y_baseline: f32, text: &str, style: &TextStyle) {
@@ -400,56 +422,121 @@ impl Renderer {
         }
     }
 
-    /// Draws the hover price-check popup: same parchment pill language as
-    /// the row labels, but a single fixed-width block with a title line
-    /// (item name) followed by one priced line per `popup.lines`, each with
-    /// its currency icon composited the same way as `draw_frame`'s rows.
-    /// `anchor` is the popup's top-left corner in surface-local pixels.
-    /// Draws the interactive appraisal panel from the SAME layout the
-    /// click handler hit-tests against (appraise_ui::layout), offset to
-    /// `anchor` (surface-local top-left).
+    /// Rendered pixel width of an Evaluate row label, for the panel layout's
+    /// `measure` callback. Same face and size `draw_evaluate` draws rows in,
+    /// so the mod column is sized against the exact glyphs that land in it.
+    pub fn evaluate_label_width(&self, text: &str) -> i32 {
+        self.text_width(FontKind::Annotation, text, POPUP_LINE_PX).ceil() as i32
+    }
+
+    /// One tooltip property line: the small-caps label up to and including
+    /// its colon in the muted ink, the value after it in the primary ink —
+    /// how the game writes "Item Level: 81".
+    fn draw_prop_line(&self, pm: &mut Pixmap, x: f32, baseline: f32, text: &str, px: f32) {
+        let (label, value) = match text.find(':') {
+            Some(i) => text.split_at(i + 1),
+            None => (text, ""),
+        };
+        let label_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK2) };
+        self.draw_text(pm, x, baseline, label, &label_style);
+        if !value.is_empty() {
+            let value_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK) };
+            let lw = self.text_width(FontKind::Amount, label, px);
+            self.draw_text(pm, x + lw, baseline, value, &value_style);
+        }
+    }
+
+    /// A hairline rule across the card's inner width, the way the game's
+    /// tooltip separates the name block from the properties from the mods.
+    fn eval_rule(&self, pm: &mut Pixmap, ax: f32, y: f32, panel_w: f32) {
+        self.pill(pm, ax + 12.0, y, panel_w - 24.0, 1.0, rgb(C_LINE));
+    }
+
+    /// A checkbox: hollow outline always, filled square when on. Same
+    /// treatment every checkbox in the overlay uses.
+    fn eval_check(&self, pm: &mut Pixmap, r: &crate::config::Rect, ax: f32, ay: f32, on: bool) {
+        let (cx, cy) = (ax + r.x as f32, ay + r.y as f32);
+        let side = r.w as f32;
+        self.pill(pm, cx, cy, side, side, if on { rgb(C_INK) } else { rgb(C_INK2) });
+        if on {
+            let mut inner = Paint::default();
+            inner.set_color(rgb(C_INK));
+            if let Some(rect) = SkRect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
+                pm.fill_rect(rect, &inner, Transform::identity(), None);
+            }
+        }
+    }
+
+    /// Draws the Evaluate item card — the three-column panel that replaced
+    /// the flat mod list — from the SAME geometry the click handler
+    /// hit-tests against (`evaluate_ui::layout`), offset to `anchor`
+    /// (surface-local top-left). Every position comes from `lay`; nothing is
+    /// recomputed here, so pixels and click targets cannot drift apart.
+    ///
+    /// `editing` names the box being typed into as (index into `panel.rows`,
+    /// field).
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_appraisal(
+    pub fn draw_evaluate(
         &self,
         pm: &mut Pixmap,
-        panel: &crate::appraise_ui::Panel,
-        lay: &crate::appraise_ui::Layout,
+        panel: &crate::evaluate_ui::Panel,
+        lay: &crate::evaluate_ui::Layout,
         anchor: (i32, i32),
-        editing: Option<(usize, crate::appraise_ui::Field)>,
+        editing: Option<(usize, crate::evaluate_ui::Field)>,
         edit_buf: &str,
     ) {
-        use crate::appraise_ui::Field;
+        use crate::evaluate_ui::{AffixKind, Field};
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
         let ink = rgb(C_INK);
         let dim = rgb(C_INK2);
-        self.pill(pm, ax, ay, lay.size.0 as f32, lay.size.1 as f32, panel_border());
+        let w = lay.size.0 as f32;
+        self.pill(pm, ax, ay, w, lay.size.1 as f32, panel_border());
 
-        let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: ink };
-        self.draw_text(pm, ax + 12.0, ay + 12.0 + POPUP_TITLE_PX * 0.8, &panel.title, &title_style);
         // Close X.
         let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
-        self.draw_text(
-            pm,
-            ax + lay.close.x as f32 + 4.0,
-            ay + lay.close.y as f32 + 15.0,
-            "x",
-            &x_style,
-        );
+        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
 
-        // Base-type toggle row: a checkbox + the base name. Unchecked means a
-        // mods-only search across every base.
-        if let (Some(check), Some(base)) = (&lay.base_check, &panel.base) {
-            let (cx, cy) = (ax + check.x as f32, ay + check.y as f32);
-            let side = check.w as f32;
-            let color = if base.enabled { ink } else { dim };
-            self.pill(pm, cx, cy, side, side, color);
-            if base.enabled {
-                let mut inner = tiny_skia::Paint::default();
-                inner.set_color(ink);
-                if let Some(r) = tiny_skia::Rect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
-                    pm.fill_rect(r, &inner, tiny_skia::Transform::identity(), None);
-                }
-            }
+        // Item name: centered like the game's tooltip header, coloured by
+        // rarity, but falling back to the layout's left edge when centering
+        // would run the name under the close X.
+        let rarity = panel.header.rarity.as_str();
+        let name_color = if rarity.eq_ignore_ascii_case("rare") {
+            rgb(C_GOLD)
+        } else if rarity.eq_ignore_ascii_case("magic") {
+            // The readable blue, not the dark border blue: a 24px name in
+            // C_BLUE proper disappears into the near-black panel fill.
+            rgb(C_BLUE_LT)
+        } else {
+            ink
+        };
+        let name_style = TextStyle { kind: FontKind::Amount, px: EVAL_NAME_PX, color: name_color };
+        let nw = self.text_width(FontKind::Amount, &panel.header.name, EVAL_NAME_PX);
+        let left = ax + lay.name_pos.0 as f32;
+        let centered = ax + (w - nw) / 2.0;
+        let limit = ax + lay.close.x as f32 - 8.0 - nw;
+        let nx = if centered >= left && centered <= limit { centered } else { left };
+        self.draw_text(pm, nx, ay + lay.name_pos.1 as f32, &panel.header.name, &name_style);
+
+        // Property block: rarity, then whatever level lines the layout asked
+        // for, all sharing the rarity line's left edge.
+        let prop_x = ax + lay.rarity_pos.0 as f32;
+        let mut last_prop_y = lay.rarity_pos.1;
+        self.draw_prop_line(
+            pm,
+            prop_x,
+            ay + lay.rarity_pos.1 as f32,
+            &format!("Rarity: {}", panel.header.rarity),
+            EVAL_PROP_PX,
+        );
+        for (y, text) in &lay.level_pos {
+            self.draw_prop_line(pm, prop_x, ay + *y as f32, text, EVAL_PROP_PX);
+            last_prop_y = *y;
+        }
+
+        // Base-type constraint: unchecked means a mods-only search across
+        // every base.
+        if let (Some(check), Some(base)) = (&lay.base_check, &panel.header.base) {
+            self.eval_check(pm, check, ax, ay, base.enabled);
             let style = TextStyle {
                 kind: FontKind::Annotation,
                 px: POPUP_LINE_PX,
@@ -462,76 +549,209 @@ impl Renderer {
                 &base.label,
                 &style,
             );
+            last_prop_y = lay.base_label_pos.1;
         }
 
-        // Tag chip abbreviation + colour by group.
-        let chip = |tag: &str| -> (&'static str, Color) {
-            match tag {
-                "implicit" => ("impl", rgb(C_BLUE_LT)),
-                "explicit" => ("expl", rgb(C_INK2)),
-                _ => ("map", Color::from_rgba8(0xD9, 0x9A, 0x4A, 0xFF)),
+        // Column headings, ruled above and below like a table header so the
+        // gutters read as columns rather than as loose text.
+        let head_y = lay.tiering_head_pos.1;
+        let head_style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: dim };
+        self.eval_rule(pm, ax, ay + ((last_prop_y + head_y) as f32 / 2.0 - 6.0).round(), w);
+        self.draw_text(pm, ax + lay.tiering_head_pos.0 as f32, ay + head_y as f32, "TIERING", &head_style);
+        // The scoring column runs from its gutter's left edge to the value
+        // boxes; both the heading and the numbers centre in that span, so a
+        // long mod line never reads as if it ran into its own score.
+        let score_span = |g: &crate::evaluate_ui::RowGeom| (g.score_pos.0 as f32, g.min_box.x as f32 - 8.0);
+        let (head_l, head_r) = lay
+            .rows
+            .first()
+            .map(score_span)
+            .unwrap_or((lay.scoring_head_pos.0 as f32, lay.scoring_head_pos.0 as f32 + 48.0));
+        let hw = self.text_width(FontKind::Amount, "SCORING", EVAL_COL_PX);
+        self.draw_text(
+            pm,
+            ax + (head_l + head_r - hw) / 2.0,
+            ay + lay.scoring_head_pos.1 as f32,
+            "SCORING",
+            &head_style,
+        );
+        self.eval_rule(pm, ax, ay + head_y as f32 + 5.0, w);
+
+        for (g, &i) in lay.rows.iter().zip(&lay.visible_rows) {
+            let Some(row) = panel.rows.get(i) else { continue };
+            // Rows with no filter behind them (derived stats, unmatched
+            // mods) are display-only: no checkbox, no value boxes, nothing
+            // that implies they go to the search.
+            let filterable = row.filter_index.is_some();
+            if filterable {
+                self.eval_check(pm, &g.check, ax, ay, row.enabled);
             }
-        };
-        let tag_style_px = 13.0;
-        for (g, m) in lay.rows.iter().zip(&panel.mods) {
-            // Separator line above the first row of each group.
-            if g.group_start {
-                let sep = rgb(C_LINE);
-                self.pill(pm, ax + 10.0, ay + g.check.y as f32 - 7.0, lay.size.0 as f32 - 20.0, 1.0, sep);
+
+            if let Some(badge) = row.badge {
+                let color = match badge.kind {
+                    AffixKind::Prefix => rgb(C_BLUE_LT),
+                    AffixKind::Suffix => rgb(C_SUFFIX),
+                    AffixKind::Other => dim,
+                };
+                // "P9" / "S1", from the model's own formatter so the drawn
+                // badge and the layout's column width agree.
+                let text = crate::evaluate_ui::badge_text(&badge);
+                let style = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color };
+                self.draw_text(pm, ax + g.badge_pos.0 as f32, ay + g.badge_pos.1 as f32, &text, &style);
             }
-            let (cx, cy) = (ax + g.check.x as f32, ay + g.check.y as f32);
-            let side = g.check.w as f32;
-            // Checkbox: outline always, filled square when enabled.
-            let color = if m.enabled { ink } else { dim };
-            self.pill(pm, cx, cy, side, side, color);
-            if m.enabled {
-                let mut inner = tiny_skia::Paint::default();
-                inner.set_color(ink);
-                if let Some(r) = tiny_skia::Rect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
-                    pm.fill_rect(r, &inner, tiny_skia::Transform::identity(), None);
+
+            let (lx, ly) = (ax + g.label_pos.0 as f32, ay + g.label_pos.1 as f32);
+            let off = filterable && !row.enabled;
+            let mut label_style =
+                TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: if off { dim } else { ink } };
+            match row.label.find(':').filter(|_| !filterable) {
+                // A derived line ("Physical DPS: 412.6") is a property, not
+                // a mod: its name recedes and its number reads, the way the
+                // tooltip's own property block is written.
+                Some(i) => {
+                    let (name, value) = row.label.split_at(i + 1);
+                    label_style.color = dim;
+                    self.draw_text(pm, lx, ly, name, &label_style);
+                    label_style.color = ink;
+                    let nw = self.text_width(FontKind::Annotation, name, POPUP_LINE_PX);
+                    self.draw_text(pm, lx + nw, ly, value, &label_style);
+                }
+                None => self.draw_text(pm, lx, ly, &row.label, &label_style),
+            }
+
+            if let Some(score) = row.score {
+                // Graded, not gradient: a good roll is gold, a middling one
+                // reads as ordinary text, a poor one recedes — and a row the
+                // player switched off recedes whatever it rolled.
+                let color = if off {
+                    dim
+                } else if score >= 4.0 {
+                    rgb(C_GOLD)
+                } else if score >= 2.0 {
+                    ink
+                } else {
+                    dim
+                };
+                let style = TextStyle { kind: FontKind::Amount, px: EVAL_SCORE_PX, color };
+                let text = crate::evaluate_ui::score_text(score);
+                let sw = self.text_width(FontKind::Amount, &text, EVAL_SCORE_PX);
+                let (l, r) = score_span(g);
+                self.draw_text(pm, ax + (l + r - sw) / 2.0, ay + g.score_pos.1 as f32, &text, &style);
+            }
+
+            if !filterable {
+                continue;
+            }
+            // Min/max: dark wells, so they read as fields you can type in.
+            // The focused one shows the live buffer with a caret and takes a
+            // gold border.
+            let box_style = TextStyle { kind: FontKind::Amount, px: EVAL_BOX_PX, color: ink };
+            for (field, bx, val) in [
+                (Field::Min, &g.min_box, fmt_num(row.min)),
+                (Field::Max, &g.max_box, row.max.map(fmt_num).unwrap_or_default()),
+            ] {
+                let focused = editing == Some((i, field));
+                let (bx0, by0) = (ax + bx.x as f32, ay + bx.y as f32);
+                let (bw, bh) = (bx.w as f32, bx.h as f32);
+                self.pill(pm, bx0, by0, bw, bh, if focused { rgb(C_GOLD) } else { rgb(C_LINE) });
+                let mut well = Paint::default();
+                well.set_color(rgb(C_WELL));
+                if let Some(r) = SkRect::from_xywh(bx0 + 1.5, by0 + 1.5, bw - 3.0, bh - 3.0) {
+                    pm.fill_rect(r, &well, Transform::identity(), None);
+                }
+                let shown = if focused { format!("{edit_buf}_") } else { val };
+                self.draw_text(pm, bx0 + 5.0, by0 + bh - 5.0, &shown, &box_style);
+            }
+        }
+
+        // "Show N more" / "Hide": a quiet outlined link, not a call to action.
+        if let Some((rect, label)) = &lay.hidden_toggle {
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            let (bw, bh) = (rect.w as f32, rect.h as f32);
+            self.pill(pm, bx, by, bw, bh, rgb(C_LINE));
+            let style = TextStyle { kind: FontKind::Amount, px: 13.0, color: dim };
+            let tw = self.text_width(FontKind::Amount, label, 13.0);
+            self.draw_text(pm, bx + (bw - tw).max(0.0) / 2.0, by + bh - 6.0, label, &style);
+        }
+
+        // Strictness: two radios inside the rects the layout hands back — a
+        // marker square at the rect's left edge, its label beside it. The
+        // chosen one takes the gold border and a faint gold wash; the other
+        // stays a hairline, so which mode is armed reads without reading.
+        for (rect, s) in &lay.strictness {
+            let selected = *s == panel.strictness;
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            let (bw, bh) = (rect.w as f32, rect.h as f32);
+            self.pill(pm, bx, by, bw, bh, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
+            if selected {
+                let mut lift = Paint::default();
+                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
+                lift.anti_alias = true;
+                if let Some(r) = SkRect::from_xywh(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0) {
+                    pm.fill_rect(r, &lift, Transform::identity(), None);
                 }
             }
-            // Tag chip.
-            let (chip_txt, chip_col) = chip(&m.tag);
-            let chip_style = TextStyle { kind: FontKind::Amount, px: tag_style_px, color: chip_col };
-            self.draw_text(pm, ax + g.tag_pos.0 as f32, ay + g.tag_pos.1 as f32, chip_txt, &chip_style);
-
-            let tier = m.tier.map(|t| format!("T{t} ")).unwrap_or_default();
-            let label_style = TextStyle {
-                kind: FontKind::Annotation,
-                px: POPUP_LINE_PX,
-                color: if m.enabled { ink } else { dim },
+            let side = (bh - 10.0).max(6.0);
+            let mx = bx + 6.0;
+            let my = by + (bh - side) / 2.0;
+            self.pill(pm, mx, my, side, side, if selected { rgb(C_GOLD) } else { dim });
+            if selected {
+                let mut inner = Paint::default();
+                inner.set_color(rgb(C_GOLD));
+                if let Some(r) = SkRect::from_xywh(mx + 3.0, my + 3.0, side - 6.0, side - 6.0) {
+                    pm.fill_rect(r, &inner, Transform::identity(), None);
+                }
+            }
+            let style = TextStyle {
+                kind: FontKind::Amount,
+                px: 14.0,
+                color: if selected { ink } else { dim },
             };
-            self.draw_text(
-                pm,
-                ax + g.label_pos.0 as f32,
-                ay + g.label_pos.1 as f32,
-                &format!("{tier}{}", m.label),
-                &label_style,
-            );
-            // Min/max value boxes: outlined, right-aligned; a focused box shows
-            // the live edit buffer and a brighter border.
-            let box_style = TextStyle { kind: FontKind::Amount, px: 14.0, color: ink };
-            for (field, bx, val) in [
-                (Field::Min, &g.min_box, crate::appraise_ui::fmt_num(m.min)),
-                (
-                    Field::Max,
-                    &g.max_box,
-                    m.max.map(crate::appraise_ui::fmt_num).unwrap_or_default(),
-                ),
-            ] {
-                let focused = editing == Some((m.filter_index, field));
-                let border = if focused { rgb(C_GOLD) } else { rgb(C_LINE) };
-                self.pill(pm, ax + bx.x as f32, ay + bx.y as f32, bx.w as f32, bx.h as f32, border);
-                let shown = if focused { edit_buf.to_string() } else { val };
-                self.draw_text(
+            self.draw_text(pm, mx + side + 6.0, by + bh - 6.0, s.label(), &style);
+        }
+
+        // The answer: heading, the headline number with its orb, then the
+        // spread and a reliability word that turns red when the listings
+        // disagree too much to trust it.
+        if let (Some(rect), Some(est)) = (&lay.estimate_box, &panel.estimate) {
+            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, panel_border());
+            let head = TextStyle { kind: FontKind::Annotation, px: OLD_PX, color: dim };
+            let center = |txt_w: f32| bx + (rect.w as f32 - txt_w) / 2.0;
+            let heading = "Estimated Value";
+            let hw = self.text_width(FontKind::Annotation, heading, OLD_PX);
+            self.draw_text(pm, center(hw), by + 16.0, heading, &head);
+
+            let big = TextStyle { kind: FontKind::Amount, px: AMOUNT_PX, color: rgb(C_GOLD) };
+            let aw = self.text_width(FontKind::Amount, &est.amount, AMOUNT_PX);
+            let icon = self.icon_for(est.denom);
+            let iw = if icon.is_some() { ICON_GAP + ICON_SIZE as f32 } else { 0.0 };
+            let ax0 = center(aw + iw);
+            self.draw_text(pm, ax0, by + 42.0, &est.amount, &big);
+            if let Some(img) = icon {
+                self.composite_icon(
                     pm,
-                    ax + bx.x as f32 + 5.0,
-                    ay + bx.y as f32 + bx.h as f32 - 5.0,
-                    &shown,
-                    &box_style,
+                    img,
+                    (ax0 + aw + ICON_GAP).round() as i32,
+                    (by + 42.0 - AMOUNT_PX * 0.75) as i32,
                 );
             }
+
+            // The reliability word carries its own colour, so the line is
+            // drawn as three runs rather than one string.
+            let sep = "   Reliability: ";
+            let detail_w = self.text_width(FontKind::Annotation, &est.detail, OLD_PX);
+            let sep_w = self.text_width(FontKind::Annotation, sep, OLD_PX);
+            let rel_w = self.text_width(FontKind::Annotation, &est.reliability, OLD_PX);
+            let dx = center(detail_w + sep_w + rel_w);
+            let rel_style = TextStyle {
+                kind: FontKind::Annotation,
+                px: OLD_PX,
+                color: if est.shaky { rgb(C_RED) } else { ink },
+            };
+            self.draw_text(pm, dx, by + 62.0, &est.detail, &head);
+            self.draw_text(pm, dx + detail_w, by + 62.0, sep, &head);
+            self.draw_text(pm, dx + detail_w + sep_w, by + 62.0, &est.reliability, &rel_style);
         }
 
         for (rect, _, label) in &lay.buttons {
@@ -542,64 +762,11 @@ impl Renderer {
         }
         if !panel.status.is_empty() {
             let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
-            self.draw_text(
-                pm,
-                ax + lay.status_pos.0 as f32,
-                ay + lay.status_pos.1 as f32,
-                &panel.status,
-                &style,
-            );
+            self.draw_text(pm, ax + lay.status_pos.0 as f32, ay + lay.status_pos.1 as f32, &panel.status, &style);
         }
         for (pos, line) in lay.listing_pos.iter().zip(&panel.listings) {
             let style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
             self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, line, &style);
-        }
-        // Value box last so it sits over the panel fill: a bordered card
-        // with the heading, the headline number + orb icon, then the
-        // range/count line and a reliability word that turns red when the
-        // listings disagree too much to trust the number.
-        if let (Some(rect), Some(est)) = (&lay.estimate_box, &panel.estimate) {
-            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, panel_border());
-            let head = TextStyle { kind: FontKind::Annotation, px: OLD_PX, color: rgb(C_INK2) };
-            let center = |txt_w: f32| bx + (rect.w as f32 - txt_w) / 2.0;
-            let heading = "Estimated Value";
-            let hw = self.text_width(FontKind::Annotation, heading, OLD_PX);
-            self.draw_text(pm, center(hw), by + 16.0, heading, &head);
-
-            let big = TextStyle { kind: FontKind::Amount, px: AMOUNT_PX, color: rgb(C_GOLD) };
-            // No "~"/"≈" prefix: Fontin has neither glyph and renders a
-            // dash, which reads as a negative sign.
-            let amount = est.amount.clone();
-            let aw = self.text_width(FontKind::Amount, &amount, AMOUNT_PX);
-            let icon = self.icon_for(est.denom);
-            let iw = if icon.is_some() { ICON_GAP + ICON_SIZE as f32 } else { 0.0 };
-            let ax0 = center(aw + iw);
-            self.draw_text(pm, ax0, by + 42.0, &amount, &big);
-            if let Some(img) = icon {
-                self.composite_icon(
-                    pm,
-                    img,
-                    (ax0 + aw + ICON_GAP).round() as i32,
-                    (by + 42.0 - AMOUNT_PX * 0.75) as i32,
-                );
-            }
-
-            let detail = format!("{}   Reliability: {}", est.detail, est.reliability);
-            let dw = self.text_width(FontKind::Annotation, &detail, OLD_PX);
-            let dx = center(dw);
-            self.draw_text(pm, dx, by + 62.0, &est.detail, &head);
-            // The reliability word carries its own color, so it is drawn as
-            // a second run rather than as part of the detail string.
-            let lead = format!("{}   Reliability: ", est.detail);
-            let lw = self.text_width(FontKind::Annotation, &lead, OLD_PX);
-            let rel_style = TextStyle {
-                kind: FontKind::Annotation,
-                px: OLD_PX,
-                color: if est.shaky { rgb(C_RED) } else { rgb(C_INK) },
-            };
-            self.draw_text(pm, dx + self.text_width(FontKind::Annotation, &est.detail, OLD_PX), by + 62.0, "   Reliability: ", &head);
-            self.draw_text(pm, dx + lw, by + 62.0, &est.reliability, &rel_style);
         }
     }
 
@@ -820,6 +987,11 @@ impl Renderer {
         (self.popup_width(popup).ceil() as i32, pill_h.ceil() as i32)
     }
 
+    /// Draws the hover price-check popup: same parchment pill language as
+    /// the row labels, but a single fixed-width block with a title line
+    /// (item name) followed by one priced line per `popup.lines`, each with
+    /// its currency icon composited the same way as `draw_frame`'s rows.
+    /// `anchor` is the popup's top-left corner in surface-local pixels.
     pub fn draw_popup(&self, pm: &mut Pixmap, popup: &Popup, anchor: (i32, i32)) {
         let (ax, ay) = anchor;
         let title_h = POPUP_TITLE_PX + POPUP_ROW_GAP;

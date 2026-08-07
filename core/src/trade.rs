@@ -545,6 +545,20 @@ fn tier_floor(text: &str) -> Option<i64> {
 /// item's defining stats, are enabled by default. `search_relaxed` drops
 /// enabled filters until listings appear, so a fully-filtered query never
 /// dead-ends.
+/// Relaxes every enabled minimum by `pct` (0.10 = the panel's "Broad
+/// (-10%)"), which surfaces the comparable items an exact-roll search
+/// misses. Disabled filters and open minimums are left alone, and values
+/// are floored at zero so a relaxation can never invert a bound.
+pub fn relax_query(query: &Query, pct: f64) -> Query {
+    let mut out = query.clone();
+    for f in &mut out.filters {
+        if !f.disabled && f.value.min > 0.0 {
+            f.value.min = (f.value.min * (1.0 - pct)).max(0.0);
+        }
+    }
+    out
+}
+
 pub fn build_query_with_labels(
     item: &crate::item::Item,
     stats: &StatIndex,
