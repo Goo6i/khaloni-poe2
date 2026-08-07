@@ -163,9 +163,10 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
     assert_eq!(q.category.as_deref(), Some("weapon.bow"));
     assert!(q.filters.len() >= 4, "most bow mods resolve, got {}", q.filters.len());
     let body = q.to_body();
-    // "any" (not "online"): the async marketplace lets you Secure Item from
-    // offline sellers, so their listings are part of the real buy price.
-    assert_eq!(body["query"]["status"]["option"], "any");
+    // "available" (not "any"): only listings a buyer can act on now -
+    // instant buyout or an online seller. "any" adds unbuyable offline
+    // listings whose stale prices poison cheapest-first results.
+    assert_eq!(body["query"]["status"]["option"], "available");
     assert_eq!(body["sort"]["price"], "asc");
     assert_eq!(
         body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],

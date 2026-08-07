@@ -473,10 +473,13 @@ impl Query {
         let stat_filters: Vec<&StatFilter> =
             self.filters.iter().filter(|f| !f.id.starts_with("map_")).collect();
         let mut query = serde_json::json!({
-            // "any" includes offline sellers: with the 0.5 asynchronous
-            // marketplace their items are securable without them being online,
-            // so they belong in the price just like online listings.
-            "status": {"option": "any"},
+            // "available" = Instant Buyout + In Person (online): exactly the
+            // listings a buyer can act on right now. "any" additionally
+            // includes offline sellers with no instant buyout - unbuyable
+            // listings whose stale lowball prices sort first and polluted
+            // both the listing column and the estimate (seen live as a
+            // 70%-effectiveness waystone "priced" at 1ex).
+            "status": {"option": "available"},
             "stats": [{"type": "and", "filters": stat_filters}],
         });
         if let Some(t) = &self.type_name {
