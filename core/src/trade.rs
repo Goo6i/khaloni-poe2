@@ -473,13 +473,14 @@ impl Query {
         let stat_filters: Vec<&StatFilter> =
             self.filters.iter().filter(|f| !f.id.starts_with("map_")).collect();
         let mut query = serde_json::json!({
-            // "available" = Instant Buyout + In Person (online): exactly the
-            // listings a buyer can act on right now. "any" additionally
-            // includes offline sellers with no instant buyout - unbuyable
-            // listings whose stale lowball prices sort first and polluted
-            // both the listing column and the estimate (seen live as a
-            // 70%-effectiveness waystone "priced" at 1ex).
-            "status": {"option": "available"},
+            // "securable" = Instant Buyout only, matching the trade site's
+            // own default. In-person listings are excluded deliberately:
+            // they cost nothing to fake, so price-fixers park lowball
+            // in-person listings they never honor (seen live: 30ex and
+            // 200ex in-person bait under a 410ex instant-buyout floor, and
+            // the site showed 410 as the real price). A buyout listing
+            // cannot lie - anyone could take it.
+            "status": {"option": "securable"},
             "stats": [{"type": "and", "filters": stat_filters}],
         });
         if let Some(t) = &self.type_name {

@@ -163,10 +163,10 @@ fn builds_the_verified_body_shape_for_the_rare_bow() {
     assert_eq!(q.category.as_deref(), Some("weapon.bow"));
     assert!(q.filters.len() >= 4, "most bow mods resolve, got {}", q.filters.len());
     let body = q.to_body();
-    // "available" (not "any"): only listings a buyer can act on now -
-    // instant buyout or an online seller. "any" adds unbuyable offline
-    // listings whose stale prices poison cheapest-first results.
-    assert_eq!(body["query"]["status"]["option"], "available");
+    // "securable" (Instant Buyout only), the trade site's own default:
+    // in-person listings are free to fake and price-fixers exploit that;
+    // a buyout price is real by construction.
+    assert_eq!(body["query"]["status"]["option"], "securable");
     assert_eq!(body["sort"]["price"], "asc");
     assert_eq!(
         body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
