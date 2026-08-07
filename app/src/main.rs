@@ -31,10 +31,22 @@ fn main() {
     redirect_output_to_log();
     migrate_legacy_dirs();
     let args: Vec<String> = std::env::args().collect();
+    // Steam wrapper mode exits with the GAME's code, not the overlay's,
+    // so it resolves before the common error path below.
+    if args.get(1).map(String::as_str) == Some("--launch") {
+        match launch_mode(&args[2..]) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
+                eprintln!("fatal: {e:#}");
+                fatal_dialog(&format!("{e:#}"));
+                std::process::exit(1);
+            }
+        }
+    }
     let result = match args.get(1).map(String::as_str).unwrap_or("") {
         "--headless" => headless(),
         "--settings" => khaloni_poe2::settings_ui::run(),
-        _ => overlay_mode(),
+        _ => overlay_mode(None, None),
     };
     if let Err(e) = result {
         // A GUI app's fatal error must be visible like any normal
@@ -43,6 +55,63 @@ fn main() {
         fatal_dialog(&format!("{e:#}"));
         std::process::exit(1);
     }
+}
+
+/// Steam wrapper mode: `khaloni-poe2 --launch %command%` in the game's
+/// launch options. Spawns the game command as a child, runs the overlay
+/// beside it, and closes the overlay the moment the game exits. The
+/// wrapper process stays alive as long as the game does — even if the
+/// overlay is quit from the tray, or dies — so Steam keeps tracking the
+/// session it started, and the game's own exit code is what Steam sees.
+fn launch_mode(rest: &[String]) -> anyhow::Result<i32> {
+    let cmd = game_command(rest).ok_or_else(|| {
+        anyhow::anyhow!(
+            "--launch needs the game command; in Steam's launch options use: khaloni-poe2 --launch %command%"
+        )
+    })?;
+    let mut child = std::process::Command::new(&cmd[0])
+        .args(&cmd[1..])
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("launching {}: {e}", cmd[0]))?;
+
+    match khaloni_poe2::platform::single_instance() {
+        // An overlay is already up (started by hand, or a second game
+        // launch): leave it alone and just be the process Steam waits on.
+        Err(_) => {
+            eprintln!("overlay already running; passing the game through");
+            Ok(child.wait()?.code().unwrap_or(0))
+        }
+        Ok(lock) => {
+            let game_over = Arc::new(AtomicBool::new(false));
+            let (code_tx, code_rx) = mpsc::channel();
+            let flag = game_over.clone();
+            std::thread::spawn(move || {
+                let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(0);
+                flag.store(true, Ordering::Relaxed);
+                let _ = code_tx.send(code);
+            });
+            if let Err(e) = overlay_mode(Some(lock), Some(game_over)) {
+                // The overlay died; the game plays on. Report it like any
+                // fatal error, then keep waiting so Steam's session stays
+                // honest.
+                eprintln!("fatal: {e:#}");
+                fatal_dialog(&format!("{e:#}"));
+            }
+            // Already-exited and still-running both land here: the watcher
+            // sends exactly once, and recv blocks until it does.
+            Ok(code_rx.recv().unwrap_or(0))
+        }
+    }
+}
+
+/// The game command from everything after `--launch`, tolerating an
+/// optional `--` separator. `None` when nothing is left to run.
+fn game_command(rest: &[String]) -> Option<&[String]> {
+    let rest = match rest.first().map(String::as_str) {
+        Some("--") => &rest[1..],
+        _ => rest,
+    };
+    (!rest.is_empty()).then_some(rest)
 }
 
 /// Shows a native error dialog. Best-effort: a missing dialog helper
@@ -668,12 +737,26 @@ fn ui_affix_kind(k: khaloni_poe2_core::refdata::AffixKind) -> khaloni_poe2::eval
 /// The live overlay drives the Linux backends (and the Linux OCR stack)
 /// directly; the Windows backend lands in SP3 (see platform/windows/mod.rs).
 #[cfg(not(ocr))]
-fn overlay_mode() -> anyhow::Result<()> {
+fn overlay_mode(
+    _lock: Option<khaloni_poe2::platform::InstanceLock>,
+    _game_over: Option<Arc<AtomicBool>>,
+) -> anyhow::Result<()> {
     anyhow::bail!("this build has no OCR (windows-gnu check target); the shipped Windows build is MSVC with vcpkg tesseract")
 }
 
 #[cfg(ocr)]
-fn overlay_mode() -> anyhow::Result<()> {
+fn overlay_mode(
+    lock: Option<khaloni_poe2::platform::InstanceLock>,
+    game_over: Option<Arc<AtomicBool>>,
+) -> anyhow::Result<()> {
+    // One overlay owns the hotkeys, the tray, and the KWin script; a
+    // second instance fights the first for all three (seen live as stale
+    // KWin scripts piling up). --launch hands its lock in, having used it
+    // to choose wrapper-vs-passive; plain launches acquire it here.
+    let _lock = match lock {
+        Some(l) => l,
+        None => khaloni_poe2::platform::single_instance()?,
+    };
     // Startup phase timing, permanently logged: cold-start stalls are only
     // diagnosable from user reports, and eight lines of log are cheap.
     let boot = std::time::Instant::now();
@@ -1652,6 +1735,11 @@ fn overlay_mode() -> anyhow::Result<()> {
         }
         // Tray menu actions reuse the hotkey paths where one exists, so the
         // two entry points cannot drift apart.
+        // --launch wrapper: the game's exit is the overlay's cue to leave.
+        if game_over.as_ref().is_some_and(|f| f.load(Ordering::Relaxed)) {
+            eprintln!("game exited; closing the overlay with it");
+            return Ok(());
+        }
         while let Ok(ev) = tray_rx.try_recv() {
             match ev {
                 khaloni_poe2::tray::TrayEvent::OpenSettings => open_settings(),
@@ -2730,6 +2818,19 @@ fn mean_gray_brightness(img: &image::GrayImage) -> u64 {
 
 #[cfg(test)]
 mod main_tests {
+    #[test]
+    fn the_wrapper_finds_the_game_command() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+        // Steam's %command% expansion, with and without a -- separator.
+        let args = v(&["--", "/path/game", "-somearg"]);
+        assert_eq!(super::game_command(&args).unwrap(), &args[1..]);
+        let args = v(&["/path/game", "-somearg"]);
+        assert_eq!(super::game_command(&args).unwrap(), &args[..]);
+        // Nothing to run is an error, not a silent no-op.
+        assert_eq!(super::game_command(&[]), None);
+        assert_eq!(super::game_command(&v(&["--"])), None);
+    }
+
     use super::{rarity_label, requires_level, urlencode};
 
     fn item(text: &str) -> khaloni_poe2_core::item::Item {

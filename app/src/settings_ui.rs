@@ -115,17 +115,19 @@ enum Section {
     Pricing,
     CaptureOcr,
     MacrosShortcuts,
+    RunWithGame,
     Waystones,
     Account,
     Updates,
 }
 
-const SECTIONS: [(Section, &str); 8] = [
+const SECTIONS: [(Section, &str); 9] = [
     (Section::Hotkeys, "Hotkeys"),
     (Section::Display, "Display"),
     (Section::Pricing, "Pricing"),
     (Section::CaptureOcr, "Capture & OCR"),
     (Section::MacrosShortcuts, "Macros & Shortcuts"),
+    (Section::RunWithGame, "Run with the Game"),
     (Section::Waystones, "Waystones"),
     (Section::Account, "Account"),
     (Section::Updates, "Updates"),
@@ -323,6 +325,7 @@ impl eframe::App for SettingsApp {
                         section_capture_ocr(ui, cfg, brightness_ok)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
+                    Section::RunWithGame => crate::settings_launch::section_launch(ui),
                     Section::Updates => {
                         crate::settings_update::section_updates(ui, cfg, updates)
                     }

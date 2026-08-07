@@ -124,6 +124,21 @@ entry and starts the app in a systemd scope because the global shortcuts
 portal refuses to bind hotkeys for a process without an app id; running
 the binary directly works except the hotkeys.
 
+## Running with the game (Steam)
+
+Steam can start the overlay together with the game and close it the moment
+the game exits. Right-click Path of Exile 2 in Steam → Properties →
+General → Launch Options, and paste the line the Settings window shows
+under "Run with the Game" — it looks like:
+
+```
+"/path/to/khaloni-poe2" --launch %command%
+```
+
+The overlay starts, launches the game, and quits when the game does. If an
+overlay is already running when the game starts, the launcher leaves it
+alone and just runs the game.
+
 ## Updates
 
 The app checks this project's GitHub releases on startup and, when a newer

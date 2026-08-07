@@ -5,6 +5,7 @@ pub mod livesearch;
 pub mod platform;
 pub mod reference_ui;
 pub mod settings_account;
+pub mod settings_launch;
 pub mod settings_ui;
 pub mod settings_update;
 pub mod tray;
