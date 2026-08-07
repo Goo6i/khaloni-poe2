@@ -852,6 +852,33 @@ fn overlay_mode(
         if !cfg.hotkey_upgrade.is_empty() {
             extra.push(("upgrade".to_string(), cfg.hotkey_upgrade.clone()));
         }
+        // One trigger, one action: registering a key twice makes the desktop
+        // portal's behavior undefined (KDE has been seen firing both, or
+        // storing "none" for later conflicting entries, which reads as a
+        // dead hotkey with no error anywhere). First claim wins - the
+        // built-in panels and macros in the order assembled above - and the
+        // loser is skipped loudly so the log names the collision.
+        {
+            let mut taken: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            taken.insert(check.to_lowercase(), "price-check".into());
+            taken.insert(overlay.to_lowercase(), "overlay-toggle".into());
+            extra.retain(|(id, trigger)| {
+                match taken.entry(trigger.to_lowercase()) {
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(id.clone());
+                        true
+                    }
+                    std::collections::hash_map::Entry::Occupied(e) => {
+                        eprintln!(
+                            "hotkey conflict: {trigger} is bound to {} — {id} disabled;                              change one of them in Settings",
+                            e.get()
+                        );
+                        false
+                    }
+                }
+            });
+        }
         let hk_tx = hk_tx.clone();
         rt.spawn(async move {
             if let Err(e) = khaloni_poe2::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
