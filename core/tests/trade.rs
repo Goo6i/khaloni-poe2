@@ -48,7 +48,9 @@ fn waystone_query_searches_by_base_type_tier_and_reward_props() {
         Monsters have 238% increased Critical Hit Chance\n--------\n";
     let item = parse_item(text).expect("parses");
     let mut q = build_query(&item, &stats);
-    assert_eq!(q.type_name.as_deref(), Some("Waystone"), "search by base type");
+    // The full tiered base, exactly as the game writes it: the catalog has
+    // no bare "Waystone" base and rejects it ("Unknown item base type").
+    assert_eq!(q.type_name.as_deref(), Some("Waystone (Tier 15)"), "search by base type");
     assert_eq!(q.map_tier, Some(15), "tier parsed");
     // Reward properties are pickable map_ filters, disabled by default.
     let iir = q.filters.iter().find(|f| f.id == "map_iir").expect("Item Rarity filter");
@@ -59,7 +61,7 @@ fn waystone_query_searches_by_base_type_tier_and_reward_props() {
     assert!(q.filters.iter().any(|f| f.id == "map_packsize"), "pack size pickable");
 
     let body = q.to_body();
-    assert_eq!(body["query"]["type"], "Waystone");
+    assert_eq!(body["query"]["type"], "Waystone (Tier 15)");
     let mf = &body["query"]["filters"]["map_filters"]["filters"];
     assert_eq!(mf["map_tier"]["min"], 15);
     assert_eq!(mf["map_tier"]["max"], 15);

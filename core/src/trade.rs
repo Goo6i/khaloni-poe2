@@ -689,8 +689,13 @@ pub fn build_query_with_labels(
             });
             labels.push(FilterLabel { text: label, tier: None, min, tag: "map" });
         }
-        let (base, tier) = item.base_type.as_deref().map(split_waystone).unwrap_or_default();
-        (Some(base).filter(|b| !b.is_empty()), tier)
+        // The trade catalog names each waystone base with its tier baked
+        // in - "Waystone (Tier 15)" - and rejects the bare "Waystone" base
+        // ("Unknown item base type", observed live 2026-08-07). The full
+        // base line the game wrote is what gets searched; the tier is
+        // still parsed out for the map_tier filter beside it.
+        let tier = item.base_type.as_deref().and_then(|b| split_waystone(b).1);
+        (item.base_type.clone().filter(|b| !b.is_empty()), tier)
     } else {
         (None, None)
     };
@@ -900,6 +905,19 @@ fn waystone_reward_filters(item: &crate::item::Item) -> Vec<(String, String, i64
         }
     }
     out
+}
+
+/// The API's own explanation when it has one: a trade error body carries
+/// `{"error":{"message":…}}`, and "Unknown item base type" diagnoses a
+/// problem that a bare "status 400" hides.
+fn api_error(what: &str, status: u16, body: &str) -> String {
+    let msg = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| Some(v.get("error")?.get("message")?.as_str()?.to_string()));
+    match msg {
+        Some(m) => format!("{what}: {m} ({status})"),
+        None => format!("{what} status {status}"),
+    }
 }
 
 /// Splits a waystone base type into its bare base and tier:
@@ -1202,7 +1220,9 @@ impl TradeClient {
             return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
         }
         if !resp.status().is_success() {
-            return Err(TradeError::Http(format!("search status {}", resp.status())));
+            let status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
+            return Err(TradeError::Http(api_error("search", status, &body)));
         }
         parse_search(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)
     }
@@ -1329,7 +1349,9 @@ impl TradeClient {
             return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
         }
         if !resp.status().is_success() {
-            return Err(TradeError::Http(format!("saved search status {}", resp.status())));
+            let status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
+            return Err(TradeError::Http(api_error("saved search", status, &body)));
         }
         let text = resp.text().map_err(|e| TradeError::Http(e.to_string()))?;
         let body = parse_saved_query(&text)?;
@@ -1348,7 +1370,9 @@ impl TradeClient {
             return Err(TradeError::Cooldown(std::time::Duration::from_secs(60)));
         }
         if !resp.status().is_success() {
-            return Err(TradeError::Http(format!("search status {}", resp.status())));
+            let status = resp.status().as_u16();
+            let body = resp.text().unwrap_or_default();
+            return Err(TradeError::Http(api_error("search", status, &body)));
         }
         let sr = parse_search(&resp.text().map_err(|e| TradeError::Http(e.to_string()))?)?;
         Ok(sr.hashes)
