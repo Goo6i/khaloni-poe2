@@ -201,7 +201,13 @@ impl Config {
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        write_atomic(&Self::path(), &toml::to_string_pretty(self)?)
+        // Blank needle rows are editing scaffolding (the settings list adds
+        // an empty row to type into); persisted, an empty needle would match
+        // every line. They stay in the UI and never reach the disk.
+        let mut clean = self.clone();
+        clean.map_danger_needles.retain(|n| !n.trim().is_empty());
+        clean.map_good_needles.retain(|n| !n.trim().is_empty());
+        write_atomic(&Self::path(), &toml::to_string_pretty(&clean)?)
     }
 }
 

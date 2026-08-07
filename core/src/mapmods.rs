@@ -73,6 +73,12 @@ pub fn classify(line: &str, rules: &[ModRule]) -> Option<ModKind> {
 /// order with a number in each gap, so a canonical mod text pasted from the
 /// autocomplete matches every roll of that mod.
 fn needle_matches(line_lower: &str, needle: &str) -> bool {
+    // A blank needle is a leftover empty settings field, and contains("")
+    // is true for every line - it would flag the whole clipboard as
+    // rewarding. Blank means "nothing configured", never "everything".
+    if needle.trim().is_empty() {
+        return false;
+    }
     if !needle.contains('#') {
         return line_lower.contains(needle);
     }
@@ -271,5 +277,25 @@ mod tests {
     fn plain_needles_keep_substring_semantics() {
         let r = vec![ModRule::new("pack size", ModKind::Good)];
         assert_eq!(classify("12% increased Pack Size", &r), Some(ModKind::Good));
+    }
+}
+
+#[cfg(test)]
+mod blank_needle_tests {
+    use super::*;
+
+    #[test]
+    fn a_blank_needle_flags_nothing() {
+        // An empty settings row once persisted as "" and, since every
+        // string contains "", flagged the entire clipboard - headers and
+        // separators included - as rewarding mods.
+        let rules = [
+            ModRule { needle: String::new(), kind: ModKind::Good },
+            ModRule { needle: "   ".into(), kind: ModKind::Danger },
+        ];
+        assert_eq!(classify("Item Class: Waystones", &rules), None);
+        assert_eq!(classify("--------", &rules), None);
+        let lines = ["Rarity: Rare", "18% increased Monster Damage"];
+        assert!(analyze(&lines, &rules).is_empty());
     }
 }

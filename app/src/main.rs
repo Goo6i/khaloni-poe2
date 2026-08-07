@@ -387,13 +387,13 @@ fn estimate_view(
 /// Built-in map-mod seed rules plus the config's extra needles, lowercased.
 fn build_map_rules(cfg: &Config) -> Vec<khaloni_poe2_core::mapmods::ModRule> {
     let mut r = khaloni_poe2_core::mapmods::default_rules();
-    for n in &cfg.map_danger_needles {
+    for n in cfg.map_danger_needles.iter().filter(|n| !n.trim().is_empty()) {
         r.push(khaloni_poe2_core::mapmods::ModRule {
             needle: n.to_lowercase(),
             kind: khaloni_poe2_core::mapmods::ModKind::Danger,
         });
     }
-    for n in &cfg.map_good_needles {
+    for n in cfg.map_good_needles.iter().filter(|n| !n.trim().is_empty()) {
         r.push(khaloni_poe2_core::mapmods::ModRule {
             needle: n.to_lowercase(),
             kind: khaloni_poe2_core::mapmods::ModKind::Good,
