@@ -454,6 +454,15 @@ pub struct Affix {
     pub trade_ids: Vec<String>,
     pub tiers: Vec<AffixTier>,
     pub kind: AffixKind,
+    /// Spawn weight, with exactly poe2db's provenance: the weight of the
+    /// FIRST POSITIVE `spawn_weights` entry on the dominant ladder's base
+    /// (lowest `required_level`) mod — the number poe2db displays for the
+    /// family. `None` whenever no ladder joined; never a guess.
+    pub weight: Option<u32>,
+    /// The dominant ladder's lowest rung's repoe `required_level` — the item
+    /// level the affix starts existing at. Named so callers need not know
+    /// `tiers` is ilvl-ascending. `None` without a ladder.
+    pub required_level: Option<u32>,
 }
 
 /// One tier of an affix ladder: the item level it starts rolling at, its
@@ -522,9 +531,16 @@ pub fn parse_affixes_tiered(ndjson: &str, mods_json: &str) -> Vec<Affix> {
     let mut out: Vec<Affix> = rows
         .into_iter()
         .map(|(text, trade_ids, id)| {
-            let tiers: Vec<AffixTier> =
+            let (tiers, weight) =
                 id.and_then(|i| tiers_by_id.remove(i.as_str())).unwrap_or_default();
-            Affix { kind: ladder_kind(&tiers), text, trade_ids, tiers }
+            Affix {
+                kind: ladder_kind(&tiers),
+                required_level: tiers.first().map(|t| t.ilvl),
+                weight,
+                text,
+                trade_ids,
+                tiers,
+            }
         })
         .collect();
     out.sort_by(|a, b| a.text.cmp(&b.text));
@@ -573,7 +589,8 @@ struct ModRow {
 /// internal stat id, restricted to ids in `known` (the ids EE2 can display).
 /// Each tier also records its mod's `generation_type` as an [`AffixKind`], so
 /// a ladder carries the prefix/suffix classification the eligibility filter
-/// below already had to establish.
+/// below already had to establish. The ladder's spawn weight rides along
+/// (see [`Affix::weight`] for the exact provenance).
 ///
 /// The join is deliberately conservative — a mod contributes a tier only when
 /// it is:
@@ -595,7 +612,7 @@ struct ModRow {
 fn affix_tiers(
     mods_json: &str,
     known: &std::collections::HashSet<&str>,
-) -> std::collections::HashMap<String, Vec<AffixTier>> {
+) -> std::collections::HashMap<String, (Vec<AffixTier>, Option<u32>)> {
     use std::collections::{BTreeMap, HashMap};
     let Ok(mods) = serde_json::from_str::<HashMap<String, ModRow>>(mods_json) else {
         return HashMap::new();
@@ -637,6 +654,14 @@ fn affix_tiers(
         });
         let Some((_, mut ms)) = best else { continue };
         ms.sort_by_key(|m| m.required_level);
+        // Weight provenance (what poe2db shows): the first POSITIVE
+        // spawn_weights entry of the base (lowest required_level) rung. The
+        // eligibility filter above already required some positive entry, so
+        // this is Some for every kept ladder unless the base rung alone has
+        // none.
+        let weight = ms.first().and_then(|m| {
+            m.spawn_weights.iter().find(|w| w.weight > 0).and_then(|w| u32::try_from(w.weight).ok())
+        });
         let tiers = ms
             .into_iter()
             .map(|m| AffixTier {
@@ -645,7 +670,7 @@ fn affix_tiers(
                 kind: affix_kind(&m.generation_type),
             })
             .collect();
-        out.insert(affix_id.to_string(), tiers);
+        out.insert(affix_id.to_string(), (tiers, weight));
     }
     out
 }

@@ -774,6 +774,37 @@ impl Renderer {
         }
     }
 
+    /// One selectable pill of a choice group (reference panel's category and
+    /// family rows): gold border and a brighter fill when selected, muted
+    /// hairline otherwise.
+    fn choice_pill(
+        &self,
+        pm: &mut Pixmap,
+        ax: f32,
+        ay: f32,
+        rect: &crate::config::Rect,
+        label: &str,
+        selected: bool,
+    ) {
+        let (px_, py) = (ax + rect.x as f32, ay + rect.y as f32);
+        let (pw, ph) = (rect.w as f32, rect.h as f32);
+        self.pill(pm, px_, py, pw, ph, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
+        if selected {
+            let mut lift = Paint::default();
+            lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
+            lift.anti_alias = true;
+            if let Some(r) = SkRect::from_xywh(px_ + 1.0, py + 1.0, pw - 2.0, ph - 2.0) {
+                pm.fill_rect(r, &lift, Transform::identity(), None);
+            }
+        }
+        let style = TextStyle {
+            kind: FontKind::Amount,
+            px: 13.0,
+            color: if selected { rgb(C_INK) } else { rgb(C_INK2) },
+        };
+        self.draw_text(pm, px_ + 8.0, py + ph - 5.0, label, &style);
+    }
+
     /// Draws the reference-browser panel from the SAME layout the click
     /// handler hit-tests against (reference_ui::layout), offset to `anchor`
     /// (surface-local top-left). All geometry comes from `lay`; nothing is
@@ -816,27 +847,14 @@ impl Renderer {
         let q_style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: ink };
         self.draw_text(pm, sx + 6.0, sy + sh - 7.0, &shown, &q_style);
 
-        // Category pills: the selected one gets the gold border and a
-        // brighter fill; the rest stay muted hairlines.
+        // Category pills, then the prefix/suffix filter pills: one visual
+        // system (gold border + lift on the selected one) so the two rows
+        // read as one control cluster.
         for (rect, cat) in &lay.pills {
-            let selected = *cat == p.cat;
-            let (px_, py) = (ax + rect.x as f32, ay + rect.y as f32);
-            let (pw, ph) = (rect.w as f32, rect.h as f32);
-            self.pill(pm, px_, py, pw, ph, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
-            if selected {
-                let mut lift = Paint::default();
-                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
-                lift.anti_alias = true;
-                if let Some(r) = SkRect::from_xywh(px_ + 1.0, py + 1.0, pw - 2.0, ph - 2.0) {
-                    pm.fill_rect(r, &lift, Transform::identity(), None);
-                }
-            }
-            let style = TextStyle {
-                kind: FontKind::Amount,
-                px: 13.0,
-                color: if selected { ink } else { dim },
-            };
-            self.draw_text(pm, px_ + 8.0, py + ph - 5.0, crate::reference_ui::cat_label(*cat), &style);
+            self.choice_pill(pm, ax, ay, rect, crate::reference_ui::cat_label(*cat), *cat == p.cat);
+        }
+        for (rect, f) in &lay.fam_pills {
+            self.choice_pill(pm, ax, ay, rect, crate::reference_ui::family_label(*f), *f == p.family);
         }
 
         // Result rows, or the empty-state hint when there is nothing to show.
@@ -847,15 +865,75 @@ impl Renderer {
             self.draw_text(pm, ax + (lay.w as f32 - tw) / 2.0, ay + lay.h as f32 - 6.0, msg, &style);
             return;
         }
+        // Scroll cursor: Up/Down moves the window itself, so the cursor row
+        // is always the first visible one; a faint bar marks where keyboard
+        // motion acts without competing with the text.
+        if let Some(g) = lay.rows.first() {
+            let mut mark = Paint::default();
+            mark.set_color(Color::from_rgba8(C_LINE.0, C_LINE.1, C_LINE.2, 0x59));
+            if let Some(r) = SkRect::from_xywh(
+                ax + g.rect.x as f32,
+                ay + g.rect.y as f32,
+                g.rect.w as f32,
+                g.rect.h as f32,
+            ) {
+                pm.fill_rect(r, &mark, Transform::identity(), None);
+            }
+        }
         let row_style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
-        for (rect, text) in lay.rows.iter().zip(&p.rows[lay.visible.clone()]) {
-            self.draw_text(
-                pm,
-                ax + rect.x as f32,
-                ay + rect.y as f32 + rect.h as f32 - 5.0,
-                text,
-                &row_style,
-            );
+        let meta_style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: dim };
+        for (slot, (g, row)) in
+            lay.rows.iter().zip(p.rows[lay.visible.clone()].iter()).enumerate()
+        {
+            // The unfolded row gets the same gold lift as a selected pill, so
+            // "this is the one whose ladder is open" and "this is the chosen
+            // pill" share a vocabulary.
+            if lay.expanded_slot == Some(slot) {
+                let mut lift = Paint::default();
+                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
+                lift.anti_alias = true;
+                if let Some(r) = SkRect::from_xywh(
+                    ax + g.rect.x as f32,
+                    ay + g.rect.y as f32,
+                    g.rect.w as f32,
+                    g.rect.h as f32,
+                ) {
+                    pm.fill_rect(r, &lift, Transform::identity(), None);
+                }
+            }
+            let baseline = ay + g.rect.y as f32 + g.rect.h as f32 - 5.0;
+            if let Some(kind) = row.kind {
+                // Family badge, in the Evaluate panel's colors: prefixes cool
+                // blue, suffixes warm amber, unknown a dim em dash — never a
+                // guessed letter.
+                use khaloni_poe2_core::refdata::AffixKind as Fam;
+                let (letter, color) = match kind {
+                    Fam::Prefix => ("P", rgb(C_BLUE_LT)),
+                    Fam::Suffix => ("S", rgb(C_SUFFIX)),
+                    Fam::Other => ("—", dim),
+                };
+                let style = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color };
+                self.draw_text(pm, ax + g.badge_x as f32, baseline, letter, &style);
+            }
+            self.draw_text(pm, ax + g.text_x as f32, baseline, &row.text, &row_style);
+            if !row.meta.is_empty() {
+                self.draw_text(pm, ax + g.meta_x as f32, baseline, &row.meta, &meta_style);
+            }
+        }
+        // The unfolded tier ladder, dim and indented under its row.
+        if let Some(slot) = lay.expanded_slot {
+            if let Some(row) = p.rows.get(lay.visible.start + slot) {
+                let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
+                for (rect, line) in lay.ladder.iter().zip(row.ladder.lines()) {
+                    self.draw_text(
+                        pm,
+                        ax + rect.x as f32,
+                        ay + rect.y as f32 + rect.h as f32 - 4.0,
+                        line,
+                        &style,
+                    );
+                }
+            }
         }
         // Scroll counter when more results exist than fit the window.
         if lay.visible.len() < p.rows.len() {

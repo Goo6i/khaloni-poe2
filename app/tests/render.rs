@@ -124,11 +124,28 @@ fn draw_popup_paints_nonzero_pixels_at_the_anchor() {
 #[test]
 fn draw_reference_paints_panel_pixels_at_the_anchor() {
     let r = Renderer::new().unwrap();
+    // Rows exercising every column the panel draws: family badge, meta, and
+    // an unfolded tier ladder.
     let p = reference_ui::Panel {
         query: "fire".into(),
         cat: reference_ui::Cat::Affixes,
-        rows: vec!["+#% to Fire Resistance".into(), "Adds # to # Fire Damage".into()],
+        family: reference_ui::Family::All,
+        rows: vec![
+            reference_ui::Row {
+                text: "+#% to Fire Resistance".into(),
+                kind: Some(khaloni_poe2_core::refdata::AffixKind::Suffix),
+                meta: "T×2  i75  w1000".into(),
+                ladder: "T1  i75  (30-39)\nT2  i1  (10-19)".into(),
+            },
+            reference_ui::Row {
+                text: "Adds # to # Fire Damage".into(),
+                kind: Some(khaloni_poe2_core::refdata::AffixKind::Prefix),
+                meta: String::new(),
+                ladder: String::new(),
+            },
+        ],
         scroll: 0,
+        expanded: Some(0),
         focused: true,
     };
     let lay = reference_ui::layout(&p, &|s: &str| 7 * s.len() as i32);

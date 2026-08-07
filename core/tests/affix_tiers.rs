@@ -193,6 +193,31 @@ fn parallel_ladders_keep_only_the_widest_one() {
 }
 
 #[test]
+fn join_records_spawn_weight_and_required_level() {
+    // Life's base rung leads with a zero-weight entry: the recorded weight
+    // must be the FIRST POSITIVE entry (poe2db's displayed number), not the
+    // literal first.
+    let life_base = r##"{"domain":"item","generation_type":"prefix","is_essence_only":false,"required_level":5,"spawn_weights":[{"tag":"boots","weight":0},{"tag":"default","weight":1000}],"stats":[{"id":"base_maximum_life","min":10,"max":19}],"text":"t"}"##;
+    let mods = wrap_mods(&[
+        // Strength rungs out of level order: the weight must follow the
+        // lowest-required_level rung, not insertion order.
+        &format!(r##""Strength2":{}"##, simple_mod("suffix", 11, "additional_strength", 9, 12)),
+        &format!(r##""Strength1":{}"##, simple_mod("suffix", 1, "additional_strength", 5, 8)),
+        &format!(r##""IncreasedLife1":{life_base}"##),
+    ]);
+    let affixes = parse_affixes_tiered(STATS, &mods);
+    let s = affixes.iter().find(|a| a.text == "# to Strength").unwrap();
+    assert_eq!(s.weight, Some(1), "simple_mod's ring:1 entry, from the rlvl-1 base rung");
+    assert_eq!(s.required_level, Some(1), "the ladder's lowest rung");
+    let life = affixes.iter().find(|a| a.text == "# to maximum Life").unwrap();
+    assert_eq!(life.weight, Some(1000), "zero-weight entries are skipped");
+    assert_eq!(life.required_level, Some(5));
+    // No joined ladder -> no weight and no level, never a guess.
+    let mana = affixes.iter().find(|a| a.text == "# to maximum Mana").unwrap();
+    assert_eq!((mana.weight, mana.required_level), (None, None));
+}
+
+#[test]
 fn plain_parse_and_garbage_mods_yield_empty_tiers() {
     for affix in parse_affixes(STATS) {
         assert!(affix.tiers.is_empty(), "parse_affixes never attaches tiers");
