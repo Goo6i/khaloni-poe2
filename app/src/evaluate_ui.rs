@@ -44,6 +44,8 @@ const GAP: i32 = 8;
 const BOX_W: i32 = 48;
 const BOX_H: i32 = 20;
 const BOX_GAP: i32 = 6;
+/// Air on each side of the hairline separating row groups.
+const DIV_GAP: i32 = 4;
 /// The one-off "TIERING"/"SCORING" heading line above the row band.
 const HEAD_H: i32 = 20;
 /// Separation between the card's blocks (header, rows, controls).
@@ -111,6 +113,19 @@ pub enum WeaponBound {
     Aps,
 }
 
+/// Which tooltip block a row belongs to. Rows sort Property, then
+/// Implicit, then Explicit - the order the game's own tooltip uses - and
+/// the layout draws a hairline where the block changes so the groups read
+/// apart at a glance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum RowGroup {
+    /// Computed figures and waystone properties (DPS, Monster Effectiveness).
+    Property,
+    Implicit,
+    #[default]
+    Explicit,
+}
+
 /// One line of the card. Covers both derived stats (DPS, total Attributes)
 /// and real mods; `target` is what makes a row searchable.
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +147,7 @@ pub struct StatRow {
     /// Rows the player rarely filters on, collapsed behind "Show N more"
     /// so the card stays as short as the tooltip it imitates.
     pub hidden: bool,
+    pub group: RowGroup,
 }
 
 /// How hard the search should be relaxed before it runs.
@@ -214,6 +230,8 @@ pub struct Layout {
     pub rows: Vec<RowGeom>,
     /// Indices into `Panel::rows` that `rows` describes.
     pub visible_rows: Vec<usize>,
+    /// Hairline y positions between row groups (implicit vs explicit).
+    pub dividers: Vec<i32>,
     /// "Show N more" / "Hide" toggle, when the item has hidden rows.
     pub hidden_toggle: Option<(Rect, String)>,
     pub strictness: Vec<(Rect, Strictness)>,
@@ -370,7 +388,18 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
     // --- row band --------------------------------------------------------
     let visible_rows = panel.visible_rows();
     let mut rows = Vec::with_capacity(visible_rows.len());
-    for _ in &visible_rows {
+    let mut dividers = Vec::new();
+    let mut prev_group: Option<RowGroup> = None;
+    for &ri in &visible_rows {
+        let group = panel.rows[ri].group;
+        // A block change gets a hairline with air on both sides, so the
+        // implicit and explicit blocks read apart like the tooltip's own.
+        if prev_group.is_some_and(|p| p != group) {
+            y += DIV_GAP;
+            dividers.push(y);
+            y += DIV_GAP;
+        }
+        prev_group = Some(group);
         let baseline = y + ROW_H - 8;
         rows.push(RowGeom {
             check: Rect {
@@ -457,6 +486,7 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
         scoring_head_pos,
         rows,
         visible_rows,
+        dividers,
         hidden_toggle,
         strictness,
         estimate_box,
@@ -551,6 +581,7 @@ mod tests {
             enabled: true,
             target: Some(Target::Stat(i)),
             hidden: false,
+            group: RowGroup::default(),
         }
     }
 
@@ -765,5 +796,65 @@ mod tests {
         assert_eq!(badge_text(&TierBadge { kind: AffixKind::Suffix, tier: 1 }), "S1");
         assert_eq!(badge_text(&TierBadge { kind: AffixKind::Other, tier: 1 }), "—");
         assert_eq!(score_text(0.75), "0.8");
+    }
+}
+
+#[cfg(test)]
+mod group_divider_tests {
+    use super::*;
+
+    fn grouped_row(label: &str, group: RowGroup, i: usize) -> StatRow {
+        StatRow {
+            label: label.into(),
+            badge: None,
+            score: None,
+            min: 1.0,
+            max: None,
+            enabled: true,
+            target: Some(Target::Stat(i)),
+            hidden: false,
+            group,
+        }
+    }
+
+    fn panel_of(rows: Vec<StatRow>) -> Panel {
+        Panel {
+            header: ItemHeader {
+                name: "T".into(),
+                rarity: "Rare".into(),
+                item_level: None,
+                requires_level: None,
+                base: None,
+            },
+            rows,
+            show_hidden: false,
+            strictness: Strictness::Quick,
+            estimate: None,
+            listings: vec![],
+            status: String::new(),
+            search_id: None,
+        }
+    }
+
+    #[test]
+    fn a_hairline_separates_blocks_and_only_blocks() {
+        let p = panel_of(vec![
+            grouped_row("implicit A", RowGroup::Implicit, 0),
+            grouped_row("implicit B", RowGroup::Implicit, 1),
+            grouped_row("explicit C", RowGroup::Explicit, 2),
+        ]);
+        let lay = layout(&p, &|s| s.len() as i32 * 7);
+        // One divider: between B and C, never between A and B.
+        assert_eq!(lay.dividers.len(), 1);
+        let b_bottom = lay.rows[1].check.y + lay.rows[1].check.h as i32;
+        let c_top = lay.rows[2].check.y;
+        assert!(lay.dividers[0] > b_bottom && lay.dividers[0] < c_top);
+
+        // A single-block card draws no divider at all.
+        let p = panel_of(vec![
+            grouped_row("A", RowGroup::Explicit, 0),
+            grouped_row("B", RowGroup::Explicit, 1),
+        ]);
+        assert!(layout(&p, &|s| s.len() as i32 * 7).dividers.is_empty());
     }
 }

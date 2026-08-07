@@ -2097,6 +2097,11 @@ fn overlay_mode(
                                 enabled: !f.disabled,
                                 target: Some(khaloni_poe2::evaluate_ui::Target::Stat(i)),
                                 hidden: false,
+                                group: match l.tag {
+                                    "implicit" => khaloni_poe2::evaluate_ui::RowGroup::Implicit,
+                                    "map" => khaloni_poe2::evaluate_ui::RowGroup::Property,
+                                    _ => khaloni_poe2::evaluate_ui::RowGroup::Explicit,
+                                },
                             })
                         })
                         .collect();
@@ -2130,6 +2135,7 @@ fn overlay_mode(
                             enabled: false,
                             target: Some(Target::Weapon(bound)),
                             hidden: false,
+                            group: khaloni_poe2::evaluate_ui::RowGroup::Property,
                         })
                         .collect();
                         rows.splice(0..0, head);
@@ -2149,8 +2155,10 @@ fn overlay_mode(
                             enabled: false,
                             target: Some(khaloni_poe2::evaluate_ui::Target::Stat(*fi)),
                             hidden: true,
+                            group: khaloni_poe2::evaluate_ui::RowGroup::Explicit,
                         });
                     }
+                    rows.sort_by_key(|r| r.group);
                     let base = query.category.as_deref().map(|c| {
                         khaloni_poe2::evaluate_ui::BaseToggle {
                             label: format!("Base: {}", pretty_category(c)),

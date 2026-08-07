@@ -577,6 +577,11 @@ impl Renderer {
         );
         self.eval_rule(pm, ax, ay + head_y as f32 + 5.0, w);
 
+        // Block separators (implicit vs explicit), from the same layout
+        // the hitboxes use so the line can never sit on a row.
+        for &dy in &lay.dividers {
+            self.eval_rule(pm, ax, ay + dy as f32, lay.size.0 as f32);
+        }
         for (g, &i) in lay.rows.iter().zip(&lay.visible_rows) {
             let Some(row) = panel.rows.get(i) else { continue };
             // Rows with no filter behind them (derived stats, unmatched

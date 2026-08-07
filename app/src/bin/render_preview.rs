@@ -17,6 +17,7 @@ fn mod_row(label: &str, kind: ev::AffixKind, tier: u8, score: f32, min: f64, i: 
         enabled: true,
         target: Some(ev::Target::Stat(i)),
         hidden: false,
+        group: ev::RowGroup::Explicit,
     }
 }
 
@@ -32,6 +33,7 @@ fn weapon_row(label: &str, min: f64, bound: ev::WeaponBound, enabled: bool) -> e
         enabled,
         target: Some(ev::Target::Weapon(bound)),
         hidden: false,
+        group: ev::RowGroup::Property,
     }
 }
 
@@ -47,6 +49,7 @@ fn derived(label: &str) -> ev::StatRow {
         enabled: false,
         target: None,
         hidden: false,
+        group: ev::RowGroup::Property,
     }
 }
 
@@ -61,6 +64,7 @@ fn pseudo_row(label: &str, min: f64, i: usize) -> ev::StatRow {
         enabled: false,
         target: Some(ev::Target::Stat(i)),
         hidden: true,
+        group: ev::RowGroup::Explicit,
     }
 }
 
