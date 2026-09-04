@@ -41,6 +41,51 @@ pub const XILE_CATEGORIES: &[(&str, &str)] = &[
     ("charms", "Charms"),
 ];
 
+/// Cache file recording which reference-data pin the files beside it were
+/// fetched under (see `refdata::data_pin`).
+pub const PIN_FILE: &str = "refdata.pin";
+
+/// Every cache file that holds reference data from an upstream source, and
+/// therefore goes stale when the game patches. Price caches are not here:
+/// they are keyed by league and refreshed on a timer.
+pub fn pinned_files() -> Vec<String> {
+    let mut names = vec![
+        "ee2_stats.ndjson".to_string(),
+        "ee2_items.ndjson".to_string(),
+        "repoe_mods.json".to_string(),
+        "trade_stats.json".to_string(),
+        "xile_uniques.json".to_string(),
+        "xile_keystones.json".to_string(),
+        "xile_leveling.json".to_string(),
+    ];
+    names.extend(XILE_CATEGORIES.iter().map(|(slug, _)| format!("xile_{slug}.json")));
+    names
+}
+
+/// Drops reference files fetched under a previous data pin, so a release
+/// that bumps the pinned upstream commits reaches installs that already
+/// hold a cache. Runs once per process before anything reads the cache;
+/// a matching pin costs one small file read.
+pub fn sync_pin(cache_dir: &std::path::Path) {
+    let pin = khaloni_poe2_core::refdata::data_pin();
+    let pin_path = cache_dir.join(PIN_FILE);
+    if std::fs::read_to_string(&pin_path).ok().as_deref() == Some(pin.as_str()) {
+        return;
+    }
+    for name in pinned_files() {
+        let path = cache_dir.join(&name);
+        match std::fs::remove_file(&path) {
+            Ok(()) => eprintln!("reference data: dropped {name} (pinned data changed)"),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("reference data: could not drop {name}: {e}"),
+        }
+    }
+    let _ = std::fs::create_dir_all(cache_dir);
+    if let Err(e) = std::fs::write(&pin_path, &pin) {
+        eprintln!("reference data: could not record pin: {e}");
+    }
+}
+
 /// A cached-or-fetched file: reads `cache_dir/name`, else runs `fetch` once and
 /// caches it. Empty string on failure so the panels still run.
 fn cached(
@@ -69,6 +114,7 @@ fn cached(
 
 pub fn reference_data(cache_dir: &std::path::Path) -> Reference {
     use khaloni_poe2_core::refdata as rd;
+    sync_pin(cache_dir);
     let mut categories = HashMap::new();
     for (slug, file) in XILE_CATEGORIES {
         let json = cached(cache_dir, &format!("xile_{slug}.json"), || rd::fetch_xile_json(file));
@@ -88,5 +134,57 @@ pub fn reference_data(cache_dir: &std::path::Path) -> Reference {
         leveling: rd::parse_leveling(&cached(cache_dir, "xile_leveling.json", || {
             rd::fetch_xile_path("Leveling/leveling-data-v2.json")
         })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("khalonipoe2-pin-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn stale_pin_drops_reference_files_and_records_the_current_pin() {
+        let dir = temp_dir("stale");
+        for name in pinned_files() {
+            std::fs::write(dir.join(name), "old").unwrap();
+        }
+        std::fs::write(dir.join("Forbidden Rites-Currency.json"), "prices").unwrap();
+        std::fs::write(dir.join(PIN_FILE), "ee2=previous\n").unwrap();
+        sync_pin(&dir);
+        for name in pinned_files() {
+            assert!(!dir.join(&name).exists(), "{name} survived a pin change");
+        }
+        assert!(dir.join("Forbidden Rites-Currency.json").exists(), "price cache is not pinned");
+        assert_eq!(
+            std::fs::read_to_string(dir.join(PIN_FILE)).unwrap(),
+            khaloni_poe2_core::refdata::data_pin()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn matching_pin_leaves_the_cache_alone() {
+        let dir = temp_dir("match");
+        std::fs::write(dir.join(PIN_FILE), khaloni_poe2_core::refdata::data_pin()).unwrap();
+        std::fs::write(dir.join("ee2_stats.ndjson"), "current").unwrap();
+        sync_pin(&dir);
+        assert_eq!(std::fs::read_to_string(dir.join("ee2_stats.ndjson")).unwrap(), "current");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn missing_pin_is_treated_as_stale() {
+        let dir = temp_dir("missing");
+        std::fs::write(dir.join("trade_stats.json"), "from before pins existed").unwrap();
+        sync_pin(&dir);
+        assert!(!dir.join("trade_stats.json").exists());
+        assert!(dir.join(PIN_FILE).exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

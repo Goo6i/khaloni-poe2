@@ -1,6 +1,11 @@
 use khaloni_poe2::config::Config;
 
 #[test]
+fn defaults_to_the_current_league() {
+    assert_eq!(Config::default().league, "Forbidden Rites");
+}
+
+#[test]
 fn roundtrips_through_toml() {
     let mut c = Config::default();
     c.league = "Runes of Aldur".into();

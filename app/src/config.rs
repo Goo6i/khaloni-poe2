@@ -179,7 +179,7 @@ fn default_macro_open_delay_ms() -> u64 {
 
 impl Default for Config {
     fn default() -> Self {
-        toml::from_str("league = \"Runes of Aldur\"").expect("defaults parse")
+        toml::from_str("league = \"Forbidden Rites\"").expect("defaults parse")
     }
 }
 

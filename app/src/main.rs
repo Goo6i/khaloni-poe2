@@ -764,6 +764,9 @@ fn overlay_mode(
     let mut cfg = Config::load()?;
 
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
+    // Before any thread reads the cache: a release that bumped the pinned
+    // reference data must not serve the previous patch's files.
+    khaloni_poe2::refcache::sync_pin(&cache);
     let svc = prices::PriceService::start_with_interval(
         NinjaClient::new(cache.clone()),
         khaloni_poe2_core::scout::ScoutClient::new(cache),

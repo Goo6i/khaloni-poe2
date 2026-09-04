@@ -324,11 +324,31 @@ pub fn parse_leveling(json: &str) -> Vec<LevelingAct> {
     out
 }
 
+/// Upstream commits the reference downloads are pinned to, so a format
+/// change upstream cannot break the parsers between our releases. Each is
+/// bumped once its repository has published data for a new game patch;
+/// bumping either changes [`data_pin`], which the app uses to drop cache
+/// files fetched under the previous pin.
+///
+/// XileHUD/poe_overlay: v0.6.11 (2026-06-19). Its data still lives in a
+/// `Rise of the Abyssal` directory and has not changed since.
+pub const XILE_COMMIT: &str = "cdec6065f7e3240d878edb0363c5f1918e0851f4";
+/// Kvan7/Exiled-Exchange-2: the 0.5.5 (Forbidden Rites) data update of
+/// 2026-09-04, verified to parse with 2503 affixes and 4039 items.
+pub const EE2_COMMIT: &str = "040dec96811ee886859ff4e5fb40c1ab85a2a46e";
+
+/// Identity of the reference-data set this build expects on disk: the
+/// pinned commits above. The unpinned downloads (repoe mods, trade stats)
+/// are keyed to it too, since a pin bump is exactly when a game patch has
+/// changed them as well.
+pub fn data_pin() -> String {
+    format!("xile={XILE_COMMIT}\nee2={EE2_COMMIT}\n")
+}
+
 /// Downloads a XileHUD PoE2 data file by its path under `data/poe2/` (the
 /// segment(s) after that, URL-encoded, ending in `.json`). Pinned commit.
 pub fn fetch_xile_path(rel: &str) -> Result<String, String> {
-    const COMMIT: &str = "cdec6065f7e3240d878edb0363c5f1918e0851f4";
-    let url = format!("https://raw.githubusercontent.com/XileHUD/poe_overlay/{COMMIT}/data/poe2/{rel}");
+    let url = format!("https://raw.githubusercontent.com/XileHUD/poe_overlay/{XILE_COMMIT}/data/poe2/{rel}");
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
@@ -344,9 +364,8 @@ pub fn fetch_xile_path(rel: &str) -> Result<String, String> {
 /// Downloads one XileHUD PoE2 reference file (e.g. "Uniques", "Keystones")
 /// from the current league dir. Pinned to a verified commit. Caller caches it.
 pub fn fetch_xile_json(file: &str) -> Result<String, String> {
-    const COMMIT: &str = "cdec6065f7e3240d878edb0363c5f1918e0851f4";
     let url = format!(
-        "https://raw.githubusercontent.com/XileHUD/poe_overlay/{COMMIT}/data/poe2/Rise%20of%20the%20Abyssal/{file}.json"
+        "https://raw.githubusercontent.com/XileHUD/poe_overlay/{XILE_COMMIT}/data/poe2/Rise%20of%20the%20Abyssal/{file}.json"
     );
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -364,9 +383,8 @@ pub fn fetch_xile_json(file: &str) -> Result<String, String> {
 /// ndjson text. Pinned to a verified commit so the format cannot shift under
 /// us; needs a browser-like User-Agent past GitHub. Callers cache the result.
 pub fn fetch_ee2_ndjson(kind: &str) -> Result<String, String> {
-    const COMMIT: &str = "acc7653f05629228f12e273ab1b8da3e46d6bcd1";
     let url = format!(
-        "https://raw.githubusercontent.com/Kvan7/Exiled-Exchange-2/{COMMIT}/renderer/public/data/en/{kind}.ndjson"
+        "https://raw.githubusercontent.com/Kvan7/Exiled-Exchange-2/{EE2_COMMIT}/renderer/public/data/en/{kind}.ndjson"
     );
     let http = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))

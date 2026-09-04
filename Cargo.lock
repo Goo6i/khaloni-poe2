@@ -2538,7 +2538,7 @@ dependencies = [
 
 [[package]]
 name = "khaloni-poe2"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2575,7 +2575,7 @@ dependencies = [
 
 [[package]]
 name = "khaloni-poe2-core"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "directories",
  "reqwest",
