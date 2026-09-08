@@ -1999,6 +1999,25 @@ fn overlay_mode(
                 Ok(text) => {
                     let snap = svc.snapshot();
                     hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
+                    // One line per check: what was read and where it went.
+                    // Cheap, and the only evidence a "nothing showed" report
+                    // can be diagnosed from after the fact.
+                    if let Some(p) = &hover.current {
+                        let route = if hover.pending_appraisal.is_some() {
+                            "trade search"
+                        } else if hover.pending_currency.is_some() {
+                            "exchange"
+                        } else {
+                            "local"
+                        };
+                        eprintln!(
+                            "price check: {:?} -> {route}: {}",
+                            p.title,
+                            p.lines.first().map(|l| l.text.as_str()).unwrap_or("")
+                        );
+                    } else if let Some(e) = &hover.last_error {
+                        eprintln!("price check: {e}");
+                    }
                     // Waystone hovered: flag dangerous and rewarding mods in
                     // the overlay popup itself (a desktop notification is
                     // invisible over a fullscreen game). No clipboard write
