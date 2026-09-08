@@ -22,6 +22,14 @@ fn main() -> anyhow::Result<()> {
         khaloni_poe2_core::scout::ScoutClient::new(cache),
         cfg.league.clone(),
     )?;
+    // The service starts empty and fills from a worker thread (startup must
+    // never block on the network); a one-shot scan wants the real table, so
+    // give the first fetch a bounded head start before pricing.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while svc.snapshot().table.is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    eprintln!("price table: {} names", svc.snapshot().table.len());
     let img = image::open(&path)?.to_luma8();
     let bands = ocr::detect_bands(&img);
     eprintln!("{} band(s) detected", bands.len());
