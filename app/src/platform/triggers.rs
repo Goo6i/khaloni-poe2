@@ -5,6 +5,37 @@
 //! windows/ — and stays dependency-free so a future Linux fallback (X11
 //! grab, manual evdev matching) can reuse it.
 
+/// One trigger, one action. Registering a key twice makes the desktop
+/// portal's behavior undefined (KDE has been seen firing both, or storing
+/// "none" for later conflicting entries, which reads as a dead hotkey with
+/// no error anywhere). The first claim in `bindings` order wins; every
+/// loser is dropped and described in the returned conflict lines, so the
+/// log names the collision. Unbound actions (empty trigger) never collide.
+pub fn dedupe(bindings: Vec<(String, String)>) -> (Vec<(String, String)>, Vec<String>) {
+    use std::collections::hash_map::Entry;
+    let mut taken: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut kept = Vec::new();
+    let mut conflicts = Vec::new();
+    for (id, trigger) in bindings {
+        let key = trigger.trim().to_lowercase();
+        if key.is_empty() {
+            kept.push((id, trigger));
+            continue;
+        }
+        match taken.entry(key) {
+            Entry::Vacant(e) => {
+                e.insert(id.clone());
+                kept.push((id, trigger));
+            }
+            Entry::Occupied(e) => conflicts.push(format!(
+                "hotkey conflict: {trigger} is bound to {} - {id} disabled; change one of them in Settings",
+                e.get()
+            )),
+        }
+    }
+    (kept, conflicts)
+}
+
 /// One parsed trigger. `key` is the final '+'-separated token, uppercased
 /// ("F7", "1", "Q"); which keys are actually bindable is the backend's
 /// concern, so unknown keys still parse — only unknown *modifiers* reject

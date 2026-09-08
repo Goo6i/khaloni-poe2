@@ -107,13 +107,19 @@ fn unique_item_prices_from_the_uniques_map() {
 }
 
 #[test]
-fn unknown_unique_still_shows_the_question_mark() {
+fn unknown_unique_routes_to_trade_appraisal() {
+    // poe2scout stopped publishing unique prices for the current league
+    // (live 2026-09-08: every category empty), so a name the map lacks must
+    // go to the trade site like a rare, not dead-end at "?".
     let t = table();
     let mut hs = HoverState::default();
     let clipboard = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
     hs.trigger(clipboard, &t, &HashMap::new(), 1.0);
     let popup = hs.current.as_ref().expect("popup set");
-    assert_eq!(popup.lines[0].text, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(popup.title, "The Gnashing Sash");
+    assert_eq!(popup.lines[0].text, "searching trade...");
+    let queued = hs.pending_appraisal.take().expect("unknown unique queues an appraisal");
+    assert_eq!(queued.name, "The Gnashing Sash");
 }
 
 #[test]

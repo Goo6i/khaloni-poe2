@@ -98,6 +98,7 @@ const C_BLUE: (u8, u8, u8) = (0x2E, 0x5A, 0x8A); // decent border
 const C_BLUE_LT: (u8, u8, u8) = (0x7F, 0xA8, 0xD6); // decent text (readable on dark)
 const C_JUNK_LT: (u8, u8, u8) = (0xB7, 0xAB, 0x97); // junk text
 const C_RED: (u8, u8, u8) = (0x8B, 0x3A, 0x2E); // stale / danger
+const C_UNIQUE: (u8, u8, u8) = (0xAF, 0x60, 0x25); // unique item name, the game's own orange
 // Suffix badges: a warm amber against the prefixes' C_BLUE_LT, so the two
 // affix families split cool/warm at a glance without inventing a hue
 // outside the design system.
@@ -506,6 +507,8 @@ impl Renderer {
             // The readable blue, not the dark border blue: a 24px name in
             // C_BLUE proper disappears into the near-black panel fill.
             rgb(C_BLUE_LT)
+        } else if rarity.eq_ignore_ascii_case("unique") {
+            rgb(C_UNIQUE)
         } else {
             ink
         };

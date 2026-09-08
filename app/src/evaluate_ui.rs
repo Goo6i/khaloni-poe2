@@ -286,6 +286,44 @@ pub fn score_text(s: f32) -> String {
     format!("{s:.1}")
 }
 
+/// The card's derived weapon lines from the item's own damage figures, in
+/// the tooltip's order. Each is searchable as an `equipment_filters`
+/// minimum where the trade site has one (`dps`, `pdps`, `edps`, `crit`,
+/// `aps`), off until the user opts in. Chaos DPS has no trade filter, so it
+/// is a display-only property line: two rows driving one bound would fight
+/// over it (the old card pointed Chaos DPS at the total-DPS bound).
+pub fn weapon_rows(w: &khaloni_poe2_core::derived::WeaponStats) -> Vec<StatRow> {
+    [
+        ("Physical DPS", w.phys_dps, Some(WeaponBound::Pdps)),
+        ("Elemental DPS", w.ele_dps, Some(WeaponBound::Edps)),
+        ("Chaos DPS", w.chaos_dps, None),
+        ("Total DPS", w.total_dps, Some(WeaponBound::Dps)),
+        ("Critical Hit Chance", w.crit_chance, Some(WeaponBound::Crit)),
+        ("Attacks per Second", w.aps, Some(WeaponBound::Aps)),
+    ]
+    .into_iter()
+    .filter(|(_, v, _)| *v > 0.0)
+    .map(|(label, value, bound)| {
+        // One decimal: the box shows what would be searched, and 420.75 as
+        // a bound reads as noise.
+        let min = (value * 10.0).round() / 10.0;
+        StatRow {
+            // A display-only line carries its value in the label, the way
+            // the tooltip's own property block is written.
+            label: if bound.is_some() { label.to_string() } else { format!("{label}: {min}") },
+            badge: None,
+            score: None,
+            min,
+            max: None,
+            enabled: false,
+            target: bound.map(Target::Weapon),
+            hidden: false,
+            group: RowGroup::Property,
+        }
+    })
+    .collect()
+}
+
 impl Panel {
     /// Rows currently drawn: everything, minus the collapsed ones.
     pub fn visible_rows(&self) -> Vec<usize> {

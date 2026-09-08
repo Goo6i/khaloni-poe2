@@ -86,12 +86,19 @@ impl PriceService {
                 Ok((table, stale)) => {
                     let vocab = crate::pricing::build_vocab(&table);
                     let uniques = match scout.unique_prices(&league) {
+                        Ok((map, _)) if map.is_empty() => {
+                            // A definitive "no data" from poe2scout (it does
+                            // not track every league): the hover check then
+                            // prices uniques through the trade site instead.
+                            eprintln!("poe2scout has no unique prices for {league}; uniques go to the trade site");
+                            map
+                        }
                         Ok((map, scout_stale)) => {
                             eprintln!("uniques loaded: {} items (stale={scout_stale})", map.len());
                             map
                         }
                         Err(e) => {
-                            eprintln!("uniques unavailable, pricing them as ?: {e}");
+                            eprintln!("uniques unavailable, pricing them via the trade site: {e}");
                             HashMap::new()
                         }
                     };

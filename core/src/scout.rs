@@ -125,8 +125,12 @@ impl ScoutClient {
             .error_for_status()?
             .text()?;
         let categories = parse_unique_categories(&filters_body)?;
+        // No unique categories at all is the API's definitive answer, not a
+        // transport failure: the league has no unique data here (live
+        // 2026-09-08 for Forbidden Rites), and callers route uniques to the
+        // trade site instead.
         if categories.is_empty() {
-            return Err(ScoutError::NoData("no unique categories".into()));
+            return Ok(HashMap::new());
         }
         let mut out = HashMap::new();
         for cat in &categories {
@@ -148,9 +152,7 @@ impl ScoutClient {
                 page += 1;
             }
         }
-        if out.is_empty() {
-            return Err(ScoutError::NoData(format!("no priced uniques for {league}")));
-        }
+        // Every category paged and none priced: same definitive answer.
         Ok(out)
     }
 

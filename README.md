@@ -31,10 +31,11 @@ without prices or build the Linux version myself.
 - F7 prices whatever your cursor is on, anywhere: inventory, stash, vendor,
   even items linked in chat. Fixed-value items answer from the local
   price table with no network round trip. Uniques price by name from
-  poe2scout. Rares run a filtered search against pathofexile.com/trade2 and
-  the popup lists the cheapest matching listings with seller names. When
-  the trade API is cooling down, the popup says so in seconds instead of
-  failing silently.
+  poe2scout when it tracks the league, and otherwise search the trade site
+  by name and base like a rare. Rares run a filtered search against
+  pathofexile.com/trade2 and the popup lists the cheapest matching listings
+  with seller names. When the trade API is cooling down, the popup says so
+  in seconds instead of failing silently.
 - The popup opens next to your cursor and closes on its own when you move
   away from where you checked. Moving INTO the popup keeps it open for
   reading. No key to dismiss, nothing to manage.

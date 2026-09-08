@@ -227,6 +227,7 @@ fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
     let q = Query {
         category: None,
         category_enabled: false,
+        name: None,
         type_name: None,
         map_tier: None,
         gem_level: None,
@@ -570,4 +571,93 @@ fn pseudo_filters_resolve_only_against_the_real_catalog() {
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[1]["id"], "pseudo.pseudo_total_strength");
     assert_eq!(sent[1]["value"]["min"], 80);
+}
+
+// --- regressions from the 2026-09 bug hunt ---
+
+#[test]
+fn absorbed_rate_rules_keep_the_request_history() {
+    use khaloni_poe2_core::trade::{RateDecision, RateLimiter};
+    let mut rl = RateLimiter::from_header("5:10:60");
+    for _ in 0..5 {
+        rl.record();
+    }
+    // Every trade response carries x-rate-limit-ip; absorbing it must not
+    // forget the five requests just sent (the old code rebuilt the limiter
+    // from scratch, so the burst rule never fired client-side).
+    rl.set_rules("5:10:60,15:60:300");
+    assert!(matches!(rl.check(), RateDecision::Wait(_)), "history survives a rules refresh");
+
+    // The server's own count in x-rate-limit-ip-state tops the history up
+    // when it has seen more than we recorded (another client on the same IP).
+    let mut fresh = RateLimiter::from_header("5:10:60");
+    fresh.apply_state("4:10:0");
+    assert!(matches!(fresh.check(), RateDecision::Ready), "4 of 5 used leaves room");
+    fresh.apply_state("5:10:0");
+    assert!(matches!(fresh.check(), RateDecision::Wait(_)), "5 of 5 used means wait");
+}
+
+#[test]
+fn labels_carry_the_rolled_value_beside_the_search_floor() {
+    use khaloni_poe2_core::trade::build_query_with_labels;
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let item = parse_item(BOW).expect("parse");
+    let (q, labels) = build_query_with_labels(&item, &stats);
+    let (i, phys) = labels
+        .iter()
+        .enumerate()
+        .find(|(_, l)| l.text.contains("increased Physical Damage"))
+        .expect("phys label");
+    // The search floor is the tier's low end; the roll the item actually
+    // has is what a tier badge or roll score must be read against.
+    assert_eq!(q.filters[i].value.min, 155.0);
+    assert_eq!(phys.rolled, Some(157.0));
+    let (_, crit) = labels
+        .iter()
+        .enumerate()
+        .find(|(_, l)| l.text.contains("Critical Hit Chance"))
+        .expect("crit label");
+    assert_eq!(crit.rolled, Some(3.48));
+}
+
+#[test]
+fn keep_strongest_disables_the_weakest_enabled_filters() {
+    use khaloni_poe2_core::trade::{FilterValue, StatFilter};
+    let f = |id: &str, min: f64, disabled: bool| StatFilter {
+        id: id.into(),
+        value: FilterValue { min, max: None },
+        disabled,
+    };
+    let q = Query {
+        filters: vec![f("a", 10.0, false), f("b", 50.0, false), f("c", 30.0, false), f("d", 99.0, true)],
+        ..Query::default()
+    };
+    let enabled = |q: &Query| -> Vec<String> {
+        q.filters.iter().filter(|f| !f.disabled).map(|f| f.id.clone()).collect()
+    };
+    assert_eq!(enabled(&q.keep_strongest(1)), vec!["b"]);
+    assert_eq!(enabled(&q.keep_strongest(2)), vec!["b", "c"]);
+    assert_eq!(enabled(&q.keep_strongest(3)), vec!["a", "b", "c"]);
+    // A disabled filter never comes back, and asking for more than exist is fine.
+    assert_eq!(enabled(&q.keep_strongest(9)), vec!["a", "b", "c"]);
+    // Order and count of filters are untouched, so label indices stay valid.
+    assert_eq!(q.keep_strongest(1).filters.len(), q.filters.len());
+}
+
+#[test]
+fn unique_query_searches_by_name_and_base_with_mods_off() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let belt = parse_item(include_str!("fixtures/item5-unique-belt.txt")).expect("parse");
+    let q = build_query(&belt, &stats);
+    assert_eq!(q.name.as_deref(), Some("The Gnashing Sash"));
+    assert_eq!(q.type_name.as_deref(), Some("Wide Belt"));
+    assert!(q.category.is_none(), "name + base pin the item; a category would be redundant");
+    assert!(q.filters.iter().all(|f| f.disabled), "unique rolls are opt-in filters");
+    let body = q.to_body();
+    assert_eq!(body["query"]["name"], "The Gnashing Sash");
+    assert_eq!(body["query"]["type"], "Wide Belt");
+    // A rare never carries a name constraint: its name is random.
+    let bow = build_query(&parse_item(BOW).unwrap(), &stats);
+    assert!(bow.name.is_none());
+    assert!(bow.to_body()["query"].get("name").is_none());
 }

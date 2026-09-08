@@ -117,10 +117,16 @@ impl HoverState {
                         crate::pricing::denom_amount(&price, count, divine_threshold);
                     vec![PopupLine { text: amount, denom }]
                 }
-                None => vec![PopupLine {
-                    text: value::UNKNOWN.into(),
-                    denom: Denom::None,
-                }],
+                // Not in the map (poe2scout publishes no unique prices for
+                // some leagues, live 2026-09-08): the trade site prices it
+                // by name and base, exactly like a rare, instead of "?".
+                None => {
+                    self.pending_appraisal = Some(parsed.clone());
+                    vec![PopupLine {
+                        text: "searching trade...".into(),
+                        denom: Denom::None,
+                    }]
+                }
             },
             _ if relic_with_mods => {
                 self.pending_appraisal = Some(parsed.clone());

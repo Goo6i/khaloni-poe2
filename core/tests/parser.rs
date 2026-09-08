@@ -130,3 +130,42 @@ fn rejects_garbage() {
     assert!(parse_item("").is_err());
     assert!(parse_item("hello world\nno item here").is_err());
 }
+
+#[test]
+fn simple_format_keeps_mods_that_start_with_a_verb() {
+    // Chat-linked items arrive in the simple format; several real mod
+    // shapes carry no leading number, and used to be dropped wholesale.
+    let text = concat!(
+        "Item Class: Bows\n",
+        "Rarity: Rare\n",
+        "Horror Bane\n",
+        "Advanced Zealot Bow\n",
+        "--------\n",
+        "Physical Damage: 40-75\n",
+        "Attacks per Second: 1.20\n",
+        "--------\n",
+        "Item Level: 81\n",
+        "--------\n",
+        "Adds 12 to 24 Physical Damage\n",
+        "+45 to maximum Life\n",
+        "Bow Attacks fire an additional Arrow\n",
+        "Leeches 5% of Physical Damage as Life\n",
+        "Grants Skill: Level 20 Unleash\n",
+        "--------\n",
+        "Corrupted\n",
+        "--------\n",
+        "\"Flavour text that mentions increased odds.\"\n",
+        "- Some Author\n",
+    );
+    let it = parse_item(text).unwrap();
+    let texts: Vec<&str> = it.explicits.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        vec![
+            "Adds 12 to 24 Physical Damage",
+            "+45 to maximum Life",
+            "Bow Attacks fire an additional Arrow",
+            "Leeches 5% of Physical Damage as Life",
+        ]
+    );
+}

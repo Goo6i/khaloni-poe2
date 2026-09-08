@@ -134,7 +134,7 @@ impl StashClient {
         // where trade uses -ip; absorb whichever appears.
         for prefix in ["x-rate-limit-account", "x-rate-limit-ip"] {
             if let Some(rules) = resp.headers().get(prefix).and_then(|v| v.to_str().ok()) {
-                self.limiter = RateLimiter::from_header(rules);
+                self.limiter.set_rules(rules);
             }
             let state = format!("{prefix}-state");
             if let Some(state) = resp.headers().get(&state).and_then(|v| v.to_str().ok()) {

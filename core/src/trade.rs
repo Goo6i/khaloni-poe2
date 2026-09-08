@@ -281,17 +281,41 @@ impl RateLimiter {
         RateLimiter { rules, sent: Vec::new(), banned_until: None }
     }
 
-    /// Applies a fresh `x-rate-limit-ip-state` header: an active ban
-    /// (third field nonzero) locks the limiter for that long.
+    /// Replaces the rules from a fresh `x-rate-limit-ip` header while
+    /// keeping the request history and any active ban. Every response
+    /// carries the header, so rebuilding the limiter here (as the code once
+    /// did) forgot every request the moment its response arrived, and the
+    /// client-side burst rule never fired.
+    pub fn set_rules(&mut self, h: &str) {
+        self.rules = RateLimiter::from_header(h).rules;
+    }
+
+    /// Applies a fresh `x-rate-limit-ip-state` header (`used:window:banned`
+    /// per rule, in the rules' order): an active ban (third field nonzero)
+    /// locks the limiter for that long, and a server-side `used` count above
+    /// what this limiter recorded tops the history up, so requests the
+    /// server has seen from this address (another client, a lost response)
+    /// still count against the window.
     pub fn apply_state(&mut self, state: &str) {
-        for t in state.split(',') {
+        let now = std::time::Instant::now();
+        for (i, t) in state.split(',').enumerate() {
             let mut it = t.trim().split(':');
-            let (Some(_used), Some(_win), Some(ban)) = (it.next(), it.next(), it.next()) else {
+            let (Some(used), Some(_win), Some(ban)) = (it.next(), it.next(), it.next()) else {
                 continue;
             };
+            if let (Ok(used), Some(rule)) = (used.parse::<usize>(), self.rules.get(i)) {
+                let in_window = self
+                    .sent
+                    .iter()
+                    .filter(|t| now.duration_since(**t).as_secs() < u64::from(rule.window_s))
+                    .count();
+                for _ in in_window..used {
+                    self.sent.push(now);
+                }
+            }
             if let Ok(ban_s) = ban.parse::<u64>() {
                 if ban_s > 0 {
-                    let until = std::time::Instant::now() + std::time::Duration::from_secs(ban_s);
+                    let until = now + std::time::Duration::from_secs(ban_s);
                     self.banned_until = Some(match self.banned_until {
                         Some(b) if b > until => b,
                         _ => until,
@@ -445,6 +469,9 @@ pub struct Query {
     /// sell for" check); the category rides along dormant so it can be
     /// re-enabled without rebuilding the query.
     pub category_enabled: bool,
+    /// Exact item name to search (`query.name`): set for uniques, whose name
+    /// identifies the item; never for rares, whose names are random.
+    pub name: Option<String>,
     /// Exact base type to search (`query.type`), e.g. "Waystone" - used for
     /// items priced by base + a map filter rather than by gear category.
     pub type_name: Option<String>,
@@ -483,6 +510,9 @@ impl Query {
             "status": {"option": "securable"},
             "stats": [{"type": "and", "filters": stat_filters}],
         });
+        if let Some(n) = &self.name {
+            query["name"] = serde_json::json!(n);
+        }
         if let Some(t) = &self.type_name {
             query["type"] = serde_json::json!(t);
         }
@@ -533,6 +563,47 @@ impl Query {
             query["filters"] = serde_json::Value::Object(filters);
         }
         serde_json::json!({"query": query, "sort": {"price": "asc"}})
+    }
+}
+
+impl Query {
+    /// Indices of the enabled filters, strongest (highest floor) first: the
+    /// order `search_relaxed` drops them in, weakest last to go.
+    pub fn enabled_by_strength(&self) -> Vec<usize> {
+        let mut enabled: Vec<usize> = self
+            .filters
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.disabled)
+            .map(|(i, _)| i)
+            .collect();
+        // f64 has no total Ord, so compare directly; NaN never occurs here.
+        enabled.sort_by(|&a, &b| {
+            self.filters[b]
+                .value
+                .min
+                .partial_cmp(&self.filters[a].value.min)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        enabled
+    }
+
+    /// This query with only its `keep` strongest enabled filters still
+    /// enabled; the rest are switched off, never removed, so filter indices
+    /// (and the labels aligned with them) stay valid. What `search_relaxed`
+    /// actually sends on each round, and what a panel seeded from its
+    /// result must show, or the checkboxes claim a narrower search than the
+    /// listings came from.
+    pub fn keep_strongest(&self, keep: usize) -> Query {
+        let keep_set: std::collections::HashSet<usize> =
+            self.enabled_by_strength().into_iter().take(keep).collect();
+        let mut out = self.clone();
+        for (i, f) in out.filters.iter_mut().enumerate() {
+            if !f.disabled && !keep_set.contains(&i) {
+                f.disabled = true;
+            }
+        }
+        out
     }
 }
 
@@ -590,6 +661,12 @@ pub struct FilterLabel {
     pub text: String,
     pub tier: Option<u8>,
     pub min: i64,
+    /// The value the item actually rolled (the first number of the mod
+    /// line), as opposed to `min`, the search floor. A tier badge or roll
+    /// score reads this; searching by tier floor is a pricing choice that
+    /// must not leak into how good the roll looks. `None` when the line
+    /// carries no number.
+    pub rolled: Option<f64>,
     /// Mod group for panel grouping/tagging: "implicit", "explicit", "map".
     pub tag: &'static str,
 }
@@ -668,6 +745,10 @@ pub fn build_query_with_labels(
 ) -> (Query, Vec<FilterLabel>) {
     let mut filters: Vec<StatFilter> = Vec::new();
     let mut labels: Vec<FilterLabel> = Vec::new();
+    // A unique is identified by its name and base; its mods are fixed text
+    // with rolled ranges, so they start as opt-in filters rather than
+    // constraining the search to this exact roll.
+    let unique = item.rarity == crate::item::Rarity::Unique;
     for m in &item.explicits {
         // Rune-socket mods are gear, not the item's own explicits; the trade
         // site treats them separately, and mapping one onto an explicit
@@ -675,10 +756,10 @@ pub fn build_query_with_labels(
         if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
             continue;
         }
-        push_filter(m, stats, !preselect(&m.text), "explicit", &mut filters, &mut labels);
+        push_filter(m, stats, unique || !preselect(&m.text), "explicit", &mut filters, &mut labels);
     }
     for m in &item.implicits {
-        push_filter(m, stats, false, "implicit", &mut filters, &mut labels);
+        push_filter(m, stats, unique, "implicit", &mut filters, &mut labels);
     }
     // Waystones/maps are priced by base type + tier (their danger mods above
     // ride along disabled). Their reward properties (Item Rarity, Pack Size,
@@ -691,7 +772,7 @@ pub fn build_query_with_labels(
                 value: FilterValue { min: min as f64, max: None },
                 disabled: true,
             });
-            labels.push(FilterLabel { text: label, tier: None, min, tag: "map" });
+            labels.push(FilterLabel { text: label, tier: None, min, rolled: Some(min as f64), tag: "map" });
         }
         // The trade catalog names each waystone base with its tier baked
         // in - "Waystone (Tier 15)" - and rejects the bare "Waystone" base
@@ -700,13 +781,16 @@ pub fn build_query_with_labels(
         // still parsed out for the map_tier filter beside it.
         let tier = item.base_type.as_deref().and_then(|b| split_waystone(b).1);
         (item.base_type.clone().filter(|b| !b.is_empty()), tier)
+    } else if unique {
+        (item.base_type.clone().filter(|b| !b.is_empty()), None)
     } else {
         (None, None)
     };
     (
         Query {
-            category: category_for(&item.item_class),
+            category: if unique { None } else { category_for(&item.item_class) },
             category_enabled: true,
+            name: unique.then(|| item.name.clone()),
             type_name,
             map_tier,
             gem_level: None,
@@ -761,6 +845,7 @@ pub fn build_upgrade_query_with_labels(
             text: strip_range_annotations(&m.text),
             tier: m.header.as_ref().and_then(|h| h.tier),
             min: min as i64,
+            rolled: Some(min),
             tag: "explicit",
         });
     }
@@ -768,6 +853,7 @@ pub fn build_upgrade_query_with_labels(
         Query {
             category: category_for(&item.item_class),
             category_enabled: true,
+            name: None,
             type_name: None,
             map_tier: None,
             gem_level: None,
@@ -792,6 +878,7 @@ pub fn build_gem_query(skill: &str, level: i64) -> Query {
     Query {
         category: Some("gem.activegem".into()),
         category_enabled: true,
+        name: None,
         type_name: Some(skill.to_string()),
         map_tier: None,
         gem_level: Some(level),
@@ -986,6 +1073,7 @@ fn push_filter(
         text: strip_range_annotations(&m.text),
         tier: m.header.as_ref().and_then(|h| h.tier),
         min,
+        rolled: first_number(&m.text),
         tag,
     });
 }
@@ -1014,50 +1102,10 @@ impl TradeClient {
     /// down to the single strongest mod. Returns the first non-empty
     /// result with how many filters it took, or the last (empty) result.
     pub fn search_relaxed(&mut self, query: &Query) -> Result<(SearchResult, usize), TradeError> {
-        // Order enabled filters by min descending; disabled ones ride along
-        // untouched (they never constrain the search).
-        let mut enabled: Vec<usize> = query
-            .filters
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| !f.disabled)
-            .map(|(i, _)| i)
-            .collect();
-        // Keep the highest-floor mods longest (they discriminate price most).
-        // f64 has no total Ord, so compare directly; NaN never occurs here.
-        enabled.sort_by(|&a, &b| {
-            query.filters[b].value.min
-                .partial_cmp(&query.filters[a].value.min)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
+        let enabled: Vec<usize> = query.enabled_by_strength();
         let mut last: Option<SearchResult> = None;
         for keep in (1..=enabled.len()).rev() {
-            let keep_set: std::collections::HashSet<usize> =
-                enabled.iter().take(keep).copied().collect();
-            let filters = query
-                .filters
-                .iter()
-                .enumerate()
-                .map(|(i, f)| {
-                    let mut f = f.clone();
-                    // Disable enabled filters we are dropping this round.
-                    if !f.disabled && !keep_set.contains(&i) {
-                        f.disabled = true;
-                    }
-                    f
-                })
-                .collect();
-            let trimmed = Query {
-                category: query.category.clone(),
-                category_enabled: query.category_enabled,
-                type_name: query.type_name.clone(),
-                map_tier: query.map_tier,
-                gem_level: query.gem_level,
-                weapon: query.weapon,
-                filters,
-            };
-            let result = self.search(&trimmed)?;
+            let result = self.search(&query.keep_strongest(keep))?;
             if !result.hashes.is_empty() {
                 return Ok((result, keep));
             }
@@ -1218,7 +1266,7 @@ impl TradeClient {
             .get("x-rate-limit-ip")
             .and_then(|v| v.to_str().ok())
         {
-            *limiter = RateLimiter::from_header(rules);
+            limiter.set_rules(rules);
         }
         if let Some(state) = resp
             .headers()

@@ -855,33 +855,32 @@ fn overlay_mode(
         if !cfg.hotkey_upgrade.is_empty() {
             extra.push(("upgrade".to_string(), cfg.hotkey_upgrade.clone()));
         }
-        // One trigger, one action: registering a key twice makes the desktop
-        // portal's behavior undefined (KDE has been seen firing both, or
-        // storing "none" for later conflicting entries, which reads as a
-        // dead hotkey with no error anywhere). First claim wins - the
-        // built-in panels and macros in the order assembled above - and the
-        // loser is skipped loudly so the log names the collision.
-        {
-            let mut taken: std::collections::HashMap<String, String> =
-                std::collections::HashMap::new();
-            taken.insert(check.to_lowercase(), "price-check".into());
-            taken.insert(overlay.to_lowercase(), "overlay-toggle".into());
-            extra.retain(|(id, trigger)| {
-                match taken.entry(trigger.to_lowercase()) {
-                    std::collections::hash_map::Entry::Vacant(e) => {
-                        e.insert(id.clone());
-                        true
-                    }
-                    std::collections::hash_map::Entry::Occupied(e) => {
-                        eprintln!(
-                            "hotkey conflict: {trigger} is bound to {} — {id} disabled;                              change one of them in Settings",
-                            e.get()
-                        );
-                        false
-                    }
+        // One trigger, one action (see triggers::dedupe): the built-ins claim
+        // first, in this order, then panels, macros, and shortcuts; a loser
+        // is unbound (empty trigger, which listen() skips) and named in the
+        // log so the collision is visible.
+        let (check, overlay, extra) = {
+            let mut all = vec![
+                ("price-check".to_string(), check),
+                ("overlay-toggle".to_string(), overlay),
+            ];
+            all.extend(extra);
+            let (kept, conflicts) = khaloni_poe2::platform::triggers::dedupe(all);
+            for line in conflicts {
+                eprintln!("{line}");
+            }
+            let mut check = String::new();
+            let mut overlay = String::new();
+            let mut extra = Vec::new();
+            for (id, trigger) in kept {
+                match id.as_str() {
+                    "price-check" => check = trigger,
+                    "overlay-toggle" => overlay = trigger,
+                    _ => extra.push((id, trigger)),
                 }
-            });
-        }
+            }
+            (check, overlay, extra)
+        };
         let hk_tx = hk_tx.clone();
         rt.spawn(async move {
             if let Err(e) = khaloni_poe2::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
@@ -1139,10 +1138,19 @@ fn overlay_mode(
                     }
                     AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
-                let searched = if relaxed {
-                    client.search_relaxed(&q).map(|(s, _kept)| s)
+                // The panel is seeded from `q`, so `q` must be the query the
+                // listings actually came from: a relaxed search that dropped
+                // filters to find them reports how many it kept, and the
+                // dropped ones are switched off here too. Otherwise the
+                // checkboxes claim a narrower search than the results.
+                let (searched, q) = if relaxed {
+                    match client.search_relaxed(&q) {
+                        Ok((s, kept)) if kept > 0 => (Ok(s), q.keep_strongest(kept)),
+                        Ok((s, _)) => (Ok(s), q),
+                        Err(e) => (Err(e), q),
+                    }
                 } else {
-                    client.search(&q)
+                    (client.search(&q), q)
                 };
                 let mut search_id = None;
                 let outcome = searched.and_then(|s| {
@@ -2067,11 +2075,13 @@ fn overlay_mode(
                         .enumerate()
                         .filter_map(|(i, l)| {
                             let f = query.filters.get(i)?;
-                            // The filter's min IS the item's own roll at build
-                            // time (build_query_with_labels seeds it from the
-                            // rolled value), so it is what the tier ladder and
-                            // the score are read against.
-                            let rolled = f.value.min;
+                            // The filter's min is the SEARCH floor (the tier's
+                            // low end on advanced-format text); the roll the
+                            // item actually has travels in the label, and that
+                            // is what the tier ladder and the score are read
+                            // against. The floor is only a fallback for a line
+                            // that carried no number at all.
+                            let rolled = l.rolled.unwrap_or(f.value.min);
                             // A miss, or an affix with no ladder joined to it,
                             // gets no badge and no score. An unknown roll is
                             // shown as unknown; it is never approximated.
@@ -2116,32 +2126,7 @@ fn overlay_mode(
                     // property block does; each is searchable as an
                     // equipment_filters minimum, off until the user opts in.
                     if let Some(w) = facts.as_ref().and_then(|f| f.weapon) {
-                        use khaloni_poe2::evaluate_ui::{StatRow, Target, WeaponBound};
-                        let head: Vec<StatRow> = [
-                            ("Physical DPS", w.phys_dps, WeaponBound::Pdps),
-                            ("Elemental DPS", w.ele_dps, WeaponBound::Edps),
-                            ("Chaos DPS", w.chaos_dps, WeaponBound::Dps),
-                            ("Total DPS", w.total_dps, WeaponBound::Dps),
-                            ("Critical Hit Chance", w.crit_chance, WeaponBound::Crit),
-                            ("Attacks per Second", w.aps, WeaponBound::Aps),
-                        ]
-                        .into_iter()
-                        .filter(|(_, v, _)| *v > 0.0)
-                        .map(|(label, value, bound)| StatRow {
-                            label: label.to_string(),
-                            badge: None,
-                            score: None,
-                            // One decimal: the box shows what would be
-                            // searched, and 420.75 as a bound reads as noise.
-                            min: (value * 10.0).round() / 10.0,
-                            max: None,
-                            enabled: false,
-                            target: Some(Target::Weapon(bound)),
-                            hidden: false,
-                            group: khaloni_poe2::evaluate_ui::RowGroup::Property,
-                        })
-                        .collect();
-                        rows.splice(0..0, head);
+                        rows.splice(0..0, khaloni_poe2::evaluate_ui::weapon_rows(&w));
                     }
                     // Pseudo totals collapse behind "Show N more": they
                     // duplicate mods already listed, so they earn a line

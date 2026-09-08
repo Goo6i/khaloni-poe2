@@ -68,14 +68,21 @@ fn pump(
 
     // Registered hotkey id -> the app-level action it fires.
     let mut actions: HashMap<u32, Hotkey> = HashMap::new();
-    let mut bind = |action: Hotkey, trigger: &str| match to_hotkey(trigger) {
-        Some(hk) => match manager.register(hk) {
-            Ok(()) => {
-                actions.insert(hk.id(), action);
-            }
-            Err(e) => eprintln!("hotkeys: cannot register {trigger:?}: {e}"),
-        },
-        None => eprintln!("hotkeys: unsupported trigger {trigger:?}, skipped"),
+    let mut bind = |action: Hotkey, trigger: &str| {
+        // An empty trigger is an unbound action (conflict loser, or cleared
+        // in Settings): nothing to register, nothing to log.
+        if trigger.trim().is_empty() {
+            return;
+        }
+        match to_hotkey(trigger) {
+            Some(hk) => match manager.register(hk) {
+                Ok(()) => {
+                    actions.insert(hk.id(), action);
+                }
+                Err(e) => eprintln!("hotkeys: cannot register {trigger:?}: {e}"),
+            },
+            None => eprintln!("hotkeys: unsupported trigger {trigger:?}, skipped"),
+        }
     };
     bind(Hotkey::OverlayToggle, &overlay);
     bind(Hotkey::PriceCheck, &price_check);

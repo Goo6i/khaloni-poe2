@@ -207,7 +207,11 @@ fn classify_section(sec: &[String], implicits: &mut Vec<ItemMod>, explicits: &mu
 }
 
 /// Heuristic for simple-format explicit mod lines: no "Key: value" property
-/// shape, and either starts with a signed/numeric value or contains a mod verb.
+/// shape, not a help sentence or flavour text, not a status flag, and either
+/// starting with a signed/numeric value or carrying a mod verb ("Adds",
+/// "Leeches", "fire an additional"). The verb path matters: real mods such
+/// as "Adds 12 to 24 Physical Damage" or "Bow Attacks fire an additional
+/// Arrow" open with a word, and a number-only rule silently dropped them.
 fn is_bare_mod_line(line: &str) -> bool {
     if line.contains(": ") {
         return false;
@@ -217,15 +221,26 @@ fn is_bare_mod_line(line: &str) -> bool {
     if HELP_PREFIXES.iter().any(|p| line.starts_with(p)) {
         return false;
     }
+    // Flavour text is quoted (or an attribution line) and ends a sentence;
+    // mod lines never do either.
+    if line.starts_with('"') || line.starts_with("- ") || line.ends_with('.') {
+        return false;
+    }
+    const STATUS_FLAGS: [&str; 6] =
+        ["Corrupted", "Unidentified", "Mirrored", "Split", "Fractured Item", "Synthesised Item"];
+    if STATUS_FLAGS.contains(&line) {
+        return false;
+    }
     let starts_numeric = line
         .chars()
         .next()
         .map(|c| c == '+' || c == '-' || c.is_ascii_digit())
         .unwrap_or(false);
-    const MOD_VERBS: [&str; 6] = [
+    const MOD_VERBS: [&str; 12] = [
         "increased ", "reduced ", "Adds ", " per second", "additional ", " to maximum ",
+        "Leech", "Gain ", "Grants ", "chance to", " Damage", " Resistance",
     ];
-    starts_numeric && (line.contains('%') || MOD_VERBS.iter().any(|v| line.contains(v)) || line.starts_with('+'))
+    starts_numeric || MOD_VERBS.iter().any(|v| line.contains(v))
 }
 
 /// Parses `{ Crafted Suffix Modifier "of Calamity" (Tier: 3) — Attack, Critical }`.
