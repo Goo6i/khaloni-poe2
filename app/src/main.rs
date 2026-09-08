@@ -1660,6 +1660,9 @@ fn overlay_mode(
 
     let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
     let mut overlay = khaloni_poe2::platform::overlay::Overlay::new(center)?;
+    // The window feed hands focus back to the game once the overlay stops
+    // wanting the keyboard (KWin never does that on its own).
+    overlay.bind_keyboard_flag(kwin.keyboard_wanted.clone());
     phase("overlay surface up");
     let mut first_present_logged = false;
     // Overlay opacity live-applies from config; a change must force a

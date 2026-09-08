@@ -64,6 +64,11 @@ pub fn game_hwnd() -> Option<isize> {
 
 pub struct GameWindowFeed {
     pub rx: Receiver<GameWindowEvent>,
+    /// Whether the overlay currently wants keyboard focus (bound into the
+    /// overlay via `bind_keyboard_flag`). The Windows feed has no use for
+    /// it - the overlay hands focus back itself - but the main loop wires
+    /// both platforms identically.
+    pub keyboard_wanted: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Platform-neutral facade, matching the Linux side.
@@ -109,7 +114,7 @@ impl GameWindowFeed {
                 sleep(Duration::from_millis(100));
             }
         });
-        Ok(GameWindowFeed { rx })
+        Ok(GameWindowFeed { rx, keyboard_wanted: Default::default() })
     }
 }
 

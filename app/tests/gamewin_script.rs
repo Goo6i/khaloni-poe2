@@ -16,6 +16,9 @@ fn script_reports_geometry_focus_and_close() {
         "windowActivated",
         "closed",
         "path of exile",
+        "WantsKeyboard",
+        "lastGame",
+        "windowList()",
     ] {
         assert!(KWIN_SCRIPT.contains(needle), "script missing {needle}");
     }

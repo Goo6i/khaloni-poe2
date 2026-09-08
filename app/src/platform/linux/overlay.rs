@@ -70,6 +70,9 @@ pub struct Overlay {
     compositor: CompositorState,
     /// Global opacity applied to every presented pixel; see `set_opacity`.
     opacity: f64,
+    /// Mirrors the keyboard-interactivity state for the game-window feed
+    /// (see `bind_keyboard_flag`).
+    keyboard_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Overlay {
@@ -153,7 +156,17 @@ impl Overlay {
             output_pos,
             compositor,
             opacity: 1.0,
+            keyboard_flag: None,
         })
+    }
+
+    /// Shares the keyboard-interactivity state with the game-window feed.
+    /// KWin activates a layer surface the moment it asks for keyboard focus
+    /// (`OnDemand`) and does nothing when it gives it back, so the game
+    /// stays unfocused after a panel closes; the KWin script reads this
+    /// flag and re-activates the game once it drops to false.
+    pub fn bind_keyboard_flag(&mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.keyboard_flag = Some(flag);
     }
 
     /// Makes `rect` (surface-local logical px) accept pointer input, or
@@ -208,6 +221,11 @@ impl Overlay {
     /// focused value box can receive typed digits. On-demand: the compositor
     /// grants focus on the pointer interaction that opened the box.
     pub fn set_keyboard(&mut self, on: bool) -> anyhow::Result<()> {
+        // Published before the commit, so the feed never sees the surface
+        // active with the flag still saying "no keyboard wanted".
+        if let Some(flag) = &self.keyboard_flag {
+            flag.store(on, std::sync::atomic::Ordering::Relaxed);
+        }
         let layer = self.app.layer.as_ref().expect("layer created in new()");
         layer.set_keyboard_interactivity(if on {
             KeyboardInteractivity::OnDemand

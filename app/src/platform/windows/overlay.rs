@@ -193,6 +193,9 @@ pub struct Overlay {
     _context: softbuffer::Context<Arc<Window>>,
     /// Last known game window, for handing focus back in set_keyboard(false).
     game_hwnd: Option<isize>,
+    /// Keyboard-state mirror shared with the game-window feed; API parity
+    /// with the Linux overlay (Windows hands focus back itself below).
+    keyboard_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
     // Dropped last: the window (held via app/surface) must not outlive the loop.
     event_loop: EventLoop<()>,
 }
@@ -241,8 +244,15 @@ impl Overlay {
             surface,
             _context: context,
             game_hwnd: crate::platform::gamewin::game_hwnd(),
+            keyboard_flag: None,
             event_loop,
         })
+    }
+
+    /// Shares the keyboard-focus state with the game-window feed (same
+    /// contract as the Linux overlay; the Windows feed does not need it).
+    pub fn bind_keyboard_flag(&mut self, flag: Arc<std::sync::atomic::AtomicBool>) {
+        self.keyboard_flag = Some(flag);
     }
 
     /// Makes `rect` (window-local px) accept pointer input, or restores full
@@ -287,6 +297,9 @@ impl Overlay {
     /// focused value box can receive typed digits. Releasing hands focus
     /// back to the game window when the tracker knows it.
     pub fn set_keyboard(&mut self, on: bool) -> anyhow::Result<()> {
+        if let Some(flag) = &self.keyboard_flag {
+            flag.store(on, std::sync::atomic::Ordering::Relaxed);
+        }
         self.app.keyboard_on = on;
         if on {
             self.app
