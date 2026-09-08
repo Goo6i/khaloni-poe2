@@ -90,6 +90,76 @@ pub struct ExchangeOverview {
     pub items: Vec<CatalogItem>,
 }
 
+/// poe.ninja's PoE2 unique item categories on the stash item overview
+/// (`/poe2/api/economy/stash/current/item/overview`, documented at
+/// poe.ninja/docs/api; all eight answered with data for Forbidden Rites on
+/// 2026-09-08). PrecursorTablets is the same endpoint but rare tablets, not
+/// uniques, so it is deliberately absent.
+pub const UNIQUE_TYPES: [&str; 8] = [
+    "UniqueWeapons", "UniqueArmours", "UniqueAccessories", "UniqueFlasks", "UniqueCharms",
+    "UniqueJewels", "UniqueSanctumRelics", "UniqueTablets",
+];
+
+/// One priced unique on the item overview. A name can appear on several
+/// lines: one per base type it exists on, and corrupted variants.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemLine {
+    pub name: String,
+    #[serde(default)]
+    pub base_type: Option<String>,
+    /// Price in the overview's primary currency (divine on PoE2).
+    pub primary_value: f64,
+    #[serde(default)]
+    pub listing_count: Option<u32>,
+    #[serde(default)]
+    pub corrupted: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ItemOverview {
+    pub core: CoreBlock,
+    pub lines: Vec<ItemLine>,
+}
+
+/// Unique name -> price in exalted, across item overviews. Where a name has
+/// several lines, the uncorrupted line with the most listings speaks for it:
+/// a corrupted copy is a different (usually cheaper) item, and the deepest
+/// market is the most trustworthy price. An overview whose primary currency
+/// is not divine, or which carries no exalted rate, is skipped entirely
+/// rather than mis-scaled.
+pub fn unique_prices(overviews: &[ItemOverview]) -> HashMap<String, f64> {
+    // name -> (corrupted, listings, exalted)
+    let mut best: HashMap<&str, (bool, u32, f64)> = HashMap::new();
+    for ov in overviews {
+        if ov.core.primary != "divine" {
+            continue;
+        }
+        let Some(&ex) = ov.core.rates.get("exalted").filter(|r| **r > 0.0) else {
+            continue;
+        };
+        for line in &ov.lines {
+            if !(line.primary_value.is_finite() && line.primary_value > 0.0) {
+                continue;
+            }
+            let cand = (
+                line.corrupted.unwrap_or(false),
+                line.listing_count.unwrap_or(0),
+                line.primary_value * ex,
+            );
+            let better = match best.get(line.name.as_str()) {
+                None => true,
+                // Uncorrupted beats corrupted; then more listings.
+                Some(&(cor, n, _)) => (!cand.0, cand.1) > (!cor, n),
+            };
+            if better {
+                best.insert(line.name.as_str(), cand);
+            }
+        }
+    }
+    best.into_iter().map(|(name, (_, _, ex))| (name.to_string(), ex)).collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataOrigin {
     Fresh,
@@ -170,14 +240,53 @@ impl NinjaClient {
             urlencode(league),
             typ
         );
+        self.fetch_cached(&url, league, typ, |ov| Self::validate(ov, typ))
+    }
+
+    /// One unique item category (see [`UNIQUE_TYPES`]), same fresh-then-
+    /// stale-cache contract as `exchange_overview`. An empty `lines` is
+    /// valid here: a category can legitimately have nothing listed early in
+    /// a league.
+    pub fn item_overview(
+        &self,
+        league: &str,
+        typ: &str,
+    ) -> Result<(ItemOverview, DataOrigin), NinjaError> {
+        let url = format!(
+            "{}/poe2/api/economy/stash/current/item/overview?league={}&type={}",
+            self.base,
+            urlencode(league),
+            typ
+        );
+        self.fetch_cached(&url, league, typ, |ov: &ItemOverview| {
+            if ov.core.primary != "divine" {
+                return Err(NinjaError::MalformedResponse(
+                    typ.to_string(),
+                    "core.primary is not \"divine\"",
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    /// Fetches `url`, validates and caches the body under (league, typ) on
+    /// success; on any transport failure serves the last cached body as
+    /// stale data, and errors only when there is none.
+    fn fetch_cached<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        league: &str,
+        typ: &str,
+        validate: impl Fn(&T) -> Result<(), NinjaError>,
+    ) -> Result<(T, DataOrigin), NinjaError> {
         let fetched: Result<String, NinjaError> = (|| {
-            let body = self.http.get(&url).send()?.error_for_status()?.text()?;
+            let body = self.http.get(url).send()?.error_for_status()?.text()?;
             Ok(body)
         })();
         match fetched {
             Ok(body) => {
-                let ov: ExchangeOverview = serde_json::from_str(&body)?;
-                Self::validate(&ov, typ)?;
+                let ov: T = serde_json::from_str(&body)?;
+                validate(&ov)?;
                 std::fs::create_dir_all(&self.cache_dir)?;
                 std::fs::write(self.cache_path(league, typ), &body)?;
                 Ok((ov, DataOrigin::Fresh))
@@ -186,7 +295,7 @@ impl NinjaClient {
                 let path = self.cache_path(league, typ);
                 match std::fs::read_to_string(&path) {
                     Ok(body) => {
-                        let ov: ExchangeOverview = serde_json::from_str(&body)?;
+                        let ov: T = serde_json::from_str(&body)?;
                         Ok((ov, DataOrigin::StaleCache))
                     }
                     Err(_) => Err(NinjaError::NoData(format!(

@@ -661,3 +661,77 @@ fn unique_query_searches_by_name_and_base_with_mods_off() {
     assert!(bow.name.is_none());
     assert!(bow.to_body()["query"].get("name").is_none());
 }
+
+#[test]
+fn every_gear_class_maps_to_its_live_trade_category() {
+    use khaloni_poe2_core::trade::category_for;
+    // Ids from /api/trade2/data/filters (fetched 2026-09-08).
+    for (class, cat) in [
+        ("Quarterstaves", "weapon.warstaff"),
+        ("Crossbows", "weapon.crossbow"),
+        ("Body Armours", "armour.chest"),
+        ("Foci", "armour.focus"),
+        ("Bucklers", "armour.buckler"),
+        ("Life Flasks", "flask.life"),
+        ("Charms", "flask.charm"),
+        ("Waystones", "map.waystone"),
+        ("Tablets", "map.tablet"),
+        ("Relics", "sanctum.relic"),
+        ("Skill Gems", "gem.activegem"),
+        ("Support Gems", "gem.supportgem"),
+        ("Jewels", "jewel"),
+    ] {
+        assert_eq!(category_for(class).as_deref(), Some(cat), "{class}");
+    }
+    assert_eq!(category_for("Stackable Currency"), None, "currency is not gear");
+}
+
+const GEM: &str = concat!(
+    "Item Class: Skill Gems\n",
+    "Rarity: Gem\n",
+    "Fireball\n",
+    "--------\n",
+    "Level: 20 (Max)\n",
+    "Quality: +20% (augmented)\n",
+    "--------\n",
+    "Requirements:\n",
+    "Level: 70\n",
+    "Int: 155\n",
+    "--------\n",
+    "Fires a ball of fire.\n",
+);
+
+#[test]
+fn a_cut_gem_searches_its_skill_at_its_exact_level() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let gem = parse_item(GEM).expect("parse");
+    let q = build_query(&gem, &stats);
+    assert_eq!(q.category.as_deref(), Some("gem.activegem"));
+    assert_eq!(q.type_name.as_deref(), Some("Fireball"));
+    assert_eq!(q.gem_level, Some(20), "the gem's own level, not the level requirement");
+    assert!(q.filters.is_empty());
+    let body = q.to_body();
+    assert_eq!(body["query"]["filters"]["misc_filters"]["filters"]["gem_level"]["min"], 20);
+}
+
+#[test]
+fn a_magic_waystone_recovers_its_tiered_base_from_the_name() {
+    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
+    let text = concat!(
+        "Item Class: Waystones\n",
+        "Rarity: Magic\n",
+        "Shielded Waystone (Tier 15) of Fortune\n",
+        "--------\n",
+        "Waystone Tier: 15\n",
+        "Item Rarity: +24%\n",
+        "--------\n",
+        "Item Level: 80\n",
+        "--------\n",
+        "Monsters have 30% increased Armour\n",
+    );
+    let ws = parse_item(text).expect("parse");
+    assert!(ws.base_type.is_none(), "magic items copy as one name line");
+    let q = build_query(&ws, &stats);
+    assert_eq!(q.type_name.as_deref(), Some("Waystone (Tier 15)"));
+    assert_eq!(q.map_tier, Some(15));
+}

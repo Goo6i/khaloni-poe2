@@ -995,6 +995,7 @@ fn overlay_mode(
         let gem_map = gem_map.clone();
         let svc_gem = svc.clone();
         let exch_names_pub = exch_names.clone();
+        let reference_worker = reference.clone();
         std::thread::spawn(move || {
             let stats_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
                 .map(|d| d.cache_dir().join("trade_stats.json"));
@@ -1063,7 +1064,19 @@ fn overlay_mode(
                 // zero hits); `seeds_panel` says whether the response opens a
                 // fresh panel - Exact responses update the one already open.
                 let (title, q, labels, facts, relaxed, seeds_panel) = match req {
-                    AppraiseReq::Auto(item) => {
+                    AppraiseReq::Auto(mut item) => {
+                        // Magic items copy as one name line, so their base is
+                        // recovered from the catalog (the same way EE2 does)
+                        // before the query is built; a base that cannot be
+                        // recovered leaves a mods-only search, never a guess.
+                        if item.base_type.is_none()
+                            && matches!(item.rarity, khaloni_poe2_core::item::Rarity::Magic | khaloni_poe2_core::item::Rarity::Normal)
+                        {
+                            if let Some(r) = reference_worker.get() {
+                                item.base_type =
+                                    khaloni_poe2_core::refdata::magic_base(&r.items, &item.name).map(str::to_string);
+                            }
+                        }
                         let title = if item.name.is_empty() {
                             item.base_type.clone().unwrap_or_default()
                         } else {

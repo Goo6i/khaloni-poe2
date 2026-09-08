@@ -242,3 +242,21 @@ fn a_rolled_line_finds_its_template() {
     // Genuinely different mods must not collide.
     assert_ne!(n("+23 to Accuracy Rating"), n("+# to maximum Life"));
 }
+
+#[test]
+fn magic_base_is_the_longest_catalog_base_inside_the_name() {
+    use khaloni_poe2_core::refdata::{magic_base, RefItem};
+    let item = |n: &str, ns: &str| RefItem { name: n.into(), namespace: ns.into(), category: None };
+    let items = vec![
+        item("Ring", "ITEM"),
+        item("Sapphire Ring", "ITEM"),
+        item("Waystone (Tier 15)", "ITEM"),
+        item("Kraken", "UNIQUE"),
+    ];
+    assert_eq!(magic_base(&items, "Kraken Grip Sapphire Ring of the Whelpling"), Some("Sapphire Ring"));
+    assert_eq!(magic_base(&items, "Shielded Waystone (Tier 15) of Fortune"), Some("Waystone (Tier 15)"));
+    // Whole words only: "Ring" inside "Springer" is not a base.
+    assert_eq!(magic_base(&items, "Springer Boots"), None);
+    // Only craftable bases count, never a unique's name.
+    assert_eq!(magic_base(&items, "Kraken"), None);
+}

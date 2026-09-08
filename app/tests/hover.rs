@@ -135,3 +135,27 @@ fn magic_relics_route_to_trade_appraisal() {
     let p = h.current.expect("popup shown");
     assert!(p.lines[0].text.contains("searching"), "got {:?}", p.lines[0].text);
 }
+
+#[test]
+fn cut_gems_and_magic_gear_route_to_trade_appraisal() {
+    let table = khaloni_poe2_core::ninja::PriceTable::default();
+    let uniques = HashMap::new();
+    // A cut skill gem: nothing in the currency table can price a specific
+    // skill at a level; the trade site can.
+    let gem = "Item Class: Skill Gems\nRarity: Gem\nFireball\n--------\nLevel: 20 (Max)\n--------\nRequirements:\nLevel: 70\n";
+    let mut h = HoverState::default();
+    h.trigger(gem, &table, &uniques, 1.0);
+    assert!(h.pending_appraisal.is_some(), "gem must queue an appraisal");
+    assert_eq!(h.current.as_ref().unwrap().lines[0].text, "searching trade...");
+    // Magic gear with mods appraises like a rare: its value is in the mods.
+    let ring = "Item Class: Rings\nRarity: Magic\nKraken Grip Sapphire Ring\n--------\nItem Level: 74\n--------\n+35% to Cold Resistance\n";
+    let mut h = HoverState::default();
+    h.trigger(ring, &table, &uniques, 1.0);
+    assert!(h.pending_appraisal.is_some(), "magic gear must queue an appraisal");
+    // A plain normal item with no mods and no table price stays honest.
+    let plain = "Item Class: Boots\nRarity: Normal\nIron Greaves\n--------\nItem Level: 3\n";
+    let mut h = HoverState::default();
+    h.trigger(plain, &table, &uniques, 1.0);
+    assert!(h.pending_appraisal.is_none());
+    assert_eq!(h.current.as_ref().unwrap().lines[0].text, khaloni_poe2_core::value::UNKNOWN);
+}

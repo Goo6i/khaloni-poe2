@@ -1,0 +1,83 @@
+{
+ "core": {
+  "items": [
+   {
+    "id": "divine",
+    "name": "Divine Orb",
+    "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/2986e220b3/CurrencyModValues.png",
+    "category": "Currency",
+    "detailsId": "divine-orb"
+   },
+   {
+    "id": "exalted",
+    "name": "Exalted Orb",
+    "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/ad7c366789/CurrencyAddModToRare.png",
+    "category": "Currency",
+    "detailsId": "exalted-orb"
+   },
+   {
+    "id": "chaos",
+    "name": "Chaos Orb",
+    "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lSZXJvbGxSYXJlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/c0ca392a78/CurrencyRerollRare.png",
+    "category": "Currency",
+    "detailsId": "chaos-orb"
+   }
+  ],
+  "rates": {
+   "exalted": 142.2,
+   "chaos": 13.88
+  },
+  "primary": "divine",
+  "secondary": "chaos"
+ },
+ "lines": [
+  {
+   "id": 729,
+   "itemId": "Runeseeker's Call Runemastered Runic Fork",
+   "detailsId": "runeseekers-call-runemastered-runic-fork",
+   "name": "Runeseeker's Call",
+   "baseType": "Runemastered Runic Fork",
+   "levelRequired": 84,
+   "category": "[Wand]",
+   "primaryValue": 316.4,
+   "listingCount": 9,
+   "corrupted": false
+  },
+  {
+   "id": 730,
+   "itemId": "Runeseeker's Call Runic Fork",
+   "detailsId": "runeseekers-call-runic-fork",
+   "name": "Runeseeker's Call",
+   "baseType": "Runic Fork",
+   "levelRequired": 90,
+   "category": "[Wand]",
+   "primaryValue": 299.4,
+   "listingCount": 25,
+   "corrupted": false
+  },
+  {
+   "id": 9001,
+   "itemId": "Runeseeker's Call Runic Fork",
+   "detailsId": "runeseekers-call-runic-fork",
+   "name": "Runeseeker's Call",
+   "baseType": "Runic Fork",
+   "levelRequired": 90,
+   "category": "[Wand]",
+   "primaryValue": 40.0,
+   "listingCount": 300,
+   "corrupted": true
+  },
+  {
+   "id": 9002,
+   "itemId": "Brynhand's Mark Wooden Club",
+   "detailsId": "brynhands-mark-wooden-club",
+   "name": "Brynhand's Mark",
+   "baseType": "Wooden Club",
+   "levelRequired": 2,
+   "category": "[One Hand Mace]",
+   "primaryValue": 0.05,
+   "listingCount": 40,
+   "corrupted": false
+  }
+ ]
+}

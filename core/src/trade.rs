@@ -607,19 +607,82 @@ impl Query {
     }
 }
 
-/// Item classes verified against live category options; extended only as
-/// new classes appear in fixtures.
-fn category_for(item_class: &str) -> Option<String> {
+/// The trade category for an item class, from the live category options in
+/// `/api/trade2/data/filters` (fetched 2026-09-08). Classes are the game's
+/// own "Item Class:" wording. Currency and other stackables have no gear
+/// category and return `None`.
+pub fn category_for(item_class: &str) -> Option<String> {
     let c = item_class.to_ascii_lowercase();
     let cat = match c.as_str() {
+        "claws" => "weapon.claw",
+        "daggers" => "weapon.dagger",
+        "one hand swords" => "weapon.onesword",
+        "one hand axes" => "weapon.oneaxe",
+        "one hand maces" => "weapon.onemace",
+        "spears" => "weapon.spear",
+        "flails" => "weapon.flail",
+        "two hand swords" => "weapon.twosword",
+        "two hand axes" => "weapon.twoaxe",
+        "two hand maces" => "weapon.twomace",
+        "quarterstaves" => "weapon.warstaff",
+        "talismans" => "weapon.talisman",
         "bows" => "weapon.bow",
+        "crossbows" => "weapon.crossbow",
+        "wands" => "weapon.wand",
+        "sceptres" => "weapon.sceptre",
+        "staves" => "weapon.staff",
+        "fishing rods" => "weapon.rod",
+        "helmets" => "armour.helmet",
+        "body armours" => "armour.chest",
+        "gloves" => "armour.gloves",
+        "boots" => "armour.boots",
+        "quivers" => "armour.quiver",
+        "shields" => "armour.shield",
+        "foci" => "armour.focus",
+        "bucklers" => "armour.buckler",
         "amulets" => "accessory.amulet",
         "rings" => "accessory.ring",
         "belts" => "accessory.belt",
+        "skill gems" => "gem.activegem",
+        "support gems" => "gem.supportgem",
+        "meta gems" => "gem.metagem",
         "jewels" => "jewel",
+        "life flasks" => "flask.life",
+        "mana flasks" => "flask.mana",
+        "charms" => "flask.charm",
+        "waystones" => "map.waystone",
+        "tablets" => "map.tablet",
+        "relics" => "sanctum.relic",
         _ => return None,
     };
     Some(cat.to_string())
+}
+
+/// A gem's own level from its property block ("Level: 20 (Max)"). The
+/// requirements block also says "Level: N" (the character level needed), so
+/// any section carrying a "Requirements:" line is skipped; the first plain
+/// "Level: N" elsewhere is the gem level. `None` when the text has none.
+pub fn gem_level(item: &crate::item::Item) -> Option<i64> {
+    item.sections
+        .iter()
+        .filter(|sec| !sec.iter().any(|l| l.starts_with("Requirements")))
+        .flatten()
+        .find_map(|l| l.strip_prefix("Level: "))
+        .and_then(first_number)
+        .map(|v| v as i64)
+}
+
+/// The tiered waystone base to search: the base-type line when the item
+/// has one (rare/normal), else the "Waystone (Tier N)" the game embeds in a
+/// magic item's single name line ("Shielded Waystone (Tier 15) of Fortune").
+fn waystone_base(item: &crate::item::Item) -> Option<String> {
+    if let Some(b) = item.base_type.as_deref().filter(|b| !b.is_empty()) {
+        return Some(b.to_string());
+    }
+    let start = item.name.find("Waystone (Tier ")?;
+    let rest = &item.name[start..];
+    let end = rest.find(')')?;
+    Some(rest[..=end].to_string())
 }
 
 /// Mods worth preselecting: the stats that dominate rare pricing.
@@ -761,6 +824,23 @@ pub fn build_query_with_labels(
     for m in &item.implicits {
         push_filter(m, stats, unique, "implicit", &mut filters, &mut labels);
     }
+    // A cut gem is one skill at one level: the skill name is the base type,
+    // the level an exact misc filter, and its category the gem kind.
+    if item.rarity == crate::item::Rarity::Gem {
+        return (
+            Query {
+                category: category_for(&item.item_class),
+                category_enabled: true,
+                name: None,
+                type_name: Some(item.name.clone()),
+                map_tier: None,
+                gem_level: gem_level(item),
+                weapon: None,
+                filters: Vec::new(),
+            },
+            Vec::new(),
+        );
+    }
     // Waystones/maps are priced by base type + tier (their danger mods above
     // ride along disabled). Their reward properties (Item Rarity, Pack Size,
     // Monster Effectiveness, etc.) become pickable map_filters, disabled by
@@ -779,16 +859,27 @@ pub fn build_query_with_labels(
         // ("Unknown item base type", observed live 2026-08-07). The full
         // base line the game wrote is what gets searched; the tier is
         // still parsed out for the map_tier filter beside it.
-        let tier = item.base_type.as_deref().and_then(|b| split_waystone(b).1);
-        (item.base_type.clone().filter(|b| !b.is_empty()), tier)
+        let base = waystone_base(item);
+        let tier = base.as_deref().and_then(|b| split_waystone(b).1);
+        (base, tier)
     } else if unique {
         (item.base_type.clone().filter(|b| !b.is_empty()), None)
     } else {
-        (None, None)
+        // Magic and normal gear: the base pins the search when the caller
+        // recovered it (`refdata::magic_base`); a rare's base is random
+        // dressing and the category is the right constraint.
+        let magic_or_normal = matches!(item.rarity, crate::item::Rarity::Magic | crate::item::Rarity::Normal);
+        (
+            item.base_type.clone().filter(|b| magic_or_normal && !b.is_empty()),
+            None,
+        )
     };
+    // Items searched by exact base (waystones, uniques) need no category on
+    // top: the type already pins them, and the site rejects a mismatch.
+    let by_base = unique || type_name.is_some();
     (
         Query {
-            category: if unique { None } else { category_for(&item.item_class) },
+            category: if by_base { None } else { category_for(&item.item_class) },
             category_enabled: true,
             name: unique.then(|| item.name.clone()),
             type_name,

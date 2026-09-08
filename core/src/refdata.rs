@@ -789,6 +789,21 @@ pub fn search_affixes<'a>(affixes: &'a [Affix], query: &str) -> Vec<&'a Affix> {
     affixes.iter().filter(|a| a.text.to_lowercase().contains(&q)).collect()
 }
 
+/// The base type inside a magic item's name. Magic items copy as a single
+/// name line ("Kraken Grip Sapphire Ring of the Whelpling"), so the base is
+/// recovered the way Exiled Exchange 2 does it: the longest craftable base
+/// (namespace ITEM) that appears in the name on word boundaries. `None`
+/// when no base fits, which the caller treats as "search mods only".
+pub fn magic_base<'a>(items: &'a [RefItem], name: &str) -> Option<&'a str> {
+    let padded = format!(" {name} ");
+    items
+        .iter()
+        .filter(|i| i.namespace == "ITEM" && !i.name.is_empty())
+        .filter(|i| padded.contains(&format!(" {} ", i.name)))
+        .map(|i| i.name.as_str())
+        .max_by_key(|n| n.len())
+}
+
 /// Case-insensitive substring search over catalog item names, optionally
 /// restricted to one namespace (e.g. "UNIQUE" for a unique browser).
 pub fn search_ref_items<'a>(items: &'a [RefItem], query: &str, namespace: Option<&str>) -> Vec<&'a RefItem> {

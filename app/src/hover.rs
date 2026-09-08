@@ -147,6 +147,16 @@ impl HoverState {
                     self.pending_currency = Some(title.clone());
                     vec![PopupLine { text: "checking exchange...".into(), denom: Denom::None }]
                 }
+                // A cut gem (one skill at one level), or magic/normal gear
+                // with mods (waystones above all): worth is in the specifics,
+                // which only the trade site prices. Same path as a rare.
+                None if parsed.rarity == item::Rarity::Gem
+                    || !parsed.explicits.is_empty()
+                    || parsed.item_class.eq_ignore_ascii_case("waystones") =>
+                {
+                    self.pending_appraisal = Some(parsed.clone());
+                    vec![PopupLine { text: "searching trade...".into(), denom: Denom::None }]
+                }
                 None => vec![PopupLine {
                     text: value::UNKNOWN.into(),
                     denom: Denom::None,
