@@ -649,19 +649,33 @@ struct ItemFacts {
     pseudo_rows: Vec<(String, f64, usize)>,
 }
 
-struct AppraiseDone {
-    title: String,
-    outcome: Result<Vec<khaloni_poe2_core::trade::Listing>, String>,
-    /// Query + labels only on Auto responses (they seed the panel); an
-    /// Exact response updates listings on the panel the user already has.
-    query: Option<khaloni_poe2_core::trade::Query>,
-    labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
-    /// Header facts, likewise Auto-only: nothing else builds a panel.
-    facts: Option<ItemFacts>,
-    search_id: Option<String>,
-    /// Computed from the listings this search actually returned (never a
-    /// model's opinion), or None when nothing priceable came back.
-    estimate: Option<khaloni_poe2_core::estimate::Estimate>,
+/// A trade worker response. A check that opens a panel sends two: the
+/// `Seed` the moment the query is built, so the panel shows every row
+/// while the search runs, then the `Result` with the listings. A Search
+/// press sends only a `Result`.
+enum AppraiseDone {
+    /// Opens the panel: rows, the query its checkboxes edit, header facts.
+    Seed {
+        title: String,
+        query: khaloni_poe2_core::trade::Query,
+        labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
+        facts: Option<ItemFacts>,
+    },
+    /// Listings for the panel with this title.
+    Result {
+        title: String,
+        outcome: Result<Vec<khaloni_poe2_core::trade::Listing>, String>,
+        search_id: Option<String>,
+        /// Computed from the listings this search actually returned (never
+        /// a model's opinion), or None when nothing priceable came back.
+        estimate: Option<khaloni_poe2_core::estimate::Estimate>,
+        /// The query the auto search actually ran (a relaxed search that
+        /// dropped filters to find matches has them switched off), for the
+        /// panel's checkboxes to take when the user has not touched them
+        /// since the seed. None for a Search press: the panel already
+        /// holds that query.
+        searched: Option<khaloni_poe2_core::trade::Query>,
+    },
 }
 
 /// Writes one weapon bound into the query, dropping the whole section when
@@ -1151,11 +1165,23 @@ fn overlay_mode(
                     }
                     AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
                 };
-                // The panel is seeded from `q`, so `q` must be the query the
-                // listings actually came from: a relaxed search that dropped
-                // filters to find them reports how many it kept, and the
-                // dropped ones are switched off here too. Otherwise the
-                // checkboxes claim a narrower search than the results.
+                // The panel opens now, with every row, before the search:
+                // the user reads and adjusts the selection while the
+                // listings are fetched instead of waiting on the request to
+                // see the mods at all.
+                if seeds_panel {
+                    let _ = tx.send(AppraiseDone::Seed {
+                        title: title.clone(),
+                        query: q.clone(),
+                        labels,
+                        facts,
+                    });
+                }
+                // The listings must travel with the query they came from: a
+                // relaxed search that dropped filters to find them reports
+                // how many it kept, and the dropped ones are switched off
+                // here too. Otherwise the checkboxes claim a narrower search
+                // than the results.
                 let (searched, q) = if relaxed {
                     match client.search_relaxed(&q) {
                         Ok((s, kept)) if kept > 0 => (Ok(s), q.keep_strongest(kept)),
@@ -1206,14 +1232,12 @@ fn overlay_mode(
                         .collect();
                     khaloni_poe2_core::estimate::estimate(&ex)
                 });
-                let _ = tx.send(AppraiseDone {
+                let _ = tx.send(AppraiseDone::Result {
                     title,
                     outcome,
-                    query: seeds_panel.then_some(q),
-                    labels,
-                    facts,
                     search_id,
                     estimate,
+                    searched: seeds_panel.then_some(q),
                 });
             }
         });
@@ -1710,6 +1734,10 @@ fn overlay_mode(
         khaloni_poe2_core::trade::Query,
         (i32, i32),
     )> = None;
+    // The query the open panel was seeded with, so a late auto result can
+    // tell an untouched panel (take the searched query) from one the user
+    // has already edited (keep their selection).
+    let mut seeded_query: Option<khaloni_poe2_core::trade::Query> = None;
     // Which value box is being typed into (index into `panel.rows`, which is
     // what evaluate_ui's actions carry), and the digits typed so far.
     let mut editing: Option<(usize, khaloni_poe2::evaluate_ui::Field)> = None;
@@ -2150,19 +2178,20 @@ fn overlay_mode(
                 ),
                 Err(e) => (vec![], e.clone()),
             };
-            match (done.query, apanel.as_mut()) {
-                // Auto response: seed the interactive panel where the
-                // "searching trade..." popup was anchored.
-                (Some(query), _) => {
-                    let (listings, status) = listings_of(&done.outcome);
+            match done {
+                // Seed: open the interactive panel where the "searching
+                // trade..." popup was anchored, with every row and no
+                // listings yet.
+                AppraiseDone::Seed { title, query, labels, facts } => {
+                    let listings = Vec::new();
+                    let status = "searching...".to_string();
                     // Affix index once per panel, not once per row: it is a
                     // map over the whole affix export (tens of thousands of
                     // entries) and every row looks into the same one.
                     let affix_ix = reference
                         .get()
                         .map(|r| khaloni_poe2_core::refdata::affix_index(&r.affixes));
-                    let mut rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = done
-                        .labels
+                    let mut rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = labels
                         .iter()
                         .enumerate()
                         .filter_map(|(i, l)| {
@@ -2213,7 +2242,6 @@ fn overlay_mode(
                     // Gear carries a base-type toggle so the user can search
                     // mods-only; items priced by their base (waystones, whose
                     // category is None) get no toggle.
-                    let facts = done.facts;
                     // Weapon figures lead the card the way the tooltip's own
                     // property block does; each is searchable as an
                     // equipment_filters minimum, off until the user opts in.
@@ -2245,13 +2273,9 @@ fn overlay_mode(
                             enabled: query.category_enabled,
                         }
                     });
-                    let estimate = done
-                        .estimate
-                        .as_ref()
-                        .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
                     let panel = khaloni_poe2::evaluate_ui::Panel {
                         header: khaloni_poe2::evaluate_ui::ItemHeader {
-                            name: done.title,
+                            name: title,
                             // Rare is the fallback only when the response
                             // carried no facts at all (it always does for an
                             // Auto search); the rest stay absent when absent.
@@ -2267,9 +2291,9 @@ fn overlay_mode(
                         show_hidden: false,
                         strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
                         listings,
-                        estimate,
+                        estimate: None,
                         status,
-                        search_id: done.search_id,
+                        search_id: None,
                     };
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
@@ -2290,19 +2314,45 @@ fn overlay_mode(
                     panel_drag = None;
                     editing = None;
                     overlay.set_keyboard(false)?;
+                    seeded_query = Some(query.clone());
                     apanel = Some((panel, query, pos));
                 }
-                // Exact response: update the open panel in place.
-                (None, Some((panel, _, _))) if panel.header.name == done.title => {
-                    let (listings, status) = listings_of(&done.outcome);
+                // Result: listings for the open panel, from the auto search
+                // or a Search press. A panel closed (or replaced) while the
+                // search ran drops the result.
+                AppraiseDone::Result { title, outcome, search_id, estimate, searched } => {
+                    let Some((panel, query, _)) = apanel.as_mut() else { continue };
+                    if panel.header.name != title {
+                        continue;
+                    }
+                    let (listings, mut status) = listings_of(&outcome);
+                    if let Some(searched) = searched {
+                        // The checkboxes must say what the listings came
+                        // from. Untouched since the seed, they take the
+                        // searched query (filters the relaxed search dropped
+                        // switch off). Edited meanwhile, the user's
+                        // selection stands and the status names the
+                        // difference; their own Search replaces these.
+                        if seeded_query.as_ref() == Some(&*query) {
+                            *query = searched;
+                            for row in &mut panel.rows {
+                                if let Some(khaloni_poe2::evaluate_ui::Target::Stat(i)) = row.target {
+                                    if let Some(f) = query.filters.get(i) {
+                                        row.enabled = !f.disabled;
+                                    }
+                                }
+                            }
+                            seeded_query = Some(query.clone());
+                        } else {
+                            status.push_str(" (initial search)");
+                        }
+                    }
                     panel.listings = listings;
-                    panel.estimate = done
-                        .estimate
-                        .as_ref()
-                        .map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
+                    panel.estimate =
+                        estimate.as_ref().map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
                     panel.status = status;
-                    if done.search_id.is_some() {
-                        panel.search_id = done.search_id;
+                    if search_id.is_some() {
+                        panel.search_id = search_id;
                     }
                     // Listings and the value box grow the card downwards, so
                     // the buttons under them move: without this the region
@@ -2310,8 +2360,6 @@ fn overlay_mode(
                     // button stops answering after the first search.
                     sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                 }
-                // Panel was closed while the search ran: drop the result.
-                (None, _) => {}
             }
         }
         // Panel clicks: geometry from the same layout the renderer drew.
@@ -2384,6 +2432,10 @@ fn overlay_mode(
                     }
                     Some(khaloni_poe2::evaluate_ui::Action::Search) => {
                         panel.status = "searching...".into();
+                        // From here the panel shows the user's search; an
+                        // auto result still in flight must not reset the
+                        // checkboxes to what it searched.
+                        seeded_query = None;
                         // Broad relaxes every kept minimum by 10% before the
                         // search runs; Quick sends the user's own numbers
                         // verbatim, since their toggles ARE the intent.

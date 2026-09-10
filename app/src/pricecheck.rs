@@ -69,10 +69,7 @@ impl FocusGate {
     /// was waiting for that within [`FOCUS_WAIT`]; a later activation is
     /// the user's own doing and copies nothing.
     pub fn focused(&mut self, now: Instant) -> bool {
-        match self.pending.take() {
-            Some(since) if now < since + FOCUS_WAIT => true,
-            _ => false,
-        }
+        matches!(self.pending.take(), Some(since) if now < since + FOCUS_WAIT)
     }
 
     /// True once when a pending press outlived [`FOCUS_WAIT`] without the
