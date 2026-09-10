@@ -222,6 +222,71 @@
      "id": "explicit.stat_518292764",
      "text": "#% to Critical Hit Chance",
      "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_3981240776",
+     "text": "# to Spirit",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_53045048",
+     "text": "# to Evasion Rating (Local)",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_2144192055",
+     "text": "# to Evasion Rating",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_3489782002",
+     "text": "# to maximum Energy Shield",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_3484657501",
+     "text": "# to Armour (Local)",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_210067635",
+     "text": "#% increased Attack Speed (Local)",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_681332047",
+     "text": "#% increased Attack Speed",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_809229260",
+     "text": "# to Armour",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_1013492127",
+     "text": "Spells fire # additional Projectiles\nSpells fire Projectiles in a circle",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_2704225257",
+     "text": "# to Spirit",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_1602191394",
+     "text": "#% increased Rarity of Items found\nYour other Modifiers to Rarity of Items found do not apply",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_2261942307",
+     "text": "#% increased Rarity of Items found\nYour other Modifiers to Rarity of Items found do not apply",
+     "type": "explicit"
+    },
+    {
+     "id": "explicit.stat_3368921525",
+     "text": "Increases and Reductions to\n Fire and Lightning Damage in Radius are transformed to apply to Cold Damage",
+     "type": "explicit"
     }
    ]
   }

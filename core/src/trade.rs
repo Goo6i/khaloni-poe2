@@ -46,12 +46,32 @@ struct RawEntry {
 /// with pseudo only ever relevant for aggregate ("total resistance") stats.
 const GROUP_PRIORITY: [&str; 3] = ["explicit", "implicit", "pseudo"];
 
+/// The suffix the catalog puts on a stat's second listing when the same
+/// line is a gear piece's own armour, evasion, energy shield, accuracy,
+/// attack speed or block ("# to Armour (Local)" beside "# to Armour"). The
+/// item text never carries it, so a line resolves to both.
+const LOCAL_SUFFIX: &str = " (Local)";
+
 pub struct StatIndex {
-    groups: HashMap<String, HashMap<String, StatEntry>>,
+    /// group id -> text key -> every entry listed under that text, in
+    /// catalog order. The catalog lists some texts twice with different ids
+    /// (two explicit "# to Spirit"), and the first is the primary.
+    groups: HashMap<String, HashMap<String, Vec<StatEntry>>>,
     /// Every entry keyed by its stat id, for the lookups that start from an
     /// id rather than mod text (pseudo aggregates, which no single mod line
     /// spells out).
     by_id: HashMap<String, StatEntry>,
+    /// Lines in the longest catalog text: how many consecutive item lines a
+    /// lookup may need to join.
+    max_lines: usize,
+}
+
+/// The lookup key for a catalog or mod text: each line trimmed, so the
+/// stray padding the catalog carries around its line breaks ("Increases and
+/// Reductions to\n Fire and ...", "Adds Abysses to a Map \n# use remaining")
+/// never decides a match.
+fn text_key(text: &str) -> String {
+    text.lines().map(str::trim).collect::<Vec<_>>().join("\n")
 }
 
 impl StatIndex {
@@ -59,19 +79,32 @@ impl StatIndex {
         let parsed: StatsResponse = serde_json::from_str(s)?;
         let mut groups = HashMap::new();
         let mut by_id = HashMap::new();
+        let mut max_lines = 1;
         for g in parsed.result {
-            let mut by_text = HashMap::new();
+            let mut by_text: HashMap<String, Vec<StatEntry>> = HashMap::new();
             for e in g.entries {
                 let entry = StatEntry {
                     id: e.id,
                     text: e.text,
                 };
+                max_lines = max_lines.max(entry.text.lines().count());
                 by_id.insert(entry.id.clone(), entry.clone());
-                by_text.insert(entry.text.clone(), entry);
+                // A repeated row (same id, same text) is one stat, not an
+                // alternate of itself.
+                let listed = by_text.entry(text_key(&entry.text)).or_default();
+                if !listed.iter().any(|e| e.id == entry.id) {
+                    listed.push(entry);
+                }
             }
             groups.insert(g.id, by_text);
         }
-        Ok(StatIndex { groups, by_id })
+        Ok(StatIndex { groups, by_id, max_lines })
+    }
+
+    /// Lines in the longest stat text the catalog holds; a mod that spans
+    /// more item lines than this cannot be a single catalog stat.
+    pub fn max_lines(&self) -> usize {
+        self.max_lines
     }
 
     /// Looks a stat up by its trade id (e.g.
@@ -86,23 +119,55 @@ impl StatIndex {
     /// game's `[Tag|Display]` bracket syntax down to the display half, drops
     /// roll-annotation parentheticals like `(155-169)`, replaces every
     /// remaining number with `#`, then exact-matches against the catalog,
-    /// preferring explicit, then implicit, then pseudo.
+    /// preferring explicit, then implicit, then pseudo. The primary of
+    /// [`resolve_all`](Self::resolve_all); a search needs all of them.
     pub fn resolve(&self, mod_text: &str) -> Option<&StatEntry> {
-        let normalized = normalize_mod_text(mod_text);
+        self.resolve_all(mod_text).into_iter().next()
+    }
+
+    /// Every catalog entry a mod's text is indexed under, primary first:
+    /// the entries whose text is the line (the catalog lists some texts
+    /// under two ids), then the "(Local)" twin the site uses when the line
+    /// is the gear's own armour, evasion, energy shield, accuracy, attack
+    /// speed or block. The item text is identical in every case, so a
+    /// search must accept any of them (see `Query::to_body`); verified live
+    /// 2026-09-10, where the global armour id matched no body armour at all
+    /// and the local one matched thousands. Multi-line text (the lines of
+    /// one affix joined with `\n`) matches the catalog's multi-line stats.
+    /// Groups are tried in `GROUP_PRIORITY` order and the first group that
+    /// knows the text wins. Empty when no group does.
+    pub fn resolve_all(&self, mod_text: &str) -> Vec<&StatEntry> {
+        let key = text_key(&normalize_mod_text(mod_text));
+        let local_key = format!("{key}{LOCAL_SUFFIX}");
+        fn lookup<'e>(
+            entries: &'e HashMap<String, Vec<StatEntry>>,
+            key: &str,
+            local_key: &str,
+        ) -> Vec<&'e StatEntry> {
+            let mut out: Vec<&StatEntry> = entries.get(key).into_iter().flatten().collect();
+            if !out.is_empty() {
+                out.extend(entries.get(local_key).into_iter().flatten());
+            }
+            out
+        }
         for group_id in GROUP_PRIORITY {
-            if let Some(entry) = self.groups.get(group_id).and_then(|g| g.get(&normalized)) {
-                return Some(entry);
+            if let Some(entries) = self.groups.get(group_id) {
+                let found = lookup(entries, &key, &local_key);
+                if !found.is_empty() {
+                    return found;
+                }
             }
         }
         for (group_id, entries) in &self.groups {
             if GROUP_PRIORITY.contains(&group_id.as_str()) {
                 continue;
             }
-            if let Some(entry) = entries.get(&normalized) {
-                return Some(entry);
+            let found = lookup(entries, &key, &local_key);
+            if !found.is_empty() {
+                return found;
             }
         }
-        None
+        Vec::new()
     }
 }
 
@@ -375,6 +440,13 @@ impl RateLimiter {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct StatFilter {
     pub id: String,
+    /// The other trade ids the same mod line is indexed under: its
+    /// "(Local)" twin, or a duplicate catalog listing (see
+    /// `StatIndex::resolve_all`). A filter with alternates is searched as
+    /// "any of these ids at this bound" (see `Query::to_body`); the
+    /// alternates share `value` and `disabled`.
+    #[serde(skip)]
+    pub alt_ids: Vec<String>,
     pub value: FilterValue,
     pub disabled: bool,
 }
@@ -497,8 +569,30 @@ impl Query {
         // effectiveness/etc.) go in the map_filters section, not stats; and
         // only enabled ones (map filters have no disabled flag). Everything
         // else is a stat filter (disabled ones ride along with disabled:true).
-        let stat_filters: Vec<&StatFilter> =
-            self.filters.iter().filter(|f| !f.id.starts_with("map_")).collect();
+        // A filter with alternate ids cannot sit in the "and" group, where
+        // every id must match: it becomes its own `count >= 1` group over
+        // all its ids at the same bound, the way EE2 sends multi-id stats.
+        // Verified live 2026-09-10: such a group matches exactly what the
+        // right id alone matches, honours its members' bounds, combines
+        // with the "and" group, and is ignored when marked disabled.
+        let (multi, single): (Vec<&StatFilter>, Vec<&StatFilter>) = self
+            .filters
+            .iter()
+            .filter(|f| !f.id.starts_with("map_"))
+            .partition(|f| !f.alt_ids.is_empty());
+        let mut stats = vec![serde_json::json!({"type": "and", "filters": single})];
+        for f in multi {
+            let members: Vec<serde_json::Value> = std::iter::once(&f.id)
+                .chain(&f.alt_ids)
+                .map(|id| serde_json::json!({"id": id, "value": f.value}))
+                .collect();
+            stats.push(serde_json::json!({
+                "type": "count",
+                "value": {"min": 1},
+                "disabled": f.disabled,
+                "filters": members,
+            }));
+        }
         let mut query = serde_json::json!({
             // "securable" = Instant Buyout only, matching the trade site's
             // own default. In-person listings are excluded deliberately:
@@ -508,7 +602,7 @@ impl Query {
             // the site showed 410 as the real price). A buyout listing
             // cannot lie - anyone could take it.
             "status": {"option": "securable"},
-            "stats": [{"type": "and", "filters": stat_filters}],
+            "stats": stats,
         });
         if let Some(n) = &self.name {
             query["name"] = serde_json::json!(n);
@@ -777,6 +871,7 @@ pub fn pseudo_filter(stats: &StatIndex, pseudo_id: &str, min: f64) -> Option<Sta
     let entry = stats.entry_by_id(pseudo_id)?;
     Some(StatFilter {
         id: entry.id.clone(),
+        alt_ids: Vec::new(),
         value: FilterValue { min, max: None },
         disabled: false,
     })
@@ -812,17 +907,18 @@ pub fn build_query_with_labels(
     // with rolled ranges, so they start as opt-in filters rather than
     // constraining the search to this exact roll.
     let unique = item.rarity == crate::item::Rarity::Unique;
-    for m in &item.explicits {
+    for affix in affixes(&item.explicits, stats) {
         // Rune-socket mods are gear, not the item's own explicits; the trade
         // site treats them separately, and mapping one onto an explicit
         // filter duplicates it and drags the min down.
-        if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
+        if affix.header.is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
             continue;
         }
-        push_filter(m, stats, unique || !preselect(&m.text), "explicit", &mut filters, &mut labels);
+        let disabled = unique || !preselect(&affix.text);
+        push_filter(&affix, disabled, "explicit", &mut filters, &mut labels);
     }
-    for m in &item.implicits {
-        push_filter(m, stats, unique, "implicit", &mut filters, &mut labels);
+    for affix in affixes(&item.implicits, stats) {
+        push_filter(&affix, unique, "implicit", &mut filters, &mut labels);
     }
     // A cut gem is one skill at one level: the skill name is the base type,
     // the level an exact misc filter, and its category the gem kind.
@@ -849,6 +945,7 @@ pub fn build_query_with_labels(
         for (id, label, min) in waystone_reward_filters(item) {
             filters.push(StatFilter {
                 id,
+                alt_ids: Vec::new(),
                 value: FilterValue { min: min as f64, max: None },
                 disabled: true,
             });
@@ -918,23 +1015,24 @@ pub fn build_upgrade_query_with_labels(
 ) -> (Query, Vec<FilterLabel>) {
     let mut filters: Vec<StatFilter> = Vec::new();
     let mut labels: Vec<FilterLabel> = Vec::new();
-    for m in &item.explicits {
-        if m.header.as_ref().is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
+    for affix in affixes(&item.explicits, stats) {
+        if affix.header.is_some_and(|h| h.kind == crate::item::ModKind::Rune) {
             continue;
         }
-        let Some(entry) = stats.resolve(&m.text) else { continue };
-        if filters.iter().any(|f| f.id == entry.id) {
+        let Some((id, alt_ids)) = affix.ids() else { continue };
+        if filters.iter().any(|f| f.id == id) {
             continue;
         }
-        let Some(min) = first_number(&m.text) else { continue };
+        let Some(min) = first_number(&affix.text) else { continue };
         filters.push(StatFilter {
-            id: entry.id.clone(),
+            id,
+            alt_ids,
             value: FilterValue { min, max: None },
             disabled: false,
         });
         labels.push(FilterLabel {
-            text: strip_range_annotations(&m.text),
-            tier: m.header.as_ref().and_then(|h| h.tier),
+            text: affix.label(),
+            tier: affix.header.and_then(|h| h.tier),
             min: min as i64,
             rolled: Some(min),
             tag: "explicit",
@@ -1139,32 +1237,101 @@ fn split_waystone(base_type: &str) -> (String, Option<i64>) {
     }
 }
 
-/// Resolves `m` to a trade stat and appends a filter + label, unless the stat
-/// is unknown, already filtered, or has no numeric roll. `disabled` sets the
-/// filter's default-enabled state.
+/// One searchable unit of an item's mod list: usually a single line, but
+/// the lines of one affix joined with `\n` when the catalog stat itself
+/// spans them ("Spells fire # additional Projectiles\nSpells fire
+/// Projectiles in a circle"). A hybrid affix whose lines are separate
+/// catalog stats ("+# to Armour" over "+# to Evasion Rating") stays two
+/// units, which is how the trade site indexes it.
+struct Affix<'a> {
+    text: String,
+    header: Option<&'a crate::item::ModHeader>,
+    /// Every catalog entry the text is indexed under, primary first; empty
+    /// for a line the catalog does not know.
+    entries: Vec<&'a StatEntry>,
+}
+
+impl Affix<'_> {
+    /// The primary trade id and its alternates, or `None` for an unknown line.
+    fn ids(&self) -> Option<(String, Vec<String>)> {
+        let (first, rest) = self.entries.split_first()?;
+        Some((first.id.clone(), rest.iter().map(|e| e.id.clone()).collect()))
+    }
+
+    /// Panel text: roll annotations dropped, and a joined stat's lines on
+    /// one row.
+    fn label(&self) -> String {
+        strip_range_annotations(&self.text).replace('\n', " / ")
+    }
+}
+
+/// Splits parsed mod lines into [`Affix`]es. At each line, the longest run
+/// of following lines under the same affix header whose joined text is a
+/// catalog stat is taken as one unit (a two-line stat must win over its
+/// first line alone, which may be a different, single-line stat); otherwise
+/// the line stands by itself, resolved or not. Lines under different
+/// headers are never joined: they are different affixes by the game's own
+/// account. Simple-format lines carry no header and so may join when, and
+/// only when, the catalog spells out exactly that pair.
+fn affixes<'a>(mods: &'a [crate::item::ItemMod], stats: &'a StatIndex) -> Vec<Affix<'a>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < mods.len() {
+        let head = &mods[i];
+        let run = mods[i..]
+            .iter()
+            .take(stats.max_lines())
+            .take_while(|m| m.header == head.header)
+            .count();
+        let mut taken = 1;
+        let mut text = head.text.clone();
+        let mut entries = Vec::new();
+        for n in (2..=run).rev() {
+            let joined: Vec<&str> = mods[i..i + n].iter().map(|m| m.text.as_str()).collect();
+            let joined = joined.join("\n");
+            let found = stats.resolve_all(&joined);
+            if !found.is_empty() {
+                taken = n;
+                text = joined;
+                entries = found;
+                break;
+            }
+        }
+        if taken == 1 {
+            entries = stats.resolve_all(&text);
+        }
+        out.push(Affix { text, header: head.header.as_ref(), entries });
+        i += taken;
+    }
+    out
+}
+
+/// Appends a filter + label for `affix`, unless its stat is unknown,
+/// already filtered, or has no numeric roll. `disabled` sets the filter's
+/// default-enabled state.
 fn push_filter(
-    m: &crate::item::ItemMod,
-    stats: &StatIndex,
+    affix: &Affix<'_>,
     disabled: bool,
     tag: &'static str,
     filters: &mut Vec<StatFilter>,
     labels: &mut Vec<FilterLabel>,
 ) {
-    let Some(entry) = stats.resolve(&m.text) else { return };
-    if filters.iter().any(|f| f.id == entry.id) {
+    let Some((id, alt_ids)) = affix.ids() else { return };
+    if filters.iter().any(|f| f.id == id) {
         return;
     }
-    let Some(min) = tier_floor(&m.text) else { return };
+    let Some(min) = tier_floor(&affix.text) else { return };
     filters.push(StatFilter {
-        id: entry.id.clone(),
+        id,
+        alt_ids,
         value: FilterValue { min: min as f64, max: None },
         disabled,
     });
     labels.push(FilterLabel {
-        text: strip_range_annotations(&m.text),
-        tier: m.header.as_ref().and_then(|h| h.tier),
+        text: affix.label(),
+        tier: affix.header.and_then(|h| h.tier),
         min,
-        rolled: first_number(&m.text),
+        rolled: first_number(&affix.text),
         tag,
     });
 }

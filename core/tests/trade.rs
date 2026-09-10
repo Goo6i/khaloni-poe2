@@ -235,11 +235,13 @@ fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
         filters: vec![
             StatFilter {
                 id: "explicit.stat_attack_speed".into(),
+                alt_ids: Vec::new(),
                 value: FilterValue { min: 3.5, max: Some(4.2) },
                 disabled: false,
             },
             StatFilter {
                 id: "explicit.stat_life".into(),
+                alt_ids: Vec::new(),
                 value: FilterValue { min: 80.0, max: None },
                 disabled: false,
             },
@@ -625,6 +627,7 @@ fn keep_strongest_disables_the_weakest_enabled_filters() {
     use khaloni_poe2_core::trade::{FilterValue, StatFilter};
     let f = |id: &str, min: f64, disabled: bool| StatFilter {
         id: id.into(),
+        alt_ids: Vec::new(),
         value: FilterValue { min, max: None },
         disabled,
     };
@@ -734,4 +737,181 @@ fn a_magic_waystone_recovers_its_tiered_base_from_the_name() {
     let q = build_query(&ws, &stats);
     assert_eq!(q.type_name.as_deref(), Some("Waystone (Tier 15)"));
     assert_eq!(q.map_tier, Some(15));
+}
+
+// --- two-line affixes: local-id twins and multi-line catalog stats ---
+
+const HYBRID_CHEST: &str = "Item Class: Body Armours\nRarity: Rare\nGrim Guardian\nVaal Cuirass\n\
+    --------\nItem Level: 80\n--------\n\
+    { Prefix Modifier \"Girded\" (Tier: 3) \u{2014} Defences }\n\
+    +90(86-102) to Armour\n+85(79-94) to Evasion Rating\n\
+    { Prefix Modifier \"Healthy\" (Tier: 5) }\n+45(40-49) to maximum Life\n--------\n";
+
+#[test]
+fn a_gear_line_resolves_to_its_global_id_and_its_local_twin() {
+    let index = StatIndex::from_json(STATS_JSON).unwrap();
+    // The catalog indexes armour on a chest under "# to Armour (Local)" and
+    // armour on anything else under "# to Armour"; the item text is the same
+    // line either way, so both ids are candidates.
+    let ids: Vec<&str> = index.resolve_all("+90(86-102) to Armour").iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_809229260", "explicit.stat_3484657501"]);
+    // The primary stays the plain entry, so `resolve` is unchanged.
+    assert_eq!(index.resolve("+90(86-102) to Armour").unwrap().id, "explicit.stat_809229260");
+    // A catalog text listed twice (two explicit "# to Spirit" ids) yields
+    // both, in catalog order.
+    let ids: Vec<&str> = index.resolve_all("+12 to Spirit").iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_3981240776", "explicit.stat_2704225257"]);
+    // A line with a single id yields just that.
+    let ids: Vec<&str> = index.resolve_all("+45 to maximum Life").iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_3299347043"]);
+    assert!(index.resolve_all("not a mod").is_empty());
+}
+
+#[test]
+fn hybrid_affix_lines_search_every_id_they_may_be_indexed_under() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    let item = parse_item(HYBRID_CHEST).unwrap();
+    let (q, labels) = build_query_with_labels(&item, &stats);
+    // One filter per line, like the trade site: the hybrid's two lines are
+    // two stats there, each searchable on its own.
+    let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_809229260", "explicit.stat_2144192055", "explicit.stat_3299347043"]);
+    assert_eq!(q.filters[0].alt_ids, vec!["explicit.stat_3484657501"]);
+    assert_eq!(q.filters[0].value.min, 86.0, "tier floor of 90(86-102)");
+    assert_eq!(q.filters[1].alt_ids, vec!["explicit.stat_53045048"]);
+    assert!(q.filters[2].alt_ids.is_empty(), "life has one id");
+    let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(texts, vec!["+90 to Armour", "+85 to Evasion Rating", "+45 to maximum Life"]);
+
+    // Verified live 2026-09-10: on body armours the global armour id finds
+    // nothing and the local one finds thousands, and a `count >= 1` group
+    // over both matches exactly what the local id alone matches. So a
+    // multi-id filter leaves the "and" group and becomes its own count
+    // group, every id carrying the same bound.
+    let mut q = q;
+    q.filters[0].disabled = false;
+    let body = q.to_body();
+    let stats_groups = body["query"]["stats"].as_array().unwrap();
+    assert_eq!(stats_groups.len(), 3, "and group + one count group per multi-id filter");
+    let and_ids: Vec<&str> = stats_groups[0]["filters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(and_ids, vec!["explicit.stat_3299347043"], "single-id filters stay in the and group");
+    let armour = &stats_groups[1];
+    assert_eq!(armour["type"], "count");
+    assert_eq!(armour["value"]["min"], 1);
+    assert_eq!(armour["disabled"], false);
+    let members: Vec<(&str, i64)> = armour["filters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| (f["id"].as_str().unwrap(), f["value"]["min"].as_i64().unwrap()))
+        .collect();
+    assert_eq!(members, vec![("explicit.stat_809229260", 86), ("explicit.stat_3484657501", 86)]);
+    // A switched-off multi-id filter is a switched-off group, not a
+    // constraint the site still applies.
+    assert_eq!(stats_groups[2]["type"], "count");
+    assert_eq!(stats_groups[2]["disabled"], true, "evasion is not preselected");
+    // The relaxed bound reaches every member.
+    let relaxed = khaloni_poe2_core::trade::relax_query(&q, 0.5).to_body();
+    for m in relaxed["query"]["stats"][1]["filters"].as_array().unwrap() {
+        assert_eq!(m["value"]["min"], 43);
+    }
+}
+
+#[test]
+fn upgrade_query_carries_local_twins_too() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    let item = parse_item(HYBRID_CHEST).unwrap();
+    let q = build_upgrade_query(&item, &stats);
+    let armour = q.filters.iter().find(|f| f.id == "explicit.stat_809229260").expect("armour filter");
+    assert_eq!(armour.alt_ids, vec!["explicit.stat_3484657501"]);
+    assert_eq!(armour.value.min, 90.0, "current roll, not tier floor");
+    let group = &q.to_body()["query"]["stats"][1];
+    assert_eq!(group["type"], "count");
+    assert_eq!(group["filters"][1]["id"], "explicit.stat_3484657501");
+    assert_eq!(group["filters"][1]["value"]["min"], 90);
+}
+
+#[test]
+fn a_stat_whose_catalog_text_spans_two_lines_is_one_filter() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    let text = "Item Class: Wands\nRarity: Rare\nTest\nBone Wand\n--------\nItem Level: 80\n--------\n\
+        { Prefix Modifier \"Circular\" (Tier: 1) }\n\
+        Spells fire 2 additional Projectiles\nSpells fire Projectiles in a circle\n\
+        { Suffix Modifier \"of the Hoard\" (Tier: 1) }\n+45(40-49) to maximum Mana\n--------\n";
+    let item = parse_item(text).unwrap();
+    assert_eq!(item.explicits.len(), 3, "the parser keeps one line per entry");
+    let (q, labels) = build_query_with_labels(&item, &stats);
+    let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_1013492127", "explicit.stat_1050105434"]);
+    assert_eq!(q.filters[0].value.min, 2.0);
+    assert_eq!(
+        labels[0].text,
+        "Spells fire 2 additional Projectiles / Spells fire Projectiles in a circle"
+    );
+    assert_eq!(labels[0].tier, Some(1));
+    assert_eq!(labels[0].rolled, Some(2.0));
+}
+
+#[test]
+fn the_two_line_stat_beats_its_single_line_lookalike() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    // "#% increased Rarity of Items found" exists alone (stat_3917489142)
+    // and as the first line of a two-line stat whose second line changes
+    // its meaning. The pair must resolve to the two-line stat, never to the
+    // plain rarity id with the second line dropped on the floor.
+    let text = "Item Class: Rings\nRarity: Rare\nTest\nGold Ring\n--------\nItem Level: 80\n--------\n\
+        { Prefix Modifier \"Greedy\" (Tier: 1) }\n\
+        60% increased Rarity of Items found\nYour other Modifiers to Rarity of Items found do not apply\n\
+        --------\n";
+    let item = parse_item(text).unwrap();
+    let (q, labels) = build_query_with_labels(&item, &stats);
+    assert_eq!(q.filters.len(), 1);
+    assert_eq!(q.filters[0].id, "explicit.stat_1602191394");
+    // The catalog lists that two-line text twice; the duplicate rides along.
+    assert_eq!(q.filters[0].alt_ids, vec!["explicit.stat_2261942307"]);
+    assert_eq!(q.filters[0].value.min, 60.0);
+    assert_eq!(labels.len(), 1);
+}
+
+#[test]
+fn multi_line_catalog_text_matches_regardless_of_stray_line_padding() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    // The catalog carries "Increases and Reductions to\n Fire and ..." with
+    // a space opening the second line; the parsed item line has none.
+    let text = "Item Class: Jewels\nRarity: Rare\nTest\nEmerald\n--------\nItem Level: 80\n--------\n\
+        { Prefix Modifier \"Transforming\" (Tier: 1) }\n\
+        Increases and Reductions to\nFire and Lightning Damage in Radius are transformed to apply to Cold Damage\n\
+        --------\n";
+    let item = parse_item(text).unwrap();
+    let ids: Vec<&str> = stats
+        .resolve_all("Increases and Reductions to\nFire and Lightning Damage in Radius are transformed to apply to Cold Damage")
+        .iter()
+        .map(|e| e.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["explicit.stat_3368921525"]);
+    // No number on either line, so the builder skips it (mirrors the
+    // valueless-mod rule); the point is that the pair resolved as a unit.
+    let (q, _) = build_query_with_labels(&item, &stats);
+    assert!(q.filters.is_empty());
+}
+
+#[test]
+fn lines_under_different_affix_headers_are_never_joined() {
+    let stats = StatIndex::from_json(STATS_JSON).unwrap();
+    // The same two lines, but copied under two headers: two affixes, so the
+    // first resolves alone to the plain rarity stat and the second is an
+    // unknown line on its own.
+    let text = "Item Class: Rings\nRarity: Rare\nTest\nGold Ring\n--------\nItem Level: 80\n--------\n\
+        { Prefix Modifier \"Greedy\" (Tier: 1) }\n60% increased Rarity of Items found\n\
+        { Suffix Modifier \"of Oddity\" (Tier: 1) }\nYour other Modifiers to Rarity of Items found do not apply\n\
+        --------\n";
+    let item = parse_item(text).unwrap();
+    let (q, _) = build_query_with_labels(&item, &stats);
+    let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, vec!["explicit.stat_3917489142"]);
 }
