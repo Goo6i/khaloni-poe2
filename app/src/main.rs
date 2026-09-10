@@ -1691,6 +1691,9 @@ fn overlay_mode(
     let mut game_present = true;
     let mut stabilizer = khaloni_poe2::stabilize::Stabilizer::new();
     let mut hover = hover::HoverState::default();
+    // A price check pressed while another window has focus: the game is
+    // focused first and the copy waits for the feed to confirm it.
+    let mut focus_gate = khaloni_poe2::pricecheck::FocusGate::default();
     let mut game_pos = (game.x, game.y);
     // Live pointer position (global logical), fed by the KWin script's
     // cursor timer. Falls back to the game center until the first move.
@@ -1786,7 +1789,17 @@ fn overlay_mode(
                     game = g;
                     game_present = true;
                 }
-                khaloni_poe2::platform::GameWindowEvent::Active(is_game) => game_focused = is_game,
+                khaloni_poe2::platform::GameWindowEvent::Active(is_game) => {
+                    game_focused = is_game;
+                    // The focus a price check asked for has landed: copy now.
+                    if is_game && focus_gate.focused(std::time::Instant::now()) {
+                        if let Some(inj) = &injector {
+                            if !price_check_in_flight.swap(true, Ordering::AcqRel) {
+                                inj.submit(clip_tx.clone(), 0);
+                            }
+                        }
+                    }
+                }
                 khaloni_poe2::platform::GameWindowEvent::Visible(v) => game_visible = v,
                 khaloni_poe2::platform::GameWindowEvent::GameGone => {
                     stabilizer.clear();
@@ -1879,13 +1892,46 @@ fn overlay_mode(
                     });
                 }
                 khaloni_poe2::platform::Hotkey::PriceCheck => {
+                    // The gate decides: copy now (game focused), focus the
+                    // game first (pointer over it, another window focused;
+                    // the copy follows on the feed's Active event), or a
+                    // note. A press never sends Ctrl+C into some other
+                    // window. The swap keeps a second press from queueing
+                    // another copy while one runs on the injector thread.
                     if let Some(inj) = &injector {
-                        // game_focused-gated so a press over some other
-                        // window never sends Ctrl+C into it; the swap keeps
-                        // a second press from queueing another copy while
-                        // one is running on the injector thread.
-                        if game_focused && !price_check_in_flight.swap(true, Ordering::AcqRel) {
-                            inj.submit(clip_tx.clone(), 0);
+                        let game_rect =
+                            Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
+                        let press = if price_check_in_flight.load(Ordering::Acquire) {
+                            khaloni_poe2::pricecheck::Press::Ignore
+                        } else {
+                            focus_gate.press(
+                                std::time::Instant::now(),
+                                game_focused,
+                                game_present,
+                                cursor_pos,
+                                game_rect,
+                            )
+                        };
+                        match press {
+                            khaloni_poe2::pricecheck::Press::Copy => {
+                                if !price_check_in_flight.swap(true, Ordering::AcqRel) {
+                                    inj.submit(clip_tx.clone(), 0);
+                                }
+                            }
+                            khaloni_poe2::pricecheck::Press::FocusGame => {
+                                eprintln!("price check: focusing the game first");
+                                kwin.focus_game();
+                            }
+                            khaloni_poe2::pricecheck::Press::Note(text) => {
+                                hover.show_note(text);
+                                popup_at = hover.current.as_ref().map(|p| {
+                                    let size = renderer.popup_size(p);
+                                    let (px, py) =
+                                        khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
+                                    (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
+                                });
+                            }
+                            khaloni_poe2::pricecheck::Press::Ignore => {}
                         }
                     }
                 }
@@ -1990,6 +2036,17 @@ fn overlay_mode(
         // Drain injected clipboard text: reprice against whatever the price
         // table looks like right now (not at the moment F7 was pressed).
         let game_rect = Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
+        // A focus request the compositor never answered: say so, rather
+        // than leaving the press looking dead.
+        if focus_gate.timed_out(std::time::Instant::now()) {
+            eprintln!("price check: the game did not take focus");
+            hover.show_note("could not focus the game");
+            popup_at = hover.current.as_ref().map(|p| {
+                let size = renderer.popup_size(p);
+                let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
+                (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
+            });
+        }
         while let Ok(result) = clip_rx.try_recv() {
             price_check_in_flight.store(false, Ordering::Release);
             match result {

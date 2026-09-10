@@ -18,6 +18,7 @@ pub mod gamelog_tail;
 pub mod hover;
 pub mod ocr;
 pub mod popup_pos;
+pub mod pricecheck;
 pub mod pricing;
 pub mod prices;
 pub mod refcache;

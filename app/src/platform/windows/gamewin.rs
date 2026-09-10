@@ -30,8 +30,8 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetAncestor, GetClientRect, GetCursorPos, GetForegroundWindow,
-    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, WindowFromPoint,
-    GA_ROOT,
+    GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
+    WindowFromPoint, GA_ROOT,
 };
 
 use crate::config::Rect;
@@ -115,6 +115,21 @@ impl GameWindowFeed {
             }
         });
         Ok(GameWindowFeed { rx, keyboard_wanted: Default::default() })
+    }
+
+    /// Brings the game to the foreground, for a price check pressed while
+    /// another window holds focus; the same call the overlay uses to hand
+    /// keyboard focus back. Fire-and-forget: the poll thread's
+    /// `Active(true)` is the confirmation the caller waits for. Windows may
+    /// refuse a background process the foreground (the foreground lock);
+    /// a hotkey-handling process is normally allowed, and a refusal shows
+    /// up as the caller's timeout, never as a Ctrl+C into the wrong window.
+    pub fn focus_game(&self) {
+        if let Some(h) = game_hwnd() {
+            unsafe {
+                let _ = SetForegroundWindow(HWND(h as *mut core::ffi::c_void));
+            }
+        }
     }
 }
 
