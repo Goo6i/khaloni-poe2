@@ -10,7 +10,7 @@
 //! platform/linux/gamewin.rs:
 //!
 //! - Geometry on first appearance and on every rect change.
-//! - Active(bool) on every focus flip (and once for the initial state, like
+//! - Active(Focus) on every focus change (and once for the initial state, like
 //!   the script's `lastActiveKey = " "` sentinel forcing a first report).
 //! - GameGone exactly once when the window disappears after being seen.
 //! - Cursor only when the pointer moved more than 4px on either axis (the
@@ -21,15 +21,15 @@
 //! even though only the Windows backend drives it.
 
 use crate::config::Rect;
-use crate::platform::GameWindowEvent;
+use crate::platform::{Focus, GameWindowEvent};
 
 /// One poll tick's absolute observation of the game window.
 pub struct WindowSample {
     /// Client rect in screen coordinates; `None` when the window is gone
     /// (or its rect could not be read, which we treat the same way).
     pub rect: Option<Rect>,
-    /// Whether the game window is the foreground window right now.
-    pub focused: bool,
+    /// Who the foreground window belongs to right now.
+    pub focus: Focus,
     /// Whether the game is actually on screen (not minimized, not covered
     /// by other windows). Focus is deliberately independent of this.
     pub visible: bool,
@@ -42,7 +42,7 @@ pub struct DiffState {
     last_rect: Option<Rect>,
     /// `None` until the first sample so the initial focus state is always
     /// reported, whatever it is (the main loop gates hotkeys on it).
-    last_focused: Option<bool>,
+    last_focused: Option<Focus>,
     /// Same first-sample-always-reports contract as focus.
     last_visible: Option<bool>,
     /// Last cursor position actually *emitted* (not merely seen), so a slow
@@ -91,9 +91,9 @@ impl DiffState {
             }
         }
 
-        if self.last_focused != Some(sample.focused) {
-            out.push(GameWindowEvent::Active(sample.focused));
-            self.last_focused = Some(sample.focused);
+        if self.last_focused != Some(sample.focus) {
+            out.push(GameWindowEvent::Active(sample.focus));
+            self.last_focused = Some(sample.focus);
         }
 
         if self.last_visible != Some(sample.visible) {

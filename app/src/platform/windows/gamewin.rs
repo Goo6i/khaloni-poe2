@@ -25,6 +25,7 @@ use std::time::Duration;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::HiDpi::{
     SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
@@ -36,6 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::config::Rect;
 use crate::platform::gamewin_diff::{DiffState, WindowSample};
+use crate::platform::Focus;
 
 pub use crate::platform::GameWindowEvent;
 
@@ -93,9 +95,21 @@ impl GameWindowFeed {
                 let rect = hwnd.and_then(client_rect_on_screen);
                 // A window whose rect just became unreadable (mid-close) is
                 // treated as gone; `rect: None` makes DiffState emit
-                // GameGone, so don't report it focused either.
-                let focused =
-                    rect.is_some() && hwnd.is_some_and(|h| unsafe { GetForegroundWindow() } == h);
+                // GameGone, so don't report it focused either. The
+                // foreground window belonging to this process is our own
+                // overlay (the trade card, the settings window).
+                let fg = unsafe { GetForegroundWindow() };
+                let focus = if rect.is_some() && hwnd.is_some_and(|h| fg == h) {
+                    Focus::Game
+                } else {
+                    let mut pid = 0u32;
+                    let _ = unsafe { GetWindowThreadProcessId(fg, Some(&mut pid)) };
+                    if pid != 0 && pid == unsafe { GetCurrentProcessId() } {
+                        Focus::Overlay
+                    } else {
+                        Focus::Other
+                    }
+                };
                 let visible = match (hwnd, rect) {
                     (Some(h), Some(r)) => window_visible(h, r),
                     _ => false,
@@ -103,7 +117,7 @@ impl GameWindowFeed {
                 let mut pt = POINT::default();
                 let _ = unsafe { GetCursorPos(&mut pt) };
 
-                let sample = WindowSample { rect, focused, visible, cursor: (pt.x, pt.y) };
+                let sample = WindowSample { rect, focus, visible, cursor: (pt.x, pt.y) };
                 for ev in diff.diff(&sample) {
                     if tx.send(ev).is_err() {
                         // Main loop dropped the feed: stop polling.
@@ -120,7 +134,7 @@ impl GameWindowFeed {
     /// Brings the game to the foreground, for a price check pressed while
     /// another window holds focus; the same call the overlay uses to hand
     /// keyboard focus back. Fire-and-forget: the poll thread's
-    /// `Active(true)` is the confirmation the caller waits for. Windows may
+    /// `Active(Focus::Game)` is the confirmation the caller waits for. Windows may
     /// refuse a background process the foreground (the foreground lock);
     /// a hotkey-handling process is normally allowed, and a refusal shows
     /// up as the caller's timeout, never as a Ctrl+C into the wrong window.

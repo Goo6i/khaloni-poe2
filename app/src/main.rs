@@ -1708,6 +1708,10 @@ fn overlay_mode(
     let renderer = khaloni_poe2::render::Renderer::new()?;
 
     let mut scanning = true;
+    // Who holds focus (from the window feed). `game_focused` is the strict
+    // form injection needs; scanning and drawing go through `scanpolicy`,
+    // which also accepts focus on our own overlay.
+    let mut focus = khaloni_poe2::platform::Focus::Game;
     let mut game_focused = true;
     // On-screen state from the tracker (minimized/covered detection);
     // optimistic until the first Visible event arrives.
@@ -1817,10 +1821,11 @@ fn overlay_mode(
                     game = g;
                     game_present = true;
                 }
-                khaloni_poe2::platform::GameWindowEvent::Active(is_game) => {
-                    game_focused = is_game;
+                khaloni_poe2::platform::GameWindowEvent::Active(who) => {
+                    focus = who;
+                    game_focused = who == khaloni_poe2::platform::Focus::Game;
                     // The focus a price check asked for has landed: copy now.
-                    if is_game && focus_gate.focused(std::time::Instant::now()) {
+                    if game_focused && focus_gate.focused(std::time::Instant::now()) {
                         if let Some(inj) = &injector {
                             if !price_check_in_flight.swap(true, Ordering::AcqRel) {
                                 inj.submit(clip_tx.clone(), 0);
@@ -2746,8 +2751,20 @@ fn overlay_mode(
             _ => {}
         }
 
-        let paused = !scanning || !game_present || (!game_visible && cfg.pause_when_hidden);
+        let policy = khaloni_poe2::scanpolicy::decide(khaloni_poe2::scanpolicy::Inputs {
+            scanning,
+            game_present,
+            game_visible,
+            focus,
+            pause_when_hidden: cfg.pause_when_hidden,
+        });
+        let paused = policy.paused;
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+        // A paused rumour worker sends nothing, so badges from before the
+        // pause would come back stale on resume; drop them now.
+        if paused {
+            latest_rumours.clear();
+        }
 
         while let Ok(msg) = rows_rx.try_recv() {
             if dbg {
@@ -2793,15 +2810,13 @@ fn overlay_mode(
             }
         }
 
-        // Rows obey the F8 master switch; the popup only needs the game
-        // on screen. An explicit F7 (or the F8 toggle note itself) must
-        // stay visible while the overlay is toggled off, otherwise the
-        // hotkeys read as dead keys (live finding, 2026-07-23).
-        // VISIBILITY, not focus, decides hiding: an unfocused game that is
-        // still on screen keeps its overlay; a minimized or covered game
-        // does not (the always-on-top layer would draw over the coverer).
-        let on_screen = game_present && (game_visible || !cfg.pause_when_hidden);
-        let show_rows = scanning && on_screen;
+        // Rows obey the F8 master switch, focus, and visibility (see
+        // scanpolicy); the popup only needs the game on screen. An explicit
+        // F7 (or the F8 toggle note itself) must stay visible while the
+        // overlay is toggled off, otherwise the hotkeys read as dead keys
+        // (live finding, 2026-07-23).
+        let on_screen = policy.on_screen;
+        let show_rows = policy.show_rows;
         // The Evaluate panel renders whenever it is open and the game is
         // present, even while unfocused: editing a value box steals keyboard
         // focus from the game, and the panel must not blink out mid-edit.

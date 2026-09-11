@@ -50,13 +50,24 @@ pub enum Hotkey {
     Extra(String),
 }
 
+/// Who holds keyboard focus, as far as the overlay cares. `Game` is what
+/// injection needs (a Ctrl+C goes to the focused window); `Overlay` is our
+/// own surface, which the scan policy treats as still playing (clicking
+/// the trade card activates it); `Other` is any other window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Game,
+    Overlay,
+    Other,
+}
+
 /// An event from the game-window feed (KWin scripting on Linux; Win32
 /// polling through `gamewin_diff` on Windows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameWindowEvent {
     Geometry(Rect),
-    /// True when the game window currently holds focus.
-    Active(bool),
+    /// Reported on every change of who holds focus, and once initially.
+    Active(Focus),
     GameGone,
     /// Live pointer position in global logical coordinates (throttled to
     /// 100ms and >4px moves by the feed).

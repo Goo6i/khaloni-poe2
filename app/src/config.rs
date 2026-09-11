@@ -104,9 +104,10 @@ pub struct Config {
     #[serde(default = "default_hotkey_leveling")]
     pub hotkey_leveling: String,
     /// Hide the overlay and pause scanning while the game is not actually
-    /// on screen (minimized or covered by other windows). Focus alone does
-    /// NOT hide: an unfocused-but-visible game keeps its overlay. The old
-    /// key name is accepted so pre-rename configs load unchanged.
+    /// on screen (minimized or covered by other windows). Losing focus to
+    /// another window always pauses scanning and hides the rows (see
+    /// `scanpolicy`); this adds the covered/minimized case. The old key
+    /// name is accepted so pre-rename configs load unchanged.
     #[serde(default = "default_true", alias = "pause_when_unfocused")]
     pub pause_when_hidden: bool,
     /// Overlay opacity, floored at 0.1 (nearly transparent) up to 1.0

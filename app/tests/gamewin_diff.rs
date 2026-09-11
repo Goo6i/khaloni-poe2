@@ -4,14 +4,15 @@
 
 use khaloni_poe2::config::Rect;
 use khaloni_poe2::platform::gamewin_diff::{DiffState, WindowSample};
-use khaloni_poe2::platform::GameWindowEvent;
+use khaloni_poe2::platform::{Focus, GameWindowEvent};
 
 fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect {
     Rect { x, y, w, h }
 }
 
 fn sample(rect: Option<Rect>, focused: bool, cursor: (i32, i32)) -> WindowSample {
-    WindowSample { rect, focused, visible: true, cursor }
+    let focus = if focused { Focus::Game } else { Focus::Other };
+    WindowSample { rect, focus, visible: true, cursor }
 }
 
 #[test]
@@ -26,7 +27,7 @@ fn first_sample_emits_geometry_and_active() {
         evs[0],
         GameWindowEvent::Geometry(Rect { x: 10, y: 20, w: 800, h: 600 })
     ));
-    assert!(matches!(evs[1], GameWindowEvent::Active(true)));
+    assert!(matches!(evs[1], GameWindowEvent::Active(Focus::Game)));
     assert!(matches!(evs[2], GameWindowEvent::Visible(true)));
     assert!(matches!(evs[3], GameWindowEvent::Cursor(0, 0)));
 }
@@ -37,7 +38,7 @@ fn first_sample_reports_unfocused_state_too() {
     // hotkeys on focus and must not assume the game starts focused.
     let mut st = DiffState::new();
     let evs = st.diff(&sample(Some(rect(0, 0, 100, 100)), false, (5, 5)));
-    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(false))));
+    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(Focus::Other))));
 }
 
 #[test]
@@ -67,10 +68,10 @@ fn focus_flip_emits_active_only() {
     st.diff(&sample(Some(rect(10, 20, 800, 600)), true, (50, 50)));
     let evs = st.diff(&sample(Some(rect(10, 20, 800, 600)), false, (50, 50)));
     assert_eq!(evs.len(), 1);
-    assert!(matches!(evs[0], GameWindowEvent::Active(false)));
+    assert!(matches!(evs[0], GameWindowEvent::Active(Focus::Other)));
     let evs = st.diff(&sample(Some(rect(10, 20, 800, 600)), true, (50, 50)));
     assert_eq!(evs.len(), 1);
-    assert!(matches!(evs[0], GameWindowEvent::Active(true)));
+    assert!(matches!(evs[0], GameWindowEvent::Active(Focus::Game)));
 }
 
 #[test]
@@ -97,7 +98,7 @@ fn window_disappearing_emits_game_gone_exactly_once() {
     let gone = evs.iter().filter(|e| matches!(e, GameWindowEvent::GameGone)).count();
     assert_eq!(gone, 1);
     // The same tick also reports the focus loss.
-    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(false))));
+    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(Focus::Other))));
     // Subsequent absent ticks stay silent — GameGone is a one-shot.
     assert!(st.diff(&sample(None, false, (50, 50))).is_empty());
     assert!(st.diff(&sample(None, false, (50, 50))).is_empty());
@@ -125,7 +126,7 @@ fn reappearance_after_gone_emits_geometry_again() {
         evs[0],
         GameWindowEvent::Geometry(Rect { x: 10, y: 20, w: 800, h: 600 })
     ));
-    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(true))));
+    assert!(evs.iter().any(|e| matches!(e, GameWindowEvent::Active(Focus::Game))));
 }
 
 #[test]
@@ -133,12 +134,26 @@ fn visibility_flips_emit_edges_only() {
     let mut d = DiffState::new();
     let r = Some(Rect { x: 0, y: 0, w: 100, h: 100 });
     // First sample reports the initial visible state.
-    let evs = d.diff(&WindowSample { rect: r, focused: true, visible: true, cursor: (0, 0) });
+    let evs = d.diff(&WindowSample { rect: r, focus: Focus::Game, visible: true, cursor: (0, 0) });
     assert!(evs.contains(&GameWindowEvent::Visible(true)));
     // Unchanged visibility emits nothing for it.
-    let evs = d.diff(&WindowSample { rect: r, focused: true, visible: true, cursor: (0, 0) });
+    let evs = d.diff(&WindowSample { rect: r, focus: Focus::Game, visible: true, cursor: (0, 0) });
     assert!(!evs.iter().any(|e| matches!(e, GameWindowEvent::Visible(_))));
     // A covering window flips it exactly once.
-    let evs = d.diff(&WindowSample { rect: r, focused: false, visible: false, cursor: (0, 0) });
+    let evs = d.diff(&WindowSample { rect: r, focus: Focus::Other, visible: false, cursor: (0, 0) });
     assert!(evs.contains(&GameWindowEvent::Visible(false)));
+}
+
+#[test]
+fn focus_on_the_overlay_is_its_own_state() {
+    // Our own window taking the foreground (a click on the trade card) is
+    // reported distinctly: injection must not treat it as the game, and
+    // the scan policy must not treat it as a loss.
+    let mut st = DiffState::new();
+    st.diff(&sample(Some(rect(10, 20, 800, 600)), true, (50, 50)));
+    let ours = WindowSample { rect: Some(rect(10, 20, 800, 600)), focus: Focus::Overlay, visible: true, cursor: (50, 50) };
+    let evs = st.diff(&ours);
+    assert_eq!(evs.len(), 1);
+    assert!(matches!(evs[0], GameWindowEvent::Active(Focus::Overlay)));
+    assert!(st.diff(&ours).is_empty(), "no repeat while unchanged");
 }
