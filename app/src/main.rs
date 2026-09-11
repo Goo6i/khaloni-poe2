@@ -1441,6 +1441,9 @@ fn overlay_mode(
         // 120ms rhythm regardless of capture rate.
         let mut last_heavy = std::time::Instant::now() - Duration::from_secs(1);
         let mut gate = khaloni_poe2::gate::PanelGate::new();
+        // What tesseract already read, by pixel content: an unchanged
+        // panel costs no OCR at all (see ocr::ScanCache).
+        let mut scan_cache = ocr::ScanCache::default();
         // Learned-template store: identifies previously seen reward bands
         // in well under a millisecond, bypassing tesseract; OCR remains
         // the teacher for first encounters. Persisted across sessions.
@@ -1604,11 +1607,17 @@ fn overlay_mode(
             // First scan after a scroll burst: bands only, no whole-panel
             // union pass, so newly revealed rows appear ~3x sooner; the
             // union tops up on the following scan.
-            let lines = if std::mem::take(&mut post_scroll_fast) {
-                ocr::ocr_bands(&mut engine, &frame.gray, &bands)
-            } else {
-                ocr::ocr_scan(&mut engine, &frame.gray, &bands)
-            };
+            let runs_before = scan_cache.ocr_runs;
+            let with_whole = !std::mem::take(&mut post_scroll_fast);
+            let lines = scan_cache.scan(&mut engine, &frame.gray, &bands, with_whole);
+            if dbg {
+                eprintln!(
+                    "TRACE {:>8.2}s ocr passes={} lines={}",
+                    t0.elapsed().as_secs_f32(),
+                    scan_cache.ocr_runs - runs_before,
+                    lines.len()
+                );
+            }
             if dbg {
                 let d = std::path::Path::new("/tmp/khalonipoe2-frames");
                 let _ = std::fs::create_dir_all(d);

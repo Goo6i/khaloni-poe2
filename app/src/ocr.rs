@@ -882,3 +882,122 @@ pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage, bars: &[(u32, u32)]) -
     };
     union_ocr_lines(band_lines, whole_lines)
 }
+
+/// FNV-1a over a crop's pixels and size: the compositor hands back
+/// identical bytes for an unchanged panel, so equality of this key means
+/// tesseract would read exactly what it read last time.
+fn content_key(img: &GrayImage) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut step = |b: u8| {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    };
+    for b in img.width().to_le_bytes().into_iter().chain(img.height().to_le_bytes()) {
+        step(b);
+    }
+    for &b in img.as_raw() {
+        step(b);
+    }
+    h
+}
+
+/// Remembers what tesseract read, keyed by pixel content, so an
+/// unchanged panel costs no OCR. Learned templates already skip
+/// tesseract for rows they know; this covers the rest - a row the
+/// catalog cannot price, a gem priced asynchronously - which used to be
+/// re-read every 120 ms for as long as the panel stayed open. Per bar,
+/// the band read is kept by the bar's crop; per frame, the whole result
+/// is kept by the set of bar crops and positions, so a panel nobody
+/// touched returns the previous lines without a single tesseract pass,
+/// while a single changed row re-reads only that row plus the shared
+/// whole-panel pass.
+#[cfg(ocr)]
+#[derive(Default)]
+pub struct ScanCache {
+    bands: std::collections::HashMap<u64, Option<OcrLine>>,
+    scene: Option<(u64, Vec<OcrLine>)>,
+    /// Tesseract passes run so far (bands and whole-panel alike): the
+    /// observable the tests and the trace line read.
+    pub ocr_runs: usize,
+}
+
+/// Cached band reads beyond this are dropped wholesale; the store only
+/// needs to cover the rows on screen, and a scroll through a long list
+/// still fits many times over.
+#[cfg(ocr)]
+const SCAN_CACHE_CAP: usize = 512;
+
+#[cfg(ocr)]
+impl ScanCache {
+    /// `ocr_scan` with memory: band lines come from the cache when a bar's
+    /// pixels are unchanged, and a frame whose bars all match the last
+    /// one returns the last union outright. `with_whole` false is the
+    /// post-scroll fast path (bands only, never memoised as a scene).
+    pub fn scan(
+        &mut self,
+        engine: &mut OcrEngine,
+        gray: &GrayImage,
+        bars: &[(u32, u32)],
+        with_whole: bool,
+    ) -> Vec<OcrLine> {
+        let crops: Vec<Option<GrayImage>> = bars.iter().map(|&(y0, y1)| band_crop(gray, y0, y1)).collect();
+        let keys: Vec<u64> = crops.iter().map(|c| c.as_ref().map_or(0, content_key)).collect();
+        let mut scene_key: u64 = 0xcbf2_9ce4_8422_2325;
+        for (k, &(y0, y1)) in keys.iter().zip(bars) {
+            for b in k.to_le_bytes().into_iter().chain(y0.to_le_bytes()).chain(y1.to_le_bytes()) {
+                scene_key ^= u64::from(b);
+                scene_key = scene_key.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        if with_whole {
+            if let Some((k, lines)) = &self.scene {
+                if *k == scene_key {
+                    return lines.clone();
+                }
+            }
+        }
+        if self.bands.len() > SCAN_CACHE_CAP {
+            self.bands.clear();
+        }
+        let mut band_lines: Vec<OcrLine> = Vec::with_capacity(bars.len());
+        for ((&(y0, y1), crop), &key) in bars.iter().zip(&crops).zip(&keys) {
+            let Some(crop) = crop else { continue };
+            let read = match self.bands.get(&key) {
+                Some(cached) => cached.clone(),
+                None => {
+                    self.ocr_runs += 1;
+                    let up = imageops::resize(
+                        crop,
+                        crop.width() * BAND_OCR_SCALE,
+                        crop.height() * BAND_OCR_SCALE,
+                        imageops::FilterType::Lanczos3,
+                    );
+                    let read = engine.tsv(&up).ok().and_then(|tsv| parse_band_tsv(&tsv, y0, y1));
+                    self.bands.insert(key, read.clone());
+                    read
+                }
+            };
+            if let Some(mut line) = read {
+                // A cached read may have been made at another scroll
+                // position: the text is the bar's, the place is this frame's.
+                line.y_top = y0 * UPSCALE;
+                line.height = (y1 - y0) * UPSCALE;
+                band_lines.push(line);
+            }
+        }
+        band_lines.sort_by_key(|l| l.y_top);
+        if !with_whole {
+            return band_lines;
+        }
+        let whole_lines = match whole_span(bars, gray.height()) {
+            Some(span) => {
+                self.ocr_runs += 1;
+                ocr_whole_span(engine, gray, span)
+            }
+            None => Vec::new(),
+        };
+        let lines = union_ocr_lines(band_lines, whole_lines);
+        self.scene = Some((scene_key, lines.clone()));
+        lines
+    }
+}

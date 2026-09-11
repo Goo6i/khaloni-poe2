@@ -84,3 +84,43 @@ fn per_strip_ocr_prices_the_choice_panel_fixture_rows() {
         "missing the Exalted Orb hit: {rows:?}"
     );
 }
+
+#[test]
+fn an_unchanged_panel_costs_no_ocr_and_a_changed_row_costs_one_band_pass() {
+    let img = fixture_image();
+    let bars = ocr::reward_bars(&img, &ocr::row_profile(&img));
+    assert_eq!(bars.len(), 4);
+    let mut engine = ocr::OcrEngine::new().expect("tesseract init");
+    let mut cache = ocr::ScanCache::default();
+
+    let first = cache.scan(&mut engine, &img, &bars, true);
+    assert_eq!(first.len(), 4, "{first:?}");
+    assert_eq!(cache.ocr_runs, 5, "four band passes plus the whole-panel pass");
+
+    // Same pixels again: the memoised union comes back, no tesseract.
+    let again = cache.scan(&mut engine, &img, &bars, true);
+    assert_eq!(again, first);
+    assert_eq!(cache.ocr_runs, 5);
+
+    // Scribble over the third bar's text: that bar re-reads, the other
+    // three come from the cache, and the whole-panel pass runs once.
+    let mut changed = img.clone();
+    let (y0, y1) = bars[2];
+    for y in y0 + 8..y1 - 8 {
+        for x in changed.width() / 2..changed.width() - 20 {
+            changed.put_pixel(x, y, image::Luma([(x % 7 * 30) as u8]));
+        }
+    }
+    let after = cache.scan(&mut engine, &changed, &bars, true);
+    assert_eq!(cache.ocr_runs, 7, "one band pass and one whole pass");
+    // The untouched rows still read the same and sit where they were.
+    for (a, b) in first.iter().zip(&after).filter(|(a, _)| a.y_top != y0 * ocr::UPSCALE) {
+        assert_eq!(a.unfiltered, b.unfiltered);
+        assert_eq!(a.y_top, b.y_top);
+    }
+
+    // Bands-only (post-scroll) never memoises a scene, but reuses bars.
+    let fast = cache.scan(&mut engine, &img, &bars, false);
+    assert_eq!(fast.len(), 4);
+    assert_eq!(cache.ocr_runs, 7, "every bar of the original is cached");
+}
