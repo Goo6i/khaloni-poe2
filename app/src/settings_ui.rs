@@ -73,12 +73,6 @@ impl EditModel {
         self.cfg.tier_decent_ex <= self.cfg.tier_good_ex
     }
 
-    /// Strictly below: equal thresholds would make the brightness gate
-    /// oscillate open/closed on every frame at the boundary.
-    pub fn brightness_valid(&self) -> bool {
-        self.cfg.panel_close_brightness < self.cfg.panel_open_brightness
-    }
-
     pub fn save(&mut self) -> anyhow::Result<()> {
         self.cfg.save()?;
         self.dirty = false;
@@ -311,7 +305,6 @@ impl eframe::App for SettingsApp {
         updates.poll();
         let mod_list = mods.lock().unwrap().clone();
         let tier_ok = model.tier_valid();
-        let brightness_ok = model.brightness_valid();
         let EditModel { cfg, capture, .. } = model;
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -322,7 +315,7 @@ impl eframe::App for SettingsApp {
                     Section::Display => section_display(ui, cfg, tier_ok),
                     Section::Pricing => section_pricing(ui, cfg, leagues),
                     Section::CaptureOcr => {
-                        section_capture_ocr(ui, cfg, brightness_ok)
+                        section_capture_ocr(ui)
                     }
                     Section::MacrosShortcuts => section_macros(ui, cfg, capture),
                     Section::RunWithGame => crate::settings_launch::section_launch(ui),
@@ -558,30 +551,16 @@ fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<
     });
 }
 
-fn section_capture_ocr(ui: &mut egui::Ui, cfg: &mut Config, brightness_ok: bool) {
+fn section_capture_ocr(ui: &mut egui::Ui) {
     ui.heading("Capture & OCR");
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(
             "The reward panel is detected automatically — no calibration. \
-             The gate below decides when the detected region is bright \
-             enough to scan.",
+             Scanning runs only while reward rows are on screen.",
         )
         .weak(),
     );
-    ui.add_space(12.0);
-    ui.label("Brightness gate");
-    ui.horizontal(|ui| {
-        ui.label("open above");
-        ui.add(egui::Slider::new(&mut cfg.panel_open_brightness, 0..=255));
-    });
-    ui.horizontal(|ui| {
-        ui.label("close below");
-        ui.add(egui::Slider::new(&mut cfg.panel_close_brightness, 0..=255));
-    });
-    if !brightness_ok {
-        ui.colored_label(egui::Color32::RED, "close threshold must be below open");
-    }
 }
 
 fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {

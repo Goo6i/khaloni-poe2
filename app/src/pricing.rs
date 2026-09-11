@@ -221,9 +221,11 @@ fn has_leading_count(normalized: &str) -> bool {
 /// A line that never matched the vocab is still worth a "?" row, rather
 /// than silent disappearance, when it looks like a real panel entry: a
 /// counted stack, or a unique item (uniques are never in the currency
-/// vocab, so they always miss the match).
+/// vocab, so they always miss the match). Only for text read off a
+/// reward bar: "lx"/"ix" and "unique" turn up in texture and tooltip
+/// text too, and a "?" beside nothing was the live complaint.
 fn is_unpriceable_but_present(line: &OcrLine) -> bool {
-    has_leading_count(&line.unfiltered) || line.unfiltered.contains("unique")
+    line.on_bar && (has_leading_count(&line.unfiltered) || line.unfiltered.contains("unique"))
 }
 
 /// Prices a template-identified band without any OCR text: the learned

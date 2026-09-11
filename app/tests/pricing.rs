@@ -22,6 +22,7 @@ fn table() -> PriceTable {
 
 fn line(unf: &str, y: u32) -> OcrLine {
     OcrLine {
+        on_bar: true,
         filtered: unf.to_string(),
         unfiltered: unf.to_string(),
         y_top: y,
@@ -311,4 +312,19 @@ fn exchange_fallback_prices_names_outside_the_table() {
     );
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].amount, "…");
+}
+
+#[test]
+fn off_bar_text_with_a_count_token_never_becomes_a_question_mark() {
+    // Whole-panel OCR of parchment or terrain routinely yields "lx"/"ix"
+    // fragments and the odd "unique"; without a bar under it, a line is
+    // not a reward and gets no row at all.
+    let t = table();
+    let vocab = build_vocab(&t);
+    let mut off = line("lx gnarled thing", 300);
+    off.on_bar = false;
+    let mut uniq = line("some unique text", 400);
+    uniq.on_bar = false;
+    let (rows, _) = price_lines(&t, &vocab, &[off, uniq], &Config::default());
+    assert!(rows.is_empty(), "{rows:?}");
 }

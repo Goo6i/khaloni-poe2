@@ -102,6 +102,16 @@ fn rumour_frames_do_not_validate() {
 }
 
 #[test]
+fn the_live_frame_with_the_book_masked_out_detects_nothing() {
+    // The situation the overlay lives in most of the time on a bright
+    // map: same frame, no panel. Terrain must never become a region.
+    let mut frame = image::open("tests/fixtures/reward-live-1.png").unwrap().to_luma8();
+    let terrain = imageops::crop_imm(&frame, 1900, 120, 1200, 1300).to_image();
+    imageops::replace(&mut frame, &terrain, 60, 120);
+    assert!(detect_reward_region(&frame).is_none());
+}
+
+#[test]
 fn detects_the_real_live_reward_panel() {
     // A real 4K capture with the rune rewards panel open (live band means
     // 176/216/211 — dimmer than the synthetic fixture, the miss that made

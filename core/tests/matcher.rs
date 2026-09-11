@@ -357,3 +357,18 @@ fn replays_milestone0_shootout_39_of_40_with_no_wrong_counts() {
     // the single known detection miss from the shootout
     assert!(missed.iter().all(|m| m.contains("Exalted Orb")), "{:?}", missed);
 }
+
+#[test]
+fn a_short_name_inside_a_long_garbled_line_is_not_a_substring_hit() {
+    let vocab = Vocab::new(vec!["Ox Idol".to_string(), "Exalted Orb".to_string()]);
+    // "ox idol" (7 chars) buried in 30 characters of noise: no hit.
+    let noise = "kf ox idol pw qq zr a bnm ty".to_string();
+    assert!(match_rows(&vocab, &[String::new()], &[noise]).is_empty());
+    // The same short name making up most of its line still matches.
+    let hits = match_rows(&vocab, &[String::new()], &["1x ox idol".to_string()]);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(vocab.entry(hits[0].entry_index), "Ox Idol");
+    // A long name is trusted anywhere in the line.
+    let hits = match_rows(&vocab, &[String::new()], &["kf exalted orb pw qq zr a bnm ty".to_string()]);
+    assert_eq!(hits.len(), 1);
+}

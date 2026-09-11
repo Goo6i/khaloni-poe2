@@ -22,6 +22,13 @@ const FUZZY_LEN_TOLERANCE: usize = 3;
 /// Minimum query length for the prefix tier: short queries are too likely
 /// to be a prefix of many unrelated entries.
 const PREFIX_MIN_LEN: usize = 10;
+/// The substring tier accepts a vocabulary entry found verbatim inside a
+/// noisy line only when the entry is at least this long, or covers at
+/// least SUBSTRING_MIN_COVER_TENTHS tenths of the line. A short name such
+/// as "iron rune" or "ox idol" inside a garbled line is far more often
+/// noise around a coincidence than a reward.
+const SUBSTRING_MIN_LEN: usize = 8;
+const SUBSTRING_MIN_COVER_TENTHS: usize = 6;
 /// If the second-best fuzzy candidate scores within this margin of the best,
 /// the two vocab entries are too close to call and the row is Ambiguous
 /// rather than a guess. Sized for near-identical variant families (e.g. the
@@ -196,13 +203,16 @@ pub fn match_rows(vocab: &Vocab, filtered: &[String], unfiltered: &[String]) -> 
 
         // Substring tier: every vocab entry contained verbatim in the
         // unfiltered line is a candidate; the longest (most specific) one
-        // wins, e.g. "perfect jewellers orb" over "jewellers orb".
+        // wins, e.g. "perfect jewellers orb" over "jewellers orb". Short
+        // entries qualify only when they make up most of the line.
         let mut substring_best: Option<(usize, usize)> = None;
         for (i, entry) in vocab.normalized.iter().enumerate() {
             if entry.is_empty() {
                 continue;
             }
-            if norm.contains(entry.as_str()) {
+            let long_enough = entry.len() >= SUBSTRING_MIN_LEN
+                || entry.len() * 10 >= norm.len() * SUBSTRING_MIN_COVER_TENTHS;
+            if long_enough && norm.contains(entry.as_str()) {
                 let len = entry.len();
                 if substring_best.map(|(_, l)| len > l).unwrap_or(true) {
                     substring_best = Some((i, len));

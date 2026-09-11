@@ -31,10 +31,10 @@ fn main() -> anyhow::Result<()> {
     }
     eprintln!("price table: {} names", svc.snapshot().table.len());
     let img = image::open(&path)?.to_luma8();
-    let bands = ocr::detect_bands(&img);
-    eprintln!("{} band(s) detected", bands.len());
+    let bars = ocr::reward_bars(&img, &ocr::row_profile(&img));
+    eprintln!("{} reward bar(s) detected: {bars:?}", bars.len());
     let mut engine = ocr::OcrEngine::new()?;
-    let lines = ocr::ocr_scan(&mut engine, &img);
+    let lines = ocr::ocr_scan(&mut engine, &img, &bars);
     for l in &lines {
         eprintln!("line y={:>4}: filtered={:?} unfiltered={:?}", l.y_top, l.filtered, l.unfiltered);
     }

@@ -20,23 +20,16 @@
 //!    MIN_REWARD_BANDS bands (each >= ocr::BAND_MIN_H tall, which
 //!    detect_bands already enforces) qualify as reward-style.
 //!
-//! Discriminating feature (measured, not assumed): the expedition rumour
-//! tooltip is the same bright parchment and passes the blob sweep AND
-//! plain band detection — all 5 real rumour fixtures produce 3-4 bands at
-//! BAND_BRIGHTNESS=175. What separates the two panel styles is the bands'
-//! own brightness: rumour-frame band means measure 178..=203 (bright-ish
-//! text rows on already-bright parchment), while the reward panel's white
-//! reward bars measure 221..=227 (on the panel_choice composite). A band
-//! only counts as reward-style when its mean clears
-//! REWARD_BAND_MEAN = 205 — the midpoint of the measured live gap
-//! (rumour bands top out at 200; live reward bars measure 210-216,
-//! dimmer than the 221-227 the original fixture suggested),
-//! with real margin to both sides. That single feature rejects all 5
-//! rumour fixtures (0 qualifying bands each) while the reward fixture
-//! keeps all 4 of its bands; no band-coverage cap was needed on top (one
-//! was considered, but tall reward panels — unfixtured as of this design
-//! — may legitimately have high band coverage, so a cap would risk
-//! rejecting real panels for no measured gain).
+//! Discriminating feature: the expedition rumour tooltip is the same
+//! bright parchment and passes the blob sweep AND plain band detection —
+//! all 5 real rumour fixtures produce 3-4 bands at BAND_BRIGHTNESS=175.
+//! What separates a reward panel is the reward-bar signature
+//! (`ocr::is_reward_bar`: hard edges, panel-spanning width, bar
+//! brightness), which no rumour fixture, no bright terrain and no page
+//! strip meets (tests/bars.rs, tests/autoregion.rs). A candidate is a
+//! reward panel iff at least MIN_REWARD_BANDS of its bands carry it. This
+//! replaced a band-mean threshold of 205, which the live book's own bars
+//! (210-216) only just cleared and lit terrain could reach.
 
 use image::{imageops, GrayImage};
 use khaloni_poe2_core::rumour_scan::Rect;
@@ -61,11 +54,6 @@ const MAX_FRAME_TENTHS: u32 = 9;
 /// margin below the fixture while skipping the cheapest junk before the
 /// per-candidate crop+profile work.
 const MIN_FILL: f64 = 0.3;
-/// See the module doc: a band's profile mean must clear this to count as
-/// a reward-style bar (midpoint of the measured rumour-max 200 /
-/// reward-min 221 gap). Local to this module by design — ocr.rs's
-/// BAND_BRIGHTNESS=175 stays the OCR pipeline's own row gate.
-const REWARD_BAND_MEAN: u16 = 205;
 /// A reward panel always shows multiple reward rows; one lone bright bar
 /// (a hover tooltip's title, a stray HUD element) is not a panel.
 const MIN_REWARD_BANDS: usize = 2;
@@ -113,11 +101,10 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
         let profile = ocr::row_profile(&crop);
         let bands = ocr::detect_bands_from_profile(&profile);
         let reward_bands =
-            bands.iter().filter(|&&(y0, y1)| band_mean(&profile, y0, y1) >= REWARD_BAND_MEAN).count();
+            bands.iter().filter(|&&(y0, y1)| ocr::is_reward_bar(&crop, &profile, y0, y1)).count();
         if dbg {
-            let means: Vec<u16> = bands.iter().map(|&(y0, y1)| band_mean(&profile, y0, y1)).collect();
             eprintln!(
-                "autoregion: candidate {:?} fill={:.2} bands={} band-means={means:?} reward-style={} -> {}",
+                "autoregion: candidate {:?} fill={:.2} bands={} reward-bars={} -> {}",
                 cand.rect,
                 cand.fill,
                 bands.len(),
@@ -142,12 +129,4 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
         }
     }
     best.map(|(_, r)| r)
-}
-
-/// Integer mean of `profile[y0..y1)`, matching row_profile's own integer
-/// row means. Caller guarantees a non-empty in-range band (detect_bands
-/// only emits bands >= BAND_MIN_H within the profile).
-fn band_mean(profile: &[u16], y0: u32, y1: u32) -> u16 {
-    let band = &profile[y0 as usize..y1 as usize];
-    (band.iter().map(|&v| u64::from(v)).sum::<u64>() / band.len() as u64) as u16
 }

@@ -62,21 +62,6 @@ fn key_capture_out_of_range_row_is_a_no_op() {
 }
 
 #[test]
-fn brightness_close_must_be_below_open() {
-    let mut m = EditModel::from_config(Config::default());
-    m.cfg.panel_close_brightness = 200;
-    m.cfg.panel_open_brightness = 100;
-    assert!(!m.brightness_valid());
-
-    // Equal thresholds would make the gate oscillate: also invalid.
-    m.cfg.panel_close_brightness = 100;
-    assert!(!m.brightness_valid());
-
-    m.cfg.panel_close_brightness = 99;
-    assert!(m.brightness_valid());
-}
-
-#[test]
 fn tier_ladder_order_enforced() {
     let mut m = EditModel::from_config(Config::default());
     m.cfg.tier_decent_ex = 50.0;

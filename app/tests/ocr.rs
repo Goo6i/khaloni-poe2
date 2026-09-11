@@ -131,6 +131,7 @@ fn parse_whole_tsv_rejects_rows_without_a_four_letter_alpha_run() {
 
 fn line(filtered: &str, unfiltered: &str, y_top: u32, height: u32) -> OcrLine {
     OcrLine {
+        on_bar: true,
         filtered: filtered.to_string(),
         unfiltered: unfiltered.to_string(),
         y_top,

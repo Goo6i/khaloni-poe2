@@ -128,6 +128,11 @@ pub struct OcrLine {
     /// expect is unchanged even though the crop is now per-band.
     pub y_top: u32,
     pub height: u32,
+    /// The line was read from a signature reward bar (a band crop, or a
+    /// whole-panel line that replaced one). Only such lines may become
+    /// "?" rows: a count-looking token in off-bar text is texture, not a
+    /// reward (see `pricing::is_unpriceable_but_present`).
+    pub on_bar: bool,
 }
 
 /// Scans a captured gray region (capture-pixel space) for bright reward
@@ -270,12 +275,129 @@ pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
     let mut merged: Vec<(u32, u32)> = Vec::new();
     for (y0, y1) in bands {
         match merged.last_mut() {
-            Some((_, last_y1)) if y0 - *last_y1 <= BAND_MERGE_GAP => *last_y1 = y1,
+            Some((_, last_y1)) if gap_is_internal(profile, *last_y1, y0) => *last_y1 = y1,
             _ => merged.push((y0, y1)),
         }
     }
     merged.retain(|(y0, y1)| y1 - y0 >= BAND_MIN_H);
     merged
+}
+
+/// A gap between two bright runs that lies INSIDE one reward row, so the
+/// runs merge. Short gaps always do (BAND_MERGE_GAP). Longer ones are
+/// decided by their darkest row: the parchment between two rows carries a
+/// dark border line (measured minimum 70-90 on every fixture, 116 under
+/// the page-edge strip), while the shaded strip inside a tall row never
+/// drops below 149 (s1/s2's last row, s5's bottom rows, measured
+/// 2026-09-11) - so a gap with no row darker than GAP_LIGHT_MIN is row
+/// shading, not a border. Capped at GAP_LIGHT_MAX_LEN: the shading gaps
+/// measure 17-18 rows, the page-strip gap 50.
+fn gap_is_internal(profile: &[u16], from: u32, to: u32) -> bool {
+    let len = to.saturating_sub(from);
+    if len <= BAND_MERGE_GAP {
+        return true;
+    }
+    len <= GAP_LIGHT_MAX_LEN
+        && profile[from as usize..to as usize].iter().all(|&v| v >= GAP_LIGHT_MIN)
+}
+
+/// See `gap_is_internal`: a gap this long or shorter always merges.
+const GAP_LIGHT_MAX_LEN: u32 = 24;
+/// See `gap_is_internal`: midpoint of the page-strip gap's darkest row
+/// (116) and the darkest row of any in-row shading gap (149).
+const GAP_LIGHT_MIN: u16 = 133;
+
+// --- The reward-bar signature ---
+//
+// A bright band is not yet a reward row. Brightness alone also accepts the
+// parchment page-edge strip at the top of every real panel (a 13-14 px
+// band reading ~177), and, once a scan region outlives its panel, lit
+// terrain inside it (a 54 px band reading ~178 on the live fixture with
+// the book masked out) - the source of labels on an empty screen and of a
+// tesseract pass every 120 ms while the map stayed bright. A reward bar is
+// a hard-edged white rectangle spanning the panel, and three measurements
+// separate every real bar from both impostors with wide margins (measured
+// 2026-09-11 on reward-live-1, panel_choice, s1 and s2; see tests/bars.rs):
+//
+//   feature                    real bars (worst)   strip / terrain (best)
+//   edge contrast, top+bottom  57                  13
+//   width filled by the bar    0.60                0.33
+//   band brightness            190                 178
+//
+// Each threshold below sits at the midpoint of its gap. Partial rows cut
+// off at a panel's bottom edge fail the edge rule and are dropped; no OCR
+// could have read them anyway.
+
+/// Minimum row-mean brightness of a bar (real 190+, impostors 178-).
+pub const BAR_MIN_MEAN: u16 = 185;
+/// Minimum brightness step between a bar's outer rows and the rows just
+/// beyond it, on every edge the crop lets us see (real 57+, impostors 13-).
+pub const BAR_MIN_EDGE: u16 = 35;
+/// Minimum fraction of the region's columns that are bright across the
+/// bar's rows (real 0.60+, impostors 0.33-).
+pub const BAR_MIN_WIDTH_FRAC: f32 = 0.47;
+/// A column counts as bright when its mean over the bar's rows clears this.
+const BAR_BRIGHT_COL: u32 = 190;
+/// Rows sampled on each side of an edge: inside the bar, and beyond it.
+const EDGE_INSIDE: u32 = 2;
+const EDGE_OUTSIDE: u32 = 3;
+
+fn mean_of(profile: &[u16], y0: u32, y1: u32) -> Option<f64> {
+    let rows = &profile[y0 as usize..y1 as usize];
+    (!rows.is_empty()).then(|| rows.iter().map(|&v| f64::from(v)).sum::<f64>() / rows.len() as f64)
+}
+
+/// Whether the band `y0..y1` of `gray` (whose `profile` is
+/// `row_profile(gray)`) has the reward-bar signature above. A band that
+/// touches both crop edges has no measurable edge and is rejected.
+pub fn is_reward_bar(gray: &GrayImage, profile: &[u16], y0: u32, y1: u32) -> bool {
+    let h = profile.len() as u32;
+    if y1 <= y0 || y1 > h || y1 - y0 < BAND_MIN_H {
+        return false;
+    }
+    let Some(mean) = mean_of(profile, y0, y1) else { return false };
+    if mean < f64::from(BAR_MIN_MEAN) {
+        return false;
+    }
+    let inside = EDGE_INSIDE.min(y1 - y0);
+    let mut edges_seen = 0;
+    if y0 > 0 {
+        let outside = mean_of(profile, y0.saturating_sub(EDGE_OUTSIDE), y0).unwrap_or(0.0);
+        let inner = mean_of(profile, y0, y0 + inside).unwrap_or(0.0);
+        if inner - outside < f64::from(BAR_MIN_EDGE) {
+            return false;
+        }
+        edges_seen += 1;
+    }
+    if y1 < h {
+        let outside = mean_of(profile, y1, (y1 + EDGE_OUTSIDE).min(h)).unwrap_or(0.0);
+        let inner = mean_of(profile, y1 - inside, y1).unwrap_or(0.0);
+        if inner - outside < f64::from(BAR_MIN_EDGE) {
+            return false;
+        }
+        edges_seen += 1;
+    }
+    if edges_seen == 0 {
+        return false;
+    }
+    let (w, rows) = (gray.width(), y1 - y0);
+    let raw = gray.as_raw();
+    let bright_cols = (0..w)
+        .filter(|&x| {
+            let sum: u32 = (y0..y1).map(|y| u32::from(raw[(y * w + x) as usize])).sum();
+            sum >= BAR_BRIGHT_COL * rows
+        })
+        .count();
+    bright_cols as f32 >= BAR_MIN_WIDTH_FRAC * w as f32
+}
+
+/// The bright bands of `profile` that carry the reward-bar signature: the
+/// rows worth OCR, and the only evidence that a reward panel is on screen.
+pub fn reward_bars(gray: &GrayImage, profile: &[u16]) -> Vec<(u32, u32)> {
+    detect_bands_from_profile(profile)
+        .into_iter()
+        .filter(|&(y0, y1)| is_reward_bar(gray, profile, y0, y1))
+        .collect()
 }
 
 /// Runs one band's crop/upscale/tesseract pass; `None` on any failure
@@ -454,6 +576,7 @@ pub fn parse_band_tsv(tsv: &str, y0: u32, y1: u32) -> Option<OcrLine> {
         unfiltered,
         y_top: y0 * UPSCALE,
         height: (y1 - y0) * UPSCALE,
+        on_bar: true,
     })
 }
 
@@ -586,6 +709,7 @@ pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
                 unfiltered,
                 y_top: top,
                 height: bottom.saturating_sub(top),
+                on_bar: false,
             })
         })
         .collect();
@@ -601,6 +725,31 @@ pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
 pub fn ocr_whole_panel(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
     let pre = whole_preprocess(gray);
     run_whole_tesseract(engine, &pre).unwrap_or_default()
+}
+
+/// The rows the whole-panel pass reads, given the signature bars: from a
+/// title's distance above the first bar (the Runeshape book names itself
+/// there, and `pricing` reads that title) to half a row below the last.
+/// Everything outside is parchment or, in a region that outlived its
+/// panel, terrain - which tesseract turns into garbage lines. Measured on
+/// the fixtures the title sits 50-60 px above a 78 px first bar.
+pub fn whole_span(bars: &[(u32, u32)], height: u32) -> Option<(u32, u32)> {
+    let (&(first0, first1), &(last0, last1)) = (bars.first()?, bars.last()?);
+    let y0 = first0.saturating_sub((first1 - first0) * 3 / 2);
+    let y1 = (last1 + (last1 - last0) / 2).min(height);
+    (y1 > y0).then_some((y0, y1))
+}
+
+/// `ocr_whole_panel` over `span` only, with line positions mapped back
+/// to the region's own preprocessed-pixel space.
+#[cfg(ocr)]
+fn ocr_whole_span(engine: &mut OcrEngine, gray: &GrayImage, (y0, y1): (u32, u32)) -> Vec<OcrLine> {
+    let crop = imageops::crop_imm(gray, 0, y0, gray.width(), y1 - y0).to_image();
+    let mut lines = ocr_whole_panel(engine, &crop);
+    for l in &mut lines {
+        l.y_top += y0 * UPSCALE;
+    }
+    lines
 }
 
 /// How much real text a line's `filtered` field recovered: total ASCII
@@ -702,6 +851,8 @@ pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> V
             if score > winner_score {
                 winner_score = score;
                 winner = whole_lines[i].clone();
+                // The whole-panel text stands in for a bar's own read.
+                winner.on_bar = true;
             }
         }
         merged.push(winner);
@@ -716,63 +867,18 @@ pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> V
     merged
 }
 
-/// Top-level OCR entry point: runs the band pipeline and the whole-panel
-/// pipeline concurrently (they're independent tesseract processes over
-/// the same source image, so there's no reason to serialize them) and
-/// unions the results. See `union_ocr_lines` and the evidence block above
-/// `ocr_whole_panel` for why both passes run unconditionally rather than
-/// picking one.
+/// Top-level OCR entry point over the signature bars of `gray`: the band
+/// pipeline on each bar, the whole-panel pipeline over the bars' span (see
+/// `whole_span`), and their union. Both run unconditionally rather than
+/// picking one: see `union_ocr_lines` and the evidence block above
+/// `ocr_whole_panel`. No bars, no OCR: nothing else on a frame is a
+/// reward row.
 #[cfg(ocr)]
-pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
-    ocr_scan_gated(engine, gray, &mut WholePanelGate::always())
-}
-
-/// Rate limiter for the whole-panel pass on band-less frames. Bright
-/// noise scenes (measured live: full-screen fire effects during combat)
-/// open the brightness gate and cost 1-2 s of tesseract per frame with
-/// zero yield, collapsing scan cadence exactly during fights. When bar
-/// structure exists the whole-panel pass always runs (the union needs
-/// it); without bars it runs at most once per interval, which still
-/// catches an under-threshold panel within a second.
-#[cfg(ocr)]
-pub struct WholePanelGate {
-    last: Option<std::time::Instant>,
-    interval: std::time::Duration,
-}
-
-#[cfg(ocr)]
-impl WholePanelGate {
-    pub fn new(interval: std::time::Duration) -> WholePanelGate {
-        WholePanelGate { last: None, interval }
-    }
-    /// A gate that never limits (headless/scanimg one-shot use).
-    pub fn always() -> WholePanelGate {
-        WholePanelGate { last: None, interval: std::time::Duration::ZERO }
-    }
-    fn allow(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        match self.last {
-            Some(t) if now.duration_since(t) < self.interval => false,
-            _ => {
-                self.last = Some(now);
-                true
-            }
-        }
-    }
-}
-
-#[cfg(ocr)]
-pub fn ocr_scan_gated(
-    engine: &mut OcrEngine,
-    gray: &GrayImage,
-    whole_gate: &mut WholePanelGate,
-) -> Vec<OcrLine> {
-    let bands = detect_bands(gray);
-    let band_lines = ocr_bands(engine, gray, &bands);
-    let whole_lines = if !bands.is_empty() || whole_gate.allow() {
-        ocr_whole_panel(engine, gray)
-    } else {
-        Vec::new()
+pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage, bars: &[(u32, u32)]) -> Vec<OcrLine> {
+    let band_lines = ocr_bands(engine, gray, bars);
+    let whole_lines = match whole_span(bars, gray.height()) {
+        Some(span) => ocr_whole_span(engine, gray, span),
+        None => Vec::new(),
     };
     union_ocr_lines(band_lines, whole_lines)
 }

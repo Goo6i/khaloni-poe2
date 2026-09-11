@@ -513,7 +513,8 @@ fn headless() -> anyhow::Result<()> {
                 h: region.y1 - region.y0,
             },
         );
-        let lines = ocr::ocr_scan(&mut engine, &crop);
+        let bars = ocr::reward_bars(&crop, &ocr::row_profile(&crop));
+        let lines = ocr::ocr_scan(&mut engine, &crop, &bars);
         let snap = svc.snapshot();
         let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
         println!(
@@ -1261,7 +1262,7 @@ fn overlay_mode(
     let (rumour_tx, rumour_rx) = mpsc::channel::<Vec<khaloni_poe2::rumours::RumourHit>>();
     let (region_tx, region_rx) = mpsc::channel::<Rect>();
     let region = Rect { x: 0, y: 0, w: 64, h: 64 };
-    // Shared with the OCR worker below: it owns the BrightnessGate and
+    // Shared with the OCR worker below: it owns the PanelGate and
     // stores whether it's currently open here every pass; the capture
     // thread only reads it, to pick its 120ms/300ms throttle. An atomic is
     // the simplest correct way to move this one bit across the thread
@@ -1304,7 +1305,7 @@ fn overlay_mode(
             let dbg = std::env::var("KHALONI_DEBUG").is_ok();
             let mut last_region: Option<Rect> = None;
             for frame in det_rx {
-                // While the brightness gate is open the region is LOCKED:
+                // While the panel gate is open the region is LOCKED:
                 // the stabilizer's scroll origin must not move under it.
                 // Redetect only when closed.
                 // Live-debug: keep the latest full frame on disk so a
@@ -1439,10 +1440,7 @@ fn overlay_mode(
         // profile+templates only; the expensive OCR paths keep the old
         // 120ms rhythm regardless of capture rate.
         let mut last_heavy = std::time::Instant::now() - Duration::from_secs(1);
-        let mut gate = khaloni_poe2::brightness::BrightnessGate::new(
-            ocr_cfg.panel_open_brightness,
-            ocr_cfg.panel_close_brightness,
-        );
+        let mut gate = khaloni_poe2::gate::PanelGate::new();
         // Learned-template store: identifies previously seen reward bands
         // in well under a millisecond, bypassing tesseract; OCR remains
         // the teacher for first encounters. Persisted across sessions.
@@ -1480,33 +1478,42 @@ fn overlay_mode(
             if !region_ready_ocr.load(std::sync::atomic::Ordering::Relaxed) {
                 continue;
             }
-            let mean = mean_gray_brightness(&frame.gray);
-            if dbg {
-                eprintln!("DBG ocr-worker: frame {}x{} mean_brightness={mean}", frame.gray.width(), frame.gray.height());
-            }
             if paused_ocr.load(std::sync::atomic::Ordering::Relaxed) {
                 // Drop the frame cheaply; no OCR/pricing work while paused.
                 continue;
             }
             let t_frame = std::time::Instant::now();
-            let open = gate.observe(mean);
-            panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
-            if dbg {
-                eprintln!("TRACE {:>8.2}s mean={mean} gate_open={open}", t0.elapsed().as_secs_f32());
-            }
-            if !open {
-                // Gate closed: too dark to be the parchment panel (game
-                // world, not the list). Skip tesseract entirely (this check
-                // costs microseconds) and report gated-empty so the overlay
-                // can drop stale rows instead of holding them.
-                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::GateEmpty);
-                continue;
-            }
+            // Presence first: the signature bars in the region are the
+            // only evidence of a reward panel (tests/bars.rs), and they
+            // cost a row profile plus a few column sums per frame.
             let profile = ocr::row_profile(&frame.gray);
+            let bands = ocr::reward_bars(&frame.gray, &profile);
             let motion = match last_profile.replace(profile.clone()) {
                 Some(prev) => ocr::track_motion(&prev, &profile),
                 None => ocr::Motion::Still,
             };
+            // Mid-scroll frames blur the bars' edges; they hold the gate
+            // rather than feeding it a miss.
+            let open = match motion {
+                ocr::Motion::Still => gate.observe(!bands.is_empty()),
+                _ => gate.is_open(),
+            };
+            panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
+            if dbg {
+                eprintln!(
+                    "TRACE {:>8.2}s bars={} gate_open={open}",
+                    t0.elapsed().as_secs_f32(),
+                    bands.len()
+                );
+            }
+            if !open {
+                // Gate closed: no reward rows on screen (game world, or a
+                // region that outlived its panel). Skip tesseract entirely
+                // and report gated-empty so the overlay drops stale rows
+                // instead of holding them.
+                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::GateEmpty);
+                continue;
+            }
             match motion {
                 ocr::Motion::Scrolled(dy) => {
                     // Content is scrolling: move labels instantly and
@@ -1535,10 +1542,6 @@ fn overlay_mode(
                     continue;
                 }
                 ocr::Motion::Still => {}
-            }
-            let bands = ocr::detect_bands_from_profile(&profile);
-            if dbg {
-                eprintln!("TRACE {:>8.2}s bands={}", t0.elapsed().as_secs_f32(), bands.len());
             }
             // Fast-close: a band-less frame IS the close signal; skip all
             // OCR (band detection costs ~2 ms) so the hide confirmation
@@ -1604,7 +1607,7 @@ fn overlay_mode(
             let lines = if std::mem::take(&mut post_scroll_fast) {
                 ocr::ocr_bands(&mut engine, &frame.gray, &bands)
             } else {
-                ocr::ocr_scan(&mut engine, &frame.gray)
+                ocr::ocr_scan(&mut engine, &frame.gray, &bands)
             };
             if dbg {
                 let d = std::path::Path::new("/tmp/khalonipoe2-frames");
@@ -3004,14 +3007,6 @@ fn overlay_mode(
         // tick to a channel drain plus one comparison, no repaint.
         std::thread::sleep(std::time::Duration::from_millis(16));
     }
-}
-
-fn mean_gray_brightness(img: &image::GrayImage) -> u64 {
-    let raw = img.as_raw();
-    if raw.is_empty() {
-        return 0;
-    }
-    raw.iter().map(|&p| p as u64).sum::<u64>() / raw.len() as u64
 }
 
 #[cfg(test)]

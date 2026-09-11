@@ -75,7 +75,7 @@ pub async fn portal_session(restore_token: Option<&str>) -> anyhow::Result<Captu
 /// The pipewire half, blocking; call on a dedicated thread. It sends a
 /// grayscale crop of `region` (capture pixels) on every throttle tick, no
 /// matter whether the pixels changed: the downstream state machines
-/// (BrightnessGate's consecutive-frame hysteresis, the stabilizer's
+/// (PanelGate's consecutive-frame hysteresis, the stabilizer's
 /// confirm-2/switch-2 slot logic) need a steady stream of frames to
 /// accumulate consecutive reads even while the panel is static, and a
 /// content-hash short-circuit that only emits on change starves them of
@@ -85,7 +85,7 @@ pub async fn portal_session(restore_token: Option<&str>) -> anyhow::Result<Captu
 /// open, so scans matter for responsiveness), 300ms while it reads false.
 /// `panel_open` is the simplest correct way to hand that one bit of state
 /// across the capture/OCR thread boundary without adding a second channel:
-/// the OCR worker owns the `BrightnessGate` and stores its state here every
+/// the OCR worker owns the `PanelGate` and stores its state here every
 /// pass; this thread only ever reads it. Region updates arrive on
 /// `region_rx` and just update where the crop is taken from; there is no
 /// forced-rescan mechanism to trigger anymore, since frames always flow.

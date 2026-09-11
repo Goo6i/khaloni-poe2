@@ -1,5 +1,5 @@
 pub mod autoregion;
-pub mod brightness;
+pub mod gate;
 pub mod leveling_ui;
 pub mod livesearch;
 pub mod platform;
