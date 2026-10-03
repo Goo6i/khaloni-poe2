@@ -644,6 +644,14 @@ mod tests {
             never_mixed(&snap);
             std::thread::sleep(Duration::from_millis(5));
         }
+        // Beta's own sweep may still be running: on Windows each refused
+        // connection to the unreachable scout costs about two seconds.
+        wait_until("Beta has loaded after the race", || {
+            let snap = racing.snapshot();
+            assert_eq!(snap.league, "Beta", "the abandoned sweep took the service back");
+            never_mixed(&snap);
+            !snap.loading
+        });
         assert!(racing.snapshot().table.lookup("Test Fragment").is_some());
 
         // A league nobody lists is an error the user can read, not an
