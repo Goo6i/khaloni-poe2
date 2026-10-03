@@ -1,0 +1,55 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Exalted Orb"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Exalted Orb"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

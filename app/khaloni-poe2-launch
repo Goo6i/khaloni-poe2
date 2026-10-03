@@ -26,6 +26,13 @@ rm -f "$HOME/.local/share/applications/dev.goo6i.poe2lens.desktop" \
 LOG_DIR="$HOME/.cache/khaloni-poe2"
 mkdir -p "$LOG_DIR"
 [ -f "$LOG_DIR/last-run.log" ] && mv -f "$LOG_DIR/last-run.log" "$LOG_DIR/prev-run.log"
+# tesseract's OpenMP pool spins its idle threads unless told otherwise, and
+# libgomp only reads these when it loads. The binary restarts itself to set
+# them when they are missing; set here, that restart is skipped. The marker
+# tells a --launch wrapper the values are ours, so the game does not get them.
+if [ -z "${OMP_THREAD_LIMIT:-}" ]; then
+  export OMP_THREAD_LIMIT=1 OMP_WAIT_POLICY=passive KHALONI_OMP_LIMITED=1
+fi
 exec systemd-run --user --scope --unit="app-$APP_ID-$RANDOM.scope" \
   "$BIN" "$@" \
   2> "$LOG_DIR/last-run.log"

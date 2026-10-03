@@ -1,0 +1,199 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "spirit": {
+       "min": 151
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.sceptre"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_intelligence",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 130
+       }
+      },
+      {
+       "disabled": true,
+       "id": "skill.purity_of_lightning",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2854751904",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_770672621",
+       "value": {
+        "min": 26
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "spirit": {
+       "min": 151
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.sceptre"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_intelligence",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 130
+       }
+      },
+      {
+       "disabled": true,
+       "id": "skill.purity_of_lightning",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2854751904",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_770672621",
+       "value": {
+        "min": 26
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use image::{imageops, GrayImage};
-use khaloni_poe2::ocr::{detect_bands_from_profile, is_reward_bar, reward_bars, row_profile};
+use khaloni_poe2::ocr::{detect_bands_from_profile, is_reward_bar, reward_bars, row_profile, RowSignature};
 
 /// The region the detector reports on the live 4K fixture (see
 /// tests/autoregion.rs): the open Runeshape book, left of the screen.
@@ -53,6 +53,14 @@ fn the_live_book_has_exactly_its_two_reward_bars() {
     for (y0, y1) in &bars {
         assert!((70..=90).contains(&(y1 - y0)), "one reward row tall: {y0}-{y1}");
     }
+}
+
+#[test]
+fn the_motion_signature_carries_the_band_profile() {
+    // The reward pipeline finds bars on the profile its motion signature
+    // computed, so the two must agree to the row.
+    let region = crop(&live_frame(), LIVE_REGION);
+    assert_eq!(RowSignature::of(&region).profile(), row_profile(&region).as_slice());
 }
 
 #[test]

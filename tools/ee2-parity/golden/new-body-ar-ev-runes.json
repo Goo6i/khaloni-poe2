@@ -1,0 +1,191 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 822
+      },
+      "ev": {
+       "min": 753
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.chest"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_all_elemental_resistances",
+       "value": {
+        "min": 13
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 84
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 200
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 64
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1692879867",
+       "value": {
+        "max": -46
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 822
+      },
+      "ev": {
+       "min": 753
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.chest"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_all_elemental_resistances",
+       "value": {
+        "min": 13
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 84
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 200
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 64
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1692879867",
+       "value": {
+        "max": -46
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

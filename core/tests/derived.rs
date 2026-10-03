@@ -1,4 +1,4 @@
-use khaloni_poe2_core::derived::{pseudo_totals, weapon_stats};
+use khaloni_poe2_core::derived::weapon_stats;
 use khaloni_poe2_core::item::parse_item;
 
 const BOW: &str = include_str!("fixtures/item1-inventory-rare-bow.txt");
@@ -22,47 +22,6 @@ fn the_bow_fixture_computes_to_its_real_dps() {
 fn a_non_weapon_has_no_dps() {
     let item = parse_item(AMULET).unwrap();
     assert_eq!(weapon_stats(&item), None);
-}
-
-#[test]
-fn pseudo_totals_follow_the_trade_site_rules() {
-    // The amulet: "+5 to all Attributes" (implicit) counts once per
-    // attribute, "+28% to Fire Resistance" counts toward the elemental
-    // total, and "+59 to maximum Mana" / "24% increased Armour" /
-    // "24.7 Life Regeneration per second" contribute nothing.
-    let p = pseudo_totals(&parse_item(AMULET).unwrap());
-    assert_eq!(p.total_attributes, 15.0);
-    assert_eq!(p.total_elemental_resistance, 28.0);
-    assert_eq!(p.total_life, 0.0);
-    assert_eq!(p.total_es, 0.0);
-
-    // The bow: its only flat grant is "+31 to Dexterity"; the advanced
-    // format's inline roll ranges ("+31(31-33)") must not confuse it.
-    let p = pseudo_totals(&parse_item(BOW).unwrap());
-    assert_eq!(p.total_attributes, 31.0);
-    assert_eq!(p.total_elemental_resistance, 0.0);
-}
-
-#[test]
-fn chaos_resistance_stays_out_of_the_elemental_total() {
-    let item = parse_item(
-        "Item Class: Rings\nRarity: Rare\nDoom Loop\nRuby Ring\n--------\nItem Level: 70\n--------\n+30% to Chaos Resistance\n+10% to Cold Resistance\n+12% to all Elemental Resistances\n",
-    )
-    .unwrap();
-    let p = pseudo_totals(&item);
-    // Cold 10 + all-elemental 12*3; chaos excluded entirely.
-    assert_eq!(p.total_elemental_resistance, 46.0);
-}
-
-#[test]
-fn life_and_energy_shield_sum_across_implicit_and_explicit() {
-    let item = parse_item(
-        "Item Class: Body Armours\nRarity: Rare\nCorpse Shell\nVile Robe\n--------\nItem Level: 70\n--------\n+20 to maximum Life (implicit)\n--------\n+85 to maximum Life\n+64 to maximum Energy Shield\n",
-    )
-    .unwrap();
-    let p = pseudo_totals(&item);
-    assert_eq!(p.total_life, 105.0);
-    assert_eq!(p.total_es, 64.0);
 }
 
 #[test]

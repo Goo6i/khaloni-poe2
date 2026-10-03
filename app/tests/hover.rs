@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use khaloni_poe2::hover::HoverState;
+use khaloni_poe2::hover::{is_corrupted, Freshness, HoverState};
 use khaloni_poe2::pricing::Denom;
 use std::collections::HashMap;
 
@@ -37,25 +37,6 @@ fn rare_item_queues_an_appraisal() {
     assert_eq!(popup.lines[0].text, "searching trade...");
     let queued = hs.pending_appraisal.take().expect("rare queues an appraisal request");
     assert_eq!(queued.name, "Horror Bane");
-
-    // The worker reporting back replaces the popup with listings.
-    hs.appraisal_done(
-        "Horror Bane",
-        Ok(vec![khaloni_poe2_core::trade::Listing {
-            price_amount: 2.5,
-            price_currency: "exalted".into(),
-            account: "Someone#1234".into(),
-            indexed: String::new(),
-            item_name: "Storm Call".into(),
-        }]),
-    );
-    let popup = hs.current.as_ref().expect("appraisal popup");
-    assert!(popup.lines[0].text.contains("2.5 exalted"));
-    assert!(popup.lines[0].text.contains("Someone#1234"));
-
-    // And an error outcome shows the message instead of vanishing.
-    hs.appraisal_done("Horror Bane", Err("rate limited; retry in 60s".into()));
-    assert!(hs.current.as_ref().unwrap().lines[0].text.contains("rate limited"));
 }
 
 #[test]
@@ -158,4 +139,118 @@ fn cut_gems_and_magic_gear_route_to_trade_appraisal() {
     h.trigger(plain, &table, &uniques, 1.0);
     assert!(h.pending_appraisal.is_none());
     assert_eq!(h.current.as_ref().unwrap().lines[0].text, khaloni_poe2_core::value::UNKNOWN);
+}
+
+fn unique_lines() -> khaloni_poe2_core::ninja::UniquePrices {
+    khaloni_poe2_core::ninja::UniquePrices::from_names(HashMap::from([("The Gnashing Sash".to_string(), 415.0)]))
+}
+
+#[test]
+fn a_unique_priced_from_poe_ninja_says_so() {
+    // The figure is an average over every copy of the unique; the popup
+    // must not read like an appraisal of this copy's rolls.
+    let mut hs = HoverState::default();
+    let clipboard = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
+    hs.trigger_priced(clipboard, &table(), &unique_lines(), 1.0, Freshness::default());
+    let popup = hs.current.as_ref().expect("popup set");
+    assert_ne!(popup.lines[0].denom, Denom::None, "the price line comes first");
+    assert!(
+        popup.lines.iter().any(|l| l.text.contains("poe.ninja") && l.text.contains("rolls")),
+        "provenance line missing: {:?}",
+        popup.lines
+    );
+    assert!(!popup.lines.iter().any(|l| l.text.contains("old price data")));
+}
+
+#[test]
+fn stale_price_data_is_said_in_the_popup() {
+    let clipboard = include_str!("../../core/tests/fixtures/item4-currency-exalted.txt");
+    let fresh_lines = |fresh: Freshness| {
+        let mut hs = HoverState::default();
+        hs.trigger_priced(clipboard, &table(), &unique_lines(), 1.0, fresh);
+        hs.current.unwrap().lines
+    };
+    let stale = fresh_lines(Freshness { table_stale: true, uniques_stale: false });
+    assert!(stale.iter().any(|l| l.text.contains("old price data")), "{stale:?}");
+    let current = fresh_lines(Freshness::default());
+    assert!(!current.iter().any(|l| l.text.contains("old price data")), "{current:?}");
+
+    // A unique answers from the unique lines, so their staleness counts.
+    let belt = include_str!("../../core/tests/fixtures/item5-unique-belt.txt");
+    let mut hs = HoverState::default();
+    hs.trigger_priced(belt, &table(), &unique_lines(), 1.0, Freshness { table_stale: false, uniques_stale: true });
+    assert!(hs.current.unwrap().lines.iter().any(|l| l.text.contains("old price data")));
+}
+
+#[test]
+fn corrupted_is_read_in_both_clipboard_formats() {
+    // Plain Ctrl+C: the state is the last section.
+    let plain = "Item Class: Belts\nRarity: Unique\nThe Gnashing Sash\nRawhide Belt\n--------\nItem Level: 80\n--------\n+30 to maximum Life\n--------\nCorrupted\n";
+    assert!(is_corrupted(plain));
+    // Advanced Ctrl+Alt+C: mod headers in braces, the same closing line.
+    let advanced = "Item Class: Belts\nRarity: Unique\nThe Gnashing Sash\nRawhide Belt\n--------\nItem Level: 80\n--------\n{ Unique Modifier \u{2014} Life }\n+30(25-35) to maximum Life\n--------\nCorrupted\n";
+    assert!(is_corrupted(advanced));
+    assert!(is_corrupted("Rarity: Unique\nX\n--------\nTwice Corrupted\n"));
+    // The word inside a mod or flavour line is not the state.
+    let clean = "Item Class: Belts\nRarity: Unique\nThe Gnashing Sash\nRawhide Belt\n--------\n+30 to maximum Life\n--------\n\"Corrupted blood runs thick.\"\n";
+    assert!(!is_corrupted(clean));
+}
+
+#[test]
+fn a_corrupted_unique_is_not_priced_as_a_clean_one() {
+    // The name-only map speaks for uncorrupted copies; a corrupted one is a
+    // different market and goes to the trade search.
+    let text = format!("{}--------\nCorrupted\n", include_str!("../../core/tests/fixtures/item5-unique-belt.txt"));
+    let mut hs = HoverState::default();
+    hs.trigger_priced(&text, &table(), &unique_lines(), 1.0, Freshness::default());
+    assert!(hs.pending_appraisal.is_some(), "a corrupted unique must be searched");
+    assert_eq!(hs.current.unwrap().lines[0].text, "searching trade...");
+}
+
+#[test]
+fn an_exchange_check_carries_the_hovered_stack() {
+    let omen = "Item Class: Omens\nRarity: Currency\nOmen of Testing\n--------\nStack Size: 7/10\n";
+    let mut hs = HoverState::default();
+    hs.trigger_priced(omen, &table(), &unique_lines(), 1.0, Freshness::default());
+    assert_eq!(hs.pending_currency, Some(("Omen of Testing".to_string(), 7)));
+
+    // The answer is the stack's total with the per-unit price beside it.
+    hs.show_exchange("Omen of Testing", &Ok(Some(2.0)), None, 7, &table(), 1e9, Freshness::default());
+    let line = &hs.current.as_ref().unwrap().lines[0];
+    assert!(line.text.contains("each"), "stack of 7 must show total (each): {:?}", line.text);
+    hs.show_exchange("Omen of Testing", &Ok(Some(2.0)), None, 1, &table(), 1e9, Freshness::default());
+    assert!(!hs.current.as_ref().unwrap().lines[0].text.contains("each"));
+}
+
+#[test]
+fn an_exchange_answer_names_how_many_offers_stood_behind_it() {
+    let mut hs = HoverState::default();
+    hs.show_exchange("Omen of Testing", &Ok(Some(2.0)), Some(12), 1, &table(), 1e9, Freshness::default());
+    let lines = &hs.current.as_ref().unwrap().lines;
+    assert!(lines[1].text.contains("12 offers"), "{lines:?}");
+    // Without the bulk view the source line says what the figure is and
+    // claims no count.
+    hs.show_exchange("Omen of Testing", &Ok(Some(2.0)), None, 1, &table(), 1e9, Freshness::default());
+    let lines = &hs.current.as_ref().unwrap().lines;
+    assert!(lines[1].text.contains("median") && !lines[1].text.contains("offers,"), "{lines:?}");
+}
+
+#[test]
+fn an_exchange_failure_shows_its_reason_not_no_price() {
+    let mut hs = HoverState::default();
+    hs.show_exchange("Omen of Testing", &Err("trade cooldown 12s".into()), None, 1, &table(), 1.0, Freshness::default());
+    let lines = &hs.current.as_ref().unwrap().lines;
+    assert!(lines[0].text.contains("trade cooldown 12s"), "{lines:?}");
+    hs.show_exchange("Omen of Testing", &Ok(None), None, 1, &table(), 1.0, Freshness::default());
+    assert!(hs.current.as_ref().unwrap().lines[0].text.contains("no exchange offers"));
+}
+
+#[test]
+fn a_notice_is_sticky_and_a_note_is_not() {
+    let mut hs = HoverState::default();
+    hs.show_notice("screen capture stopped");
+    assert!(hs.sticky);
+    assert!(hs.current.as_ref().unwrap().expires > Instant::now() + Duration::from_secs(4));
+    hs.show_note("overlay on");
+    assert!(!hs.sticky);
 }

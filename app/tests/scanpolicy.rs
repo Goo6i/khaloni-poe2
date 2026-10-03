@@ -5,7 +5,7 @@ use khaloni_poe2::platform::Focus;
 use khaloni_poe2::scanpolicy::{decide, Decision, Inputs};
 
 fn playing() -> Inputs {
-    Inputs { scanning: true, game_present: true, game_visible: true, focus: Focus::Game, pause_when_hidden: true }
+    Inputs { game_present: true, game_visible: true, focus: Focus::Game, pause_when_hidden: true, user_paused: false }
 }
 
 #[test]
@@ -38,13 +38,16 @@ fn a_covered_game_pauses_and_hides_when_the_user_asked_for_that() {
 }
 
 #[test]
-fn the_master_switch_pauses_without_taking_the_game_off_screen() {
-    let d = decide(Inputs { scanning: false, ..playing() });
-    assert_eq!(d, Decision { paused: true, show_rows: false, on_screen: true });
-}
-
-#[test]
 fn no_game_means_nothing_runs_or_draws() {
     let d = decide(Inputs { game_present: false, ..playing() });
     assert_eq!(d, Decision { paused: true, show_rows: false, on_screen: false });
+}
+
+#[test]
+fn the_tray_pause_holds_until_the_user_lifts_it() {
+    // Everything else says "scan": the user's pause still wins, every tick.
+    let d = decide(Inputs { user_paused: true, ..playing() });
+    assert_eq!(d, Decision { paused: true, show_rows: false, on_screen: true });
+    let d = decide(Inputs { user_paused: false, ..playing() });
+    assert!(!d.paused);
 }

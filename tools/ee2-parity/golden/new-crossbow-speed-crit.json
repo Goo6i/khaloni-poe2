@@ -1,0 +1,186 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "pdps": {
+       "min": 558
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "implicit.stat_1967051901",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2694482655",
+       "value": {
+        "min": 35
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 1.97
+      },
+      "crit": {
+       "min": 8.8
+      },
+      "pdps": {
+       "min": 558
+      },
+      "reload_time": {
+       "max": 0.89
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "implicit.stat_1967051901",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2694482655",
+       "value": {
+        "min": 35
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

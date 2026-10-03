@@ -1,5 +1,5 @@
 use khaloni_poe2_core::item::parse_item;
-use khaloni_poe2_core::trade::{pseudo_filter, Query, StatIndex, WeaponFilters};
+use khaloni_poe2_core::trade::{EquipKey, EquipmentFilters, Query, StatIndex};
 
 const STATS_JSON: &str = include_str!("fixtures/trade_stats.json");
 const BOW: &str = include_str!("fixtures/item1-inventory-rare-bow.txt");
@@ -39,41 +39,6 @@ fn resolves_six_verified_stat_ids_from_real_fixtures() {
 }
 
 #[test]
-fn waystone_query_searches_by_base_type_tier_and_reward_props() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let text = "Item Class: Waystones\nRarity: Rare\nAbandoned Carving\n\
-        Waystone (Tier 15)\n--------\nItem Rarity: +24% (augmented)\n\
-        Pack Size: +19% (augmented)\nMonster Effectiveness: +28% (augmented)\n\
-        --------\nItem Level: 81\n--------\n\
-        Monsters have 238% increased Critical Hit Chance\n--------\n";
-    let item = parse_item(text).expect("parses");
-    let mut q = build_query(&item, &stats);
-    // The full tiered base, exactly as the game writes it: the catalog has
-    // no bare "Waystone" base and rejects it ("Unknown item base type").
-    assert_eq!(q.type_name.as_deref(), Some("Waystone (Tier 15)"), "search by base type");
-    assert_eq!(q.map_tier, Some(15), "tier parsed");
-    // Reward properties are pickable map_ filters, disabled by default.
-    let iir = q.filters.iter().find(|f| f.id == "map_iir").expect("Item Rarity filter");
-    assert!(iir.disabled, "disabled by default so the user picks");
-    assert_eq!(iir.value.min, 24.0);
-    // "Monster Effectiveness" maps to the trade key map_magic_monsters.
-    assert!(q.filters.iter().any(|f| f.id == "map_magic_monsters"), "effectiveness pickable");
-    assert!(q.filters.iter().any(|f| f.id == "map_packsize"), "pack size pickable");
-
-    let body = q.to_body();
-    assert_eq!(body["query"]["type"], "Waystone (Tier 15)");
-    let mf = &body["query"]["filters"]["map_filters"]["filters"];
-    assert_eq!(mf["map_tier"]["min"], 15);
-    assert_eq!(mf["map_tier"]["max"], 15);
-    assert!(mf["map_iir"].is_null(), "disabled reward filter is not searched");
-
-    // Picking Item Rarity emits it in the map_filters section.
-    q.filters.iter_mut().find(|f| f.id == "map_iir").unwrap().disabled = false;
-    let body2 = q.to_body();
-    assert_eq!(body2["query"]["filters"]["map_filters"]["filters"]["map_iir"]["min"], 24);
-}
-
-#[test]
 fn unknown_mod_resolves_to_none() {
     let index = StatIndex::from_json(STATS_JSON).unwrap();
     // A fabricated mod must never silently match anything.
@@ -101,6 +66,22 @@ fn parse_static_currency_ids_maps_names_to_ids() {
     assert_eq!(map.get("exalted orb").map(String::as_str), Some("exalted"));
 }
 
+/// The catalog interleaves section headers ("Uncut Skill Gems", "Omens")
+/// and blank spacers with the currencies, all under the id "sep". The
+/// exchange refuses "sep" as a want tag, so none may look like a currency.
+#[test]
+fn catalog_separators_are_not_currencies() {
+    let json = include_str!("fixtures/trade_static.json");
+    let map = khaloni_poe2_core::trade::parse_static_currency_ids(json);
+    assert!(!map.contains_key(""), "a blank spacer became a currency");
+    for header in ["ultimatum fragments", "omens", "catalysts", "soul cores", "flux"] {
+        assert!(!map.contains_key(header), "the section header {header:?} became a currency");
+    }
+    assert!(map.values().all(|id| id != "sep" && !id.is_empty()), "{map:?}");
+    assert_eq!(map.get("exalted orb").map(String::as_str), Some("exalted"));
+    assert_eq!(map.get("scroll of wisdom").map(String::as_str), Some("wisdom"));
+}
+
 #[test]
 fn bad_json_is_an_error() {
     assert!(StatIndex::from_json("not json").is_err());
@@ -108,26 +89,10 @@ fn bad_json_is_an_error() {
 
 // --- rate limiter + query builder (facts verified live 2026-07-21) ---
 
-use khaloni_poe2_core::trade::{build_query, build_query_with_labels, RateDecision, RateLimiter};
-
-#[test]
-fn build_query_covers_implicit_mods() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    // An item whose only searchable mod is an implicit - like a waystone,
-    // valued on its implicit rarity/pack-size. The old explicits-only
-    // builder produced zero filters for this; implicits must be covered now.
-    let text = "Item Class: Amulets\nRarity: Rare\nTest\nStellar Amulet\n\
-        --------\nItem Level: 82\n--------\n+59 to maximum Mana (implicit)\n--------\n";
-    let item = parse_item(text).expect("parses");
-    assert!(item.explicits.is_empty(), "fixture has no explicit mods");
-    assert!(!item.implicits.is_empty(), "fixture has the implicit");
-    let (q, labels) = build_query_with_labels(&item, &stats);
-    assert!(
-        q.filters.iter().any(|f| f.id == "explicit.stat_1050105434"),
-        "the implicit maximum-mana mod produced a trade filter"
-    );
-    assert!(labels.iter().any(|l| l.text.contains("maximum Mana")));
-}
+use khaloni_poe2_core::trade::{
+    build_upgrade_query as build_query, build_upgrade_query_with_labels as build_query_with_labels, RateDecision,
+    RateLimiter,
+};
 
 #[test]
 fn parses_the_real_search_rate_rules() {
@@ -156,30 +121,11 @@ fn a_reported_ban_locks_the_limiter() {
 }
 
 #[test]
-fn builds_the_verified_body_shape_for_the_rare_bow() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let item = parse_item(BOW).expect("parse");
-    let q = build_query(&item, &stats);
-    assert_eq!(q.category.as_deref(), Some("weapon.bow"));
-    assert!(q.filters.len() >= 4, "most bow mods resolve, got {}", q.filters.len());
-    let body = q.to_body();
-    // "securable" (Instant Buyout only), the trade site's own default:
-    // in-person listings are free to fake and price-fixers exploit that;
-    // a buyout price is real by construction.
-    assert_eq!(body["query"]["status"]["option"], "securable");
-    assert_eq!(body["sort"]["price"], "asc");
-    assert_eq!(
-        body["query"]["filters"]["type_filters"]["filters"]["category"]["option"],
-        "weapon.bow"
-    );
-    let filters = body["query"]["stats"][0]["filters"].as_array().expect("filters");
-    let phys = filters
-        .iter()
-        .find(|f| f["id"] == "explicit.stat_1509134228")
-        .expect("physical damage filter present");
-    // tier floor of 157(155-169) -> 155
-    assert_eq!(phys["value"]["min"], 155); // tier floor of 157(155-169)
-    assert_eq!(phys["disabled"], false, "damage mods preselect");
+fn a_thousands_separator_is_not_a_second_damage_range() {
+    let text = "Item Class: Crossbows\nRarity: Rare\nDragon Core\nSiege Crossbow\n--------\n\
+        Physical Damage: 414-1,043 (augmented)\nAttacks per Second: 2.00\n--------\nItem Level: 82\n";
+    let w = khaloni_poe2_core::derived::weapon_stats(&parse_item(text).unwrap()).unwrap();
+    assert!((w.phys_dps - 1457.0).abs() < 1e-9, "got {}", w.phys_dps);
 }
 
 #[test]
@@ -225,27 +171,14 @@ fn gem_query_searches_by_skill_name_category_and_exact_level() {
 fn decimal_bounds_serialize_as_floats_and_whole_ones_as_integers() {
     use khaloni_poe2_core::trade::{FilterValue, Query, StatFilter};
     let q = Query {
-        category: None,
-        category_enabled: false,
-        name: None,
-        type_name: None,
-        map_tier: None,
-        gem_level: None,
-        weapon: None,
         filters: vec![
             StatFilter {
-                id: "explicit.stat_attack_speed".into(),
-                alt_ids: Vec::new(),
-                value: FilterValue { min: 3.5, max: Some(4.2) },
-                disabled: false,
+                value: FilterValue { min: Some(3.5), max: Some(4.2) },
+                ..StatFilter::at_least("explicit.stat_attack_speed", 3.5, false)
             },
-            StatFilter {
-                id: "explicit.stat_life".into(),
-                alt_ids: Vec::new(),
-                value: FilterValue { min: 80.0, max: None },
-                disabled: false,
-            },
+            StatFilter::at_least("explicit.stat_life", 80.0, false),
         ],
+        ..Default::default()
     };
     let body = q.to_body();
     let filters = body["query"]["stats"][0]["filters"].as_array().unwrap();
@@ -266,8 +199,8 @@ fn disabling_category_searches_mods_only_across_all_bases() {
     q.category_enabled = false;
     let body = q.to_body();
     assert!(
-        body["query"]["filters"].get("type_filters").is_none(),
-        "category disabled -> no type_filters, got {}",
+        body["query"]["filters"]["type_filters"]["filters"].get("category").is_none(),
+        "category disabled -> no category, got {}",
         body["query"]["filters"]
     );
     // The stat filters (the mods) are still there.
@@ -297,11 +230,11 @@ fn upgrade_query_meets_or_beats_both_current_values_in_same_category() {
     // an upgrade must meet-or-beat every kept mod.
     assert_eq!(q.filters.len(), 2);
     let mana = q.filters.iter().find(|f| f.id == "explicit.stat_1050105434").expect("mana filter");
-    assert_eq!(mana.value.min, 59.0);
+    assert_eq!(mana.value.min, Some(59.0));
     assert_eq!(mana.value.max, None, "upgrades are open-ended above the current roll");
     assert!(!mana.disabled, "every kept mod constrains the search");
     let fire = q.filters.iter().find(|f| f.id == "explicit.stat_3372524247").expect("fire filter");
-    assert_eq!(fire.value.min, 23.0);
+    assert_eq!(fire.value.min, Some(23.0));
     assert!(!fire.disabled);
 
     // The serialized body carries the category and both mins, cheapest-first.
@@ -328,10 +261,10 @@ fn upgrade_query_uses_current_roll_not_tier_floor() {
     // The bow's phys mod is 157(155-169): build_query searches the tier
     // floor (155); an upgrade must beat the actual roll (157).
     let phys = q.filters.iter().find(|f| f.id == "explicit.stat_1509134228").expect("phys filter");
-    assert_eq!(phys.value.min, 157.0, "current roll, not the 155 tier floor");
+    assert_eq!(phys.value.min, Some(157.0), "current roll, not the 155 tier floor");
     // Decimal rolls keep their fraction: crafted crit is +3.48(3.11-3.8)%.
     let crit = q.filters.iter().find(|f| f.id == "explicit.stat_518292764").expect("crit filter");
-    assert_eq!(crit.value.min, 3.48);
+    assert_eq!(crit.value.min, Some(3.48));
     // Every filter is enabled: no preselect tiering in an upgrade search.
     assert!(q.filters.iter().all(|f| !f.disabled));
 }
@@ -359,7 +292,7 @@ fn upgrade_query_skips_unmatched_and_valueless_mods_not_guesses() {
     // no numeric roll: both are dropped, never guessed onto some stat id.
     assert_eq!(q.filters.len(), 1, "only the resolvable numeric mod filters");
     assert_eq!(q.filters[0].id, "explicit.stat_1050105434");
-    assert_eq!(q.filters[0].value.min, 59.0);
+    assert_eq!(q.filters[0].value.min, Some(59.0));
 }
 
 #[test]
@@ -368,7 +301,13 @@ fn upgrade_title_names_the_item_class() {
     assert_eq!(upgrade_title(&item), "upgrades: Bows");
 }
 
-use khaloni_poe2_core::trade::{parse_fetch, parse_search, TradeClient, TradeError};
+use khaloni_poe2_core::trade::{parse_fetch, parse_search, Endpoint, Limiters, TradeClient, TradeError};
+
+/// A client on its own limiters: these tests ban and saturate them, which
+/// must not leak into the process-wide set other tests draw on.
+fn isolated_client() -> TradeClient {
+    TradeClient::with_limiters("http://127.0.0.1:9", "Runes of Aldur", Limiters::new()).expect("client")
+}
 
 #[test]
 fn parses_recorded_search_and_fetch_payloads() {
@@ -376,7 +315,11 @@ fn parses_recorded_search_and_fetch_payloads() {
     assert_eq!(s.id, "D6OM49MVf5");
     assert_eq!(s.hashes.len(), 2);
 
-    let listings = parse_fetch(include_str!("fixtures/trade_fetch.json")).expect("fetch fixture");
+    // The trimmed fixture carries no total; that is not an error.
+    assert_eq!(s.total, None);
+    let fetched = parse_fetch(include_str!("fixtures/trade_fetch.json")).expect("fetch fixture");
+    assert_eq!(fetched.dropped, 0);
+    let listings = fetched.listings;
     assert_eq!(listings.len(), 2);
     assert_eq!(listings[0].price_currency, "transmute");
     assert_eq!(listings[0].account, "Zubmission101#7022");
@@ -386,7 +329,7 @@ fn parses_recorded_search_and_fetch_payloads() {
 
 #[test]
 fn unreachable_host_is_an_http_error_not_a_panic() {
-    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    let mut c = isolated_client();
     let q = build_query(
         &khaloni_poe2_core::item::parse_item(BOW).unwrap(),
         &StatIndex::from_json(STATS_JSON).unwrap(),
@@ -399,8 +342,8 @@ fn unreachable_host_is_an_http_error_not_a_panic() {
 
 #[test]
 fn cooldown_blocks_before_any_request_leaves() {
-    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
-    c.search_limiter.apply_state("1:10:60");
+    let mut c = isolated_client();
+    c.limiters().apply_state(Endpoint::Search, "ip", "1:10:60");
     let q = build_query(
         &khaloni_poe2_core::item::parse_item(BOW).unwrap(),
         &StatIndex::from_json(STATS_JSON).unwrap(),
@@ -468,9 +411,9 @@ fn parse_saved_query_yields_a_repostable_body() {
 fn saved_search_ids_respects_the_rate_limiter() {
     // A banned limiter must block the saved-search GET before any request
     // leaves, exactly like the plain search path.
-    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    let mut c = isolated_client();
     c.set_session("testsession");
-    c.search_limiter.apply_state("1:10:60");
+    c.limiters().apply_state(Endpoint::Search, "ip", "1:10:60");
     match c.saved_search_ids("Runes of Aldur", "D6OM49MVf5") {
         Err(TradeError::Cooldown(d)) => assert!(d.as_secs() >= 59),
         other => panic!("expected Cooldown, got {other:?}"),
@@ -479,7 +422,7 @@ fn saved_search_ids_respects_the_rate_limiter() {
 
 #[test]
 fn saved_search_against_unreachable_host_is_an_http_error() {
-    let mut c = TradeClient::new("http://127.0.0.1:9", "Runes of Aldur").expect("client");
+    let mut c = isolated_client();
     c.set_session("testsession");
     match c.saved_search_ids("Runes of Aldur", "D6OM49MVf5") {
         Err(TradeError::Http(_)) => {}
@@ -491,32 +434,40 @@ fn saved_search_against_unreachable_host_is_an_http_error() {
 fn relaxing_a_query_lowers_only_live_minimums() {
     // Weapon bounds relax with everything else.
     let q = Query {
-        weapon: Some(WeaponFilters { dps: Some(400.0), aps: Some(1.5), ..Default::default() }),
+        equipment: Some(
+            EquipmentFilters::default()
+                .with(EquipKey::Dps, 400.0)
+                .with(EquipKey::Aps, 1.5)
+                .with(EquipKey::RuneSockets, 3.0),
+        ),
         ..Default::default()
     };
     let relaxed = khaloni_poe2_core::trade::relax_query(&q, 0.10);
-    let w = relaxed.weapon.unwrap();
-    assert!((w.dps.unwrap() - 360.0).abs() < 1e-9);
-    assert!((w.aps.unwrap() - 1.35).abs() < 1e-9);
-    assert_eq!(w.pdps, None);
+    let w = relaxed.equipment.unwrap();
+    assert!((w.get(EquipKey::Dps).unwrap() - 360.0).abs() < 1e-9);
+    assert!((w.get(EquipKey::Aps).unwrap() - 1.35).abs() < 1e-9);
+    assert_eq!(w.get(EquipKey::Pdps), None);
+    // A socket count is not a roll; "10% fewer sockets" means nothing.
+    assert_eq!(w.get(EquipKey::RuneSockets), Some(3.0));
 
     use khaloni_poe2_core::trade::relax_query;
     let item = khaloni_poe2_core::item::parse_item(BOW).unwrap();
     let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let (mut q, _) = khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
+    let (mut q, _) = build_query_with_labels(&item, &stats);
     assert!(!q.filters.is_empty(), "the bow fixture yields filters");
     // Disable one filter to prove a relaxation leaves it untouched.
     q.filters[0].disabled = true;
-    let before: Vec<(f64, bool)> = q.filters.iter().map(|f| (f.value.min, f.disabled)).collect();
+    let before: Vec<(f64, bool)> =
+        q.filters.iter().map(|f| (f.value.min.expect("upgrade filters carry a minimum"), f.disabled)).collect();
 
     let relaxed = relax_query(&q, 0.10);
     assert_eq!(relaxed.filters.len(), q.filters.len());
     for (i, f) in relaxed.filters.iter().enumerate() {
         let (min0, disabled) = before[i];
-        if disabled || min0 <= 0.0 {
-            assert_eq!(f.value.min, min0, "filter {i} must be untouched");
+        if disabled {
+            assert_eq!(f.value.min, Some(min0), "filter {i} must be untouched");
         } else {
-            assert!((f.value.min - min0 * 0.9).abs() < 1e-9, "filter {i} not relaxed by 10%");
+            assert!((f.value.min.unwrap() - min0 * 0.9).abs() < 1e-9, "filter {i} not relaxed by 10%");
         }
     }
 }
@@ -530,19 +481,18 @@ fn weapon_bounds_serialize_into_equipment_filters() {
     };
     // Unset weapon bounds leave no trace in the body.
     assert!(q.to_body()["query"]["filters"].get("equipment_filters").is_none());
-    q.weapon = Some(WeaponFilters::default());
+    q.equipment = Some(EquipmentFilters::default());
     assert!(q.to_body()["query"]["filters"].get("equipment_filters").is_none());
 
-    q.weapon = Some(WeaponFilters {
-        dps: Some(467.5),
-        pdps: Some(420.0),
-        aps: Some(1.1),
-        ..Default::default()
-    });
+    q.equipment = Some(
+        EquipmentFilters::default()
+            .with(EquipKey::Dps, 467.5)
+            .with(EquipKey::Pdps, 420.0)
+            .with(EquipKey::Aps, 1.1),
+    );
     let body = q.to_body();
     let eq = &body["query"]["filters"]["equipment_filters"];
     // The trade2 section name: "weapon_filters" is PoE1's and is rejected.
-    assert_eq!(eq["disabled"], false);
     assert_eq!(eq["filters"]["dps"]["min"], 467.5);
     assert_eq!(eq["filters"]["pdps"]["min"], 420);
     assert_eq!(eq["filters"]["aps"]["min"], 1.1);
@@ -550,29 +500,6 @@ fn weapon_bounds_serialize_into_equipment_filters() {
     assert!(eq["filters"]["dps"].get("max").is_none());
     assert!(eq["filters"].get("edps").is_none());
     assert!(eq["filters"].get("crit").is_none());
-}
-
-#[test]
-fn pseudo_filters_resolve_only_against_the_real_catalog() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let f = pseudo_filter(&stats, "pseudo.pseudo_total_elemental_resistance", 75.0)
-        .expect("the catalog lists this pseudo stat");
-    assert_eq!(f.id, "pseudo.pseudo_total_elemental_resistance");
-    assert_eq!(f.value.min, 75.0);
-    assert_eq!(f.value.max, None);
-    assert!(!f.disabled);
-
-    // An id the site does not know must yield nothing, never a guess.
-    assert_eq!(pseudo_filter(&stats, "pseudo.pseudo_total_swagger", 1.0), None);
-
-    // Pseudo filters ride in the same stats list as mod filters.
-    let mut q = Query { filters: vec![f], ..Default::default() };
-    q.filters.push(pseudo_filter(&stats, "pseudo.pseudo_total_strength", 80.0).unwrap());
-    let body = q.to_body();
-    let sent = body["query"]["stats"][0]["filters"].as_array().unwrap();
-    assert_eq!(sent.len(), 2);
-    assert_eq!(sent[1]["id"], "pseudo.pseudo_total_strength");
-    assert_eq!(sent[1]["value"]["min"], 80);
 }
 
 // --- regressions from the 2026-09 bug hunt ---
@@ -600,72 +527,6 @@ fn absorbed_rate_rules_keep_the_request_history() {
 }
 
 #[test]
-fn labels_carry_the_rolled_value_beside_the_search_floor() {
-    use khaloni_poe2_core::trade::build_query_with_labels;
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let item = parse_item(BOW).expect("parse");
-    let (q, labels) = build_query_with_labels(&item, &stats);
-    let (i, phys) = labels
-        .iter()
-        .enumerate()
-        .find(|(_, l)| l.text.contains("increased Physical Damage"))
-        .expect("phys label");
-    // The search floor is the tier's low end; the roll the item actually
-    // has is what a tier badge or roll score must be read against.
-    assert_eq!(q.filters[i].value.min, 155.0);
-    assert_eq!(phys.rolled, Some(157.0));
-    let (_, crit) = labels
-        .iter()
-        .enumerate()
-        .find(|(_, l)| l.text.contains("Critical Hit Chance"))
-        .expect("crit label");
-    assert_eq!(crit.rolled, Some(3.48));
-}
-
-#[test]
-fn keep_strongest_disables_the_weakest_enabled_filters() {
-    use khaloni_poe2_core::trade::{FilterValue, StatFilter};
-    let f = |id: &str, min: f64, disabled: bool| StatFilter {
-        id: id.into(),
-        alt_ids: Vec::new(),
-        value: FilterValue { min, max: None },
-        disabled,
-    };
-    let q = Query {
-        filters: vec![f("a", 10.0, false), f("b", 50.0, false), f("c", 30.0, false), f("d", 99.0, true)],
-        ..Query::default()
-    };
-    let enabled = |q: &Query| -> Vec<String> {
-        q.filters.iter().filter(|f| !f.disabled).map(|f| f.id.clone()).collect()
-    };
-    assert_eq!(enabled(&q.keep_strongest(1)), vec!["b"]);
-    assert_eq!(enabled(&q.keep_strongest(2)), vec!["b", "c"]);
-    assert_eq!(enabled(&q.keep_strongest(3)), vec!["a", "b", "c"]);
-    // A disabled filter never comes back, and asking for more than exist is fine.
-    assert_eq!(enabled(&q.keep_strongest(9)), vec!["a", "b", "c"]);
-    // Order and count of filters are untouched, so label indices stay valid.
-    assert_eq!(q.keep_strongest(1).filters.len(), q.filters.len());
-}
-
-#[test]
-fn unique_query_searches_by_name_and_base_with_mods_off() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let belt = parse_item(include_str!("fixtures/item5-unique-belt.txt")).expect("parse");
-    let q = build_query(&belt, &stats);
-    assert_eq!(q.name.as_deref(), Some("The Gnashing Sash"));
-    assert_eq!(q.type_name.as_deref(), Some("Wide Belt"));
-    assert!(q.category.is_none(), "name + base pin the item; a category would be redundant");
-    assert!(q.filters.iter().all(|f| f.disabled), "unique rolls are opt-in filters");
-    let body = q.to_body();
-    assert_eq!(body["query"]["name"], "The Gnashing Sash");
-    assert_eq!(body["query"]["type"], "Wide Belt");
-    // A rare never carries a name constraint: its name is random.
-    let bow = build_query(&parse_item(BOW).unwrap(), &stats);
-    assert!(bow.name.is_none());
-    assert!(bow.to_body()["query"].get("name").is_none());
-}
-
-#[test]
 fn every_gear_class_maps_to_its_live_trade_category() {
     use khaloni_poe2_core::trade::category_for;
     // Ids from /api/trade2/data/filters (fetched 2026-09-08).
@@ -687,56 +548,6 @@ fn every_gear_class_maps_to_its_live_trade_category() {
         assert_eq!(category_for(class).as_deref(), Some(cat), "{class}");
     }
     assert_eq!(category_for("Stackable Currency"), None, "currency is not gear");
-}
-
-const GEM: &str = concat!(
-    "Item Class: Skill Gems\n",
-    "Rarity: Gem\n",
-    "Fireball\n",
-    "--------\n",
-    "Level: 20 (Max)\n",
-    "Quality: +20% (augmented)\n",
-    "--------\n",
-    "Requirements:\n",
-    "Level: 70\n",
-    "Int: 155\n",
-    "--------\n",
-    "Fires a ball of fire.\n",
-);
-
-#[test]
-fn a_cut_gem_searches_its_skill_at_its_exact_level() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let gem = parse_item(GEM).expect("parse");
-    let q = build_query(&gem, &stats);
-    assert_eq!(q.category.as_deref(), Some("gem.activegem"));
-    assert_eq!(q.type_name.as_deref(), Some("Fireball"));
-    assert_eq!(q.gem_level, Some(20), "the gem's own level, not the level requirement");
-    assert!(q.filters.is_empty());
-    let body = q.to_body();
-    assert_eq!(body["query"]["filters"]["misc_filters"]["filters"]["gem_level"]["min"], 20);
-}
-
-#[test]
-fn a_magic_waystone_recovers_its_tiered_base_from_the_name() {
-    let stats = StatIndex::from_json(STATS_JSON).expect("stats fixture");
-    let text = concat!(
-        "Item Class: Waystones\n",
-        "Rarity: Magic\n",
-        "Shielded Waystone (Tier 15) of Fortune\n",
-        "--------\n",
-        "Waystone Tier: 15\n",
-        "Item Rarity: +24%\n",
-        "--------\n",
-        "Item Level: 80\n",
-        "--------\n",
-        "Monsters have 30% increased Armour\n",
-    );
-    let ws = parse_item(text).expect("parse");
-    assert!(ws.base_type.is_none(), "magic items copy as one name line");
-    let q = build_query(&ws, &stats);
-    assert_eq!(q.type_name.as_deref(), Some("Waystone (Tier 15)"));
-    assert_eq!(q.map_tier, Some(15));
 }
 
 // --- two-line affixes: local-id twins and multi-line catalog stats ---
@@ -768,27 +579,27 @@ fn a_gear_line_resolves_to_its_global_id_and_its_local_twin() {
 }
 
 #[test]
-fn hybrid_affix_lines_search_every_id_they_may_be_indexed_under() {
-    let stats = StatIndex::from_json(STATS_JSON).unwrap();
-    let item = parse_item(HYBRID_CHEST).unwrap();
-    let (q, labels) = build_query_with_labels(&item, &stats);
-    // One filter per line, like the trade site: the hybrid's two lines are
-    // two stats there, each searchable on its own.
-    let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
-    assert_eq!(ids, vec!["explicit.stat_809229260", "explicit.stat_2144192055", "explicit.stat_3299347043"]);
-    assert_eq!(q.filters[0].alt_ids, vec!["explicit.stat_3484657501"]);
-    assert_eq!(q.filters[0].value.min, 86.0, "tier floor of 90(86-102)");
-    assert_eq!(q.filters[1].alt_ids, vec!["explicit.stat_53045048"]);
-    assert!(q.filters[2].alt_ids.is_empty(), "life has one id");
-    let texts: Vec<&str> = labels.iter().map(|l| l.text.as_str()).collect();
-    assert_eq!(texts, vec!["+90 to Armour", "+85 to Evasion Rating", "+45 to maximum Life"]);
-
+fn a_multi_id_filter_is_a_count_group_over_all_its_ids() {
+    use khaloni_poe2_core::trade::StatFilter;
+    // A hybrid chest's flat armour and evasion are each indexed under a
+    // global and a local id; its life has one.
+    let twin = |id: &str, alt: &str, min: f64| StatFilter {
+        alt_ids: vec![alt.to_string()],
+        ..StatFilter::at_least(id, min, true)
+    };
+    let mut q = Query {
+        filters: vec![
+            twin("explicit.stat_809229260", "explicit.stat_3484657501", 86.0),
+            twin("explicit.stat_2144192055", "explicit.stat_53045048", 76.0),
+            StatFilter::at_least("explicit.stat_3299347043", 40.0, true),
+        ],
+        ..Default::default()
+    };
     // Verified live 2026-09-10: on body armours the global armour id finds
     // nothing and the local one finds thousands, and a `count >= 1` group
     // over both matches exactly what the local id alone matches. So a
     // multi-id filter leaves the "and" group and becomes its own count
     // group, every id carrying the same bound.
-    let mut q = q;
     q.filters[0].disabled = false;
     let body = q.to_body();
     let stats_groups = body["query"]["stats"].as_array().unwrap();
@@ -815,6 +626,9 @@ fn hybrid_affix_lines_search_every_id_they_may_be_indexed_under() {
     // constraint the site still applies.
     assert_eq!(stats_groups[2]["type"], "count");
     assert_eq!(stats_groups[2]["disabled"], true, "evasion is not preselected");
+    for m in stats_groups[2]["filters"].as_array().unwrap() {
+        assert_eq!(m["disabled"], true, "EE2 marks every member of the group, not only the group");
+    }
     // The relaxed bound reaches every member.
     let relaxed = khaloni_poe2_core::trade::relax_query(&q, 0.5).to_body();
     for m in relaxed["query"]["stats"][1]["filters"].as_array().unwrap() {
@@ -829,7 +643,7 @@ fn upgrade_query_carries_local_twins_too() {
     let q = build_upgrade_query(&item, &stats);
     let armour = q.filters.iter().find(|f| f.id == "explicit.stat_809229260").expect("armour filter");
     assert_eq!(armour.alt_ids, vec!["explicit.stat_3484657501"]);
-    assert_eq!(armour.value.min, 90.0, "current roll, not tier floor");
+    assert_eq!(armour.value.min, Some(90.0), "current roll, not tier floor");
     let group = &q.to_body()["query"]["stats"][1];
     assert_eq!(group["type"], "count");
     assert_eq!(group["filters"][1]["id"], "explicit.stat_3484657501");
@@ -848,7 +662,7 @@ fn a_stat_whose_catalog_text_spans_two_lines_is_one_filter() {
     let (q, labels) = build_query_with_labels(&item, &stats);
     let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(ids, vec!["explicit.stat_1013492127", "explicit.stat_1050105434"]);
-    assert_eq!(q.filters[0].value.min, 2.0);
+    assert_eq!(q.filters[0].value.min, Some(2.0));
     assert_eq!(
         labels[0].text,
         "Spells fire 2 additional Projectiles / Spells fire Projectiles in a circle"
@@ -874,7 +688,7 @@ fn the_two_line_stat_beats_its_single_line_lookalike() {
     assert_eq!(q.filters[0].id, "explicit.stat_1602191394");
     // The catalog lists that two-line text twice; the duplicate rides along.
     assert_eq!(q.filters[0].alt_ids, vec!["explicit.stat_2261942307"]);
-    assert_eq!(q.filters[0].value.min, 60.0);
+    assert_eq!(q.filters[0].value.min, Some(60.0));
     assert_eq!(labels.len(), 1);
 }
 
@@ -914,4 +728,304 @@ fn lines_under_different_affix_headers_are_never_joined() {
     let (q, _) = build_query_with_labels(&item, &stats);
     let ids: Vec<&str> = q.filters.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(ids, vec!["explicit.stat_3917489142"]);
+}
+
+#[test]
+fn a_long_windows_server_count_does_not_trip_the_short_rules() {
+    // Live 2026-09-19: the search policy carries a six-hour rule, and after
+    // a restart the server's count for it (47 here) is far above what this
+    // limiter has recorded. Those requests happened hours ago; counting the
+    // difference as sent just now put a fresh client straight into a
+    // five-minute cooldown on its first price check.
+    let mut l = RateLimiter::from_header("5:10:60,15:60:300,30:300:1800,600:21600:3600");
+    l.apply_state("1:10:0,1:60:0,1:300:0,47:21600:0");
+    assert_eq!(l.check(), RateDecision::Ready);
+    // The six-hour rule itself still learns from the server: near its cap
+    // it must hold the client back.
+    let mut near = RateLimiter::from_header("5:10:60,600:21600:3600");
+    near.apply_state("1:10:0,600:21600:0");
+    assert!(matches!(near.check(), RateDecision::Wait(_)));
+}
+
+// --- search total, fetch, exchange rate and Broad regressions (2026-09) ---
+
+#[test]
+fn the_search_total_is_kept() {
+    let s = parse_search(r#"{"id":"abc","complexity":6,"result":["h1","h2"],"total":3187,"inexact":false}"#)
+        .expect("parses");
+    assert_eq!(s.total, Some(3187));
+    assert_eq!(s.hashes.len(), 2);
+}
+
+#[test]
+fn gone_and_unpriced_listings_are_counted_not_fatal() {
+    // A listing that sold between the search and the fetch comes back as a
+    // bare null, which used to fail the whole page; one without a price was
+    // dropped without a trace.
+    let body = r#"{"result":[
+        null,
+        {"id":"a","listing":{"indexed":"2026-09-01T00:00:00Z","account":{"name":"A#1"},"price":{"type":"~price","amount":5,"currency":"exalted"}},"item":{"name":"","baseType":"Gold Ring"}},
+        {"id":"b","listing":{"indexed":"2026-09-01T00:00:00Z","account":{"name":"B#2"},"price":null},"item":{"name":"","baseType":"Gold Ring"}}
+    ]}"#;
+    let out = parse_fetch(body).expect("a null entry is not a parse error");
+    assert_eq!(out.listings.len(), 1);
+    assert_eq!(out.listings[0].account, "A#1");
+    assert_eq!(out.dropped, 2);
+}
+
+#[test]
+fn a_fetch_keeps_its_raw_entries_including_the_nulls() {
+    // The listings table and the hover card read fields the `Listing`
+    // summary never carried (mods, tiers, online state, fee), so the entries
+    // are kept as received, in the order the search listed them, with the
+    // API's null where a listing had gone.
+    const FULL: &str = include_str!("fixtures/trade_fetch_full.json");
+    let out = parse_fetch(FULL).expect("the full fixture parses");
+    assert_eq!(out.raw.len(), 18, "one slot per requested hash");
+    assert!(out.raw[2].is_none(), "the gone listing stays a null in its slot");
+    assert_eq!(out.raw.iter().flatten().count(), 17);
+    // A priceless listing is still an entry: it is dropped from the priced
+    // summary, not from the raw page.
+    let unpriced = out.raw[7].as_ref().expect("entry present");
+    assert!(unpriced["listing"]["price"].is_null());
+    assert_eq!(out.listings.len(), 16);
+    assert_eq!(out.dropped, 2);
+    // The entries are the API's own objects, untouched.
+    let first = out.raw[0].as_ref().expect("entry present");
+    assert_eq!(
+        first["id"].as_str(),
+        Some("7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84")
+    );
+    assert!(first["item"]["explicitMods"].is_array(), "the item block rides along whole");
+}
+
+fn exchange_body(rates: &[(f64, f64)]) -> String {
+    let listings: Vec<String> = rates
+        .iter()
+        .enumerate()
+        .map(|(i, (pay, get))| {
+            format!(
+                r#""l{i}":{{"listing":{{"offers":[{{"exchange":{{"currency":"exalted","amount":{pay}}},"item":{{"currency":"omen","amount":{get}}}}}]}}}}"#
+            )
+        })
+        .collect();
+    format!(r#"{{"result":{{{}}}}}"#, listings.join(","))
+}
+
+#[test]
+fn one_bait_offer_does_not_set_the_exchange_rate() {
+    use khaloni_poe2_core::trade::parse_exchange_rate;
+    // A single 1 ex offer under a market sitting at 40-44 ex.
+    let body = exchange_body(&[(1.0, 1.0), (40.0, 1.0), (41.0, 1.0), (42.0, 1.0), (44.0, 1.0), (90.0, 1.0)]);
+    let rate = parse_exchange_rate(&body).expect("offers present");
+    assert_eq!(rate, 41.0, "median of the five cheapest: 1, 40, 41, 42, 44");
+    // Bulk offers are compared per unit.
+    let body = exchange_body(&[(400.0, 10.0), (41.0, 1.0), (84.0, 2.0)]);
+    assert_eq!(parse_exchange_rate(&body), Some(41.0));
+    // One or two offers: the median of what there is.
+    assert_eq!(parse_exchange_rate(&exchange_body(&[(40.0, 1.0)])), Some(40.0));
+    assert_eq!(parse_exchange_rate(&exchange_body(&[(40.0, 1.0), (44.0, 1.0)])), Some(42.0));
+    // A zero amount on either side is not an offer.
+    assert_eq!(parse_exchange_rate(&exchange_body(&[(0.0, 1.0), (40.0, 0.0)])), None);
+}
+
+use khaloni_poe2_core::trade::{FilterValue, StatFilter};
+
+fn stat_filter(id: &str, min: Option<f64>, max: Option<f64>) -> StatFilter {
+    StatFilter { value: FilterValue { min, max }, ..StatFilter::at_least(id, 0.0, false) }
+}
+
+#[test]
+fn broad_widens_every_bound_in_the_direction_that_admits_more() {
+    use khaloni_poe2_core::trade::{relax_query, FilterRole};
+    let q = Query {
+        filters: vec![
+            stat_filter("explicit.stat_positive_min", Some(20.0), None),
+            // A "reduced" stat the site indexes negated: min -20 means "at
+            // least 20% reduced"; looser is -22.
+            stat_filter("explicit.stat_negative_min", Some(-20.0), None),
+            // Lower is better: only a maximum, which loosens upward.
+            stat_filter("explicit.stat_max_only", None, Some(30.0)),
+            stat_filter("explicit.stat_negative_max", None, Some(-10.0)),
+            // A flag stat carries no bound at all.
+            stat_filter("explicit.stat_flag", None, None),
+            StatFilter { disabled: true, ..stat_filter("explicit.stat_disabled", Some(50.0), Some(60.0)) },
+            // Counts are not rolls.
+            stat_filter("pseudo.pseudo_number_of_unrevealed_mods", Some(2.0), None),
+            stat_filter("pseudo.pseudo_number_of_uses_remaining", Some(3.0), None),
+            StatFilter {
+                role: FilterRole::EmptyModifier,
+                ..stat_filter("pseudo.pseudo_number_of_empty_prefix_mods", Some(1.0), Some(1.0))
+            },
+        ],
+        ..Default::default()
+    };
+    let r = relax_query(&q, 0.10);
+    let bounds: Vec<(Option<f64>, Option<f64>)> = r.filters.iter().map(|f| (f.value.min, f.value.max)).collect();
+    let close = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(a), Some(b)) => (a - b).abs() < 1e-9,
+        (None, None) => true,
+        _ => false,
+    };
+    let want = [
+        (Some(18.0), None),
+        (Some(-22.0), None),
+        (None, Some(33.0)),
+        (None, Some(-9.0)),
+        (None, None),
+        (Some(50.0), Some(60.0)),
+        (Some(2.0), None),
+        (Some(3.0), None),
+        (Some(1.0), Some(1.0)),
+    ];
+    for (i, (got, want)) in bounds.iter().zip(want).enumerate() {
+        assert!(close(got.0, want.0) && close(got.1, want.1), "filter {i}: got {got:?}, want {want:?}");
+    }
+    // Every relaxed range contains the range it came from.
+    for (before, after) in q.filters.iter().zip(&r.filters) {
+        if let (Some(b), Some(a)) = (before.value.min, after.value.min) {
+            assert!(a <= b);
+        }
+        if let (Some(b), Some(a)) = (before.value.max, after.value.max) {
+            assert!(a >= b);
+        }
+    }
+}
+
+// --- the anonymous search limit (measured live 2026-09-30) ---
+
+fn ee2_db() -> khaloni_poe2_core::ee2::Ee2Data {
+    use khaloni_poe2_core::ee2::{data, Ee2Data};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/ee2-parity/data");
+    let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+    let mut db = Ee2Data::from_ndjson(&read("stats.ndjson"), &read("items.ndjson")).unwrap();
+    db.trade_stats = Some(data::TradeStatTexts::from_json(&read("trade-stats.json")).unwrap());
+    db.trade_items = Some(data::trade_item_names(&read("trade-items.json")).unwrap());
+    db
+}
+
+fn tablet_query() -> Query {
+    let text = include_str!("fixtures/item-tablet-mythical-instigation.txt");
+    khaloni_poe2_core::ee2::build(text, &ee2_db()).expect("the tablet builds").query
+}
+
+/// A local stand-in for the search endpoint that keeps every request it
+/// was sent, so a test sees the body that left without any real traffic.
+fn search_stub() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut req = Vec::new();
+            let mut buf = [0u8; 16384];
+            // Read the head, then as much body as Content-Length says.
+            loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req).to_string();
+                if let Some(head_end) = text.find("\r\n\r\n") {
+                    let len = text[..head_end]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .unwrap_or(0);
+                    if req.len() >= head_end + 4 + len || n == 0 {
+                        log.lock().unwrap().push(text[head_end + 4..].to_string());
+                        break;
+                    }
+                } else if n == 0 {
+                    break;
+                }
+            }
+            let body = r#"{"id":"stub","complexity":1,"result":[],"total":0}"#;
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+fn stat_groups(body: &serde_json::Value) -> Vec<serde_json::Value> {
+    body["query"]["stats"].as_array().cloned().unwrap_or_default()
+}
+
+fn group_ids(g: &serde_json::Value) -> Vec<String> {
+    let mut ids: Vec<String> =
+        g["filters"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap().to_string()).collect();
+    ids.sort();
+    ids
+}
+
+#[test]
+fn an_anonymous_search_merges_twin_groups_to_three_or_fewer() {
+    use khaloni_poe2_core::trade::{search_body, ANONYMOUS_STAT_GROUPS};
+    let q = tablet_query();
+    let built = q.to_body();
+    let groups = stat_groups(&built);
+    // EE2's body for this tablet: "and" plus three twin groups, which the
+    // site refused without a session.
+    assert_eq!(groups.len(), 4);
+    let twins: Vec<_> = groups.iter().filter(|g| g["type"] == "count").collect();
+    assert_eq!(twins.len(), 3);
+
+    let sent = search_body(&q, true).expect("fits once merged");
+    let sent_groups = stat_groups(&sent);
+    assert!(sent_groups.len() <= ANONYMOUS_STAT_GROUPS, "{sent_groups:?}");
+    let and: Vec<_> = sent_groups.iter().filter(|g| g["type"] == "and").collect();
+    assert_eq!(and, groups.iter().filter(|g| g["type"] == "and").collect::<Vec<_>>(), "the and group is untouched");
+    let counts: Vec<_> = sent_groups.iter().filter(|g| g["type"] == "count").collect();
+    assert_eq!(counts.len(), 1);
+    assert_eq!(counts[0]["value"], serde_json::json!({"min": 3}));
+    assert_eq!(counts[0]["disabled"], false);
+    let mut all_twin_ids: Vec<String> = twins.iter().flat_map(|g| group_ids(g)).collect();
+    all_twin_ids.sort();
+    assert_eq!(group_ids(counts[0]), all_twin_ids, "the same six ids at their own bounds");
+    // Everything outside the stat groups is as built.
+    let mut rest = sent.clone();
+    let mut built_rest = built.clone();
+    rest["query"]["stats"] = serde_json::Value::Null;
+    built_rest["query"]["stats"] = serde_json::Value::Null;
+    assert_eq!(rest, built_rest);
+
+    // The client without a session sends exactly that.
+    let (base, seen) = search_stub();
+    let mut c = TradeClient::with_limiters(&base, "Rise of the Abyssal", Limiters::new()).unwrap();
+    c.search(&q).expect("the stub answers");
+    let sent_by_client: serde_json::Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
+    assert_eq!(sent_by_client, sent);
+
+    // A body that still needs four groups is refused before it leaves,
+    // with the way out named.
+    let mut too_many = q.clone();
+    for (i, not) in ["explicit.stat_1", "explicit.stat_2"].into_iter().enumerate() {
+        let mut f = StatFilter::at_least(format!("explicit.stat_10{i}"), 1.0, false);
+        f.not_id = Some(not.to_string());
+        too_many.filters.push(f);
+    }
+    let err = search_body(&too_many, true).expect_err("four groups after merging");
+    let why = err.to_string();
+    assert!(why.contains("POESESSID") && why.contains("Settings -> Account"), "{why}");
+    let before = seen.lock().unwrap().len();
+    assert!(c.search(&too_many).is_err());
+    assert_eq!(seen.lock().unwrap().len(), before, "a search the site would refuse was sent");
+}
+
+#[test]
+fn a_session_search_is_sent_as_built() {
+    use khaloni_poe2_core::trade::search_body;
+    let q = tablet_query();
+    assert_eq!(search_body(&q, false).unwrap(), q.to_body());
+    let (base, seen) = search_stub();
+    let mut c = TradeClient::with_limiters(&base, "Rise of the Abyssal", Limiters::new()).unwrap();
+    c.set_session("testsession");
+    c.search(&q).expect("the stub answers");
+    let sent: serde_json::Value = serde_json::from_str(&seen.lock().unwrap()[0]).unwrap();
+    assert_eq!(sent, q.to_body());
+    assert_eq!(stat_groups(&sent).len(), 4);
 }

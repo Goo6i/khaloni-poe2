@@ -1,5 +1,5 @@
 pub use khaloni_poe2_core::matcher::Vocab;
-use khaloni_poe2_core::matcher::{match_rows, normalize, MatchTier};
+use khaloni_poe2_core::matcher::{match_rows, normalize, parse_count_token, MatchTier};
 use khaloni_poe2_core::ninja::{Price, PriceTable};
 use khaloni_poe2_core::value::{display_price, format_amount, UNKNOWN};
 
@@ -46,6 +46,10 @@ pub struct Priced {
     /// Total row value in exalted (0.0 for "?" rows); drives tiering and
     /// the best-pick comparison.
     pub value_ex: f64,
+    /// Total row value in chaos (0.0 for "?" rows, and when the table has
+    /// no chaos rate). Tiering reads this, not `value_ex`: see
+    /// `tier_for_chaos`.
+    pub value_chaos: f64,
     /// True when this pass's OCR line carried an explicit "Nx" count token;
     /// false when the count was implied (defaulted to 1) or this row has no
     /// count concept at all (gem rows, "?" rows). Drives the stabilizer's
@@ -60,30 +64,24 @@ pub struct Priced {
     pub locks_in_one: bool,
 }
 
-/// Mirrors `display_price`'s divine-vs-exalted choice and formatting, but
+/// Mirrors `display_price`'s choice of currency and formatting, but
 /// returns the amount without a trailing "div"/"ex" word since the renderer
 /// shows that as an icon instead. `pub(crate)` so `hover.rs` can reuse it
-/// for the price-check popup instead of duplicating the divine/exalted
-/// choice.
-pub(crate) fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> (Denom, String) {
-    let count = count.max(1);
-    let total_divine = price.divine * f64::from(count);
-    let total_exalted = price.exalted * f64::from(count);
-    if total_divine >= divine_threshold {
-        let amount = if count == 1 {
-            format_amount(total_divine)
-        } else {
-            format!("{} ({} each)", format_amount(total_divine), format_amount(price.divine))
-        };
-        (Denom::Divine, amount)
+/// for the price-check popup, and `main.rs` for the panel's value box,
+/// instead of duplicating the choice.
+pub fn denom_amount(price: &Price, count: u32, divine_threshold: f64) -> (Denom, String) {
+    let (unit, total, each) = khaloni_poe2_core::value::pick_unit(price, count, divine_threshold);
+    let denom = match unit {
+        khaloni_poe2_core::value::Unit::Divine => Denom::Divine,
+        khaloni_poe2_core::value::Unit::Chaos => Denom::Chaos,
+        khaloni_poe2_core::value::Unit::Exalted => Denom::Exalted,
+    };
+    let amount = if count.max(1) == 1 {
+        format_amount(total)
     } else {
-        let amount = if count == 1 {
-            format_amount(total_exalted)
-        } else {
-            format!("{} ({} each)", format_amount(total_exalted), format_amount(price.exalted))
-        };
-        (Denom::Exalted, amount)
-    }
+        format!("{} ({} each)", format_amount(total), format_amount(each))
+    };
+    (denom, amount)
 }
 
 pub fn build_vocab(table: &PriceTable) -> Vocab {
@@ -177,14 +175,34 @@ enum GemRow {
     Unleveled,
 }
 
-fn tier_for(total_ex: f64, cfg: &Config) -> Tier {
-    if total_ex >= cfg.tier_good_ex {
+/// Tier of a row worth `value_chaos`, against thresholds in chaos.
+///
+/// Thresholds are in chaos because chaos is the currency whose worth stays
+/// put across a league: the exalted orb has inflated to roughly 55 to the
+/// chaos, so "10 exalted" - a jackpot when the thresholds were written -
+/// is now a fraction of one chaos, and an exalted-denominated bar painted
+/// nearly every row Jackpot. A row with no chaos value (the table carries
+/// no chaos rate) has no tier rather than the lowest one.
+pub fn tier_for_chaos(value_chaos: f64, decent_chaos: f64, good_chaos: f64) -> Tier {
+    if value_chaos <= 0.0 {
+        Tier::Unknown
+    } else if value_chaos >= good_chaos {
         Tier::Jackpot
-    } else if total_ex >= cfg.tier_decent_ex {
+    } else if value_chaos >= decent_chaos {
         Tier::Decent
     } else {
         Tier::Junk
     }
+}
+
+/// The configured (decent, good) thresholds, in chaos.
+fn tier_thresholds_chaos(cfg: &Config) -> (f64, f64) {
+    (cfg.tier_decent_chaos, cfg.tier_good_chaos)
+}
+
+fn tier_of(value_chaos: f64, cfg: &Config) -> Tier {
+    let (decent, good) = tier_thresholds_chaos(cfg);
+    tier_for_chaos(value_chaos, decent, good)
 }
 
 /// True when `word` looks like a stack-count token ("Nx"): a short digit
@@ -200,12 +218,10 @@ fn tier_for(total_ex: f64, cfg: &Config) -> Tier {
 /// at 3 chars so this can't accidentally match an unrelated word ending
 /// in "x".
 fn is_count_token(word: &str) -> bool {
-    let Some(prefix) = word.strip_suffix('x') else {
-        return false;
-    };
-    !prefix.is_empty()
-        && prefix.len() <= 3
-        && prefix.chars().all(|c| c.is_ascii_digit() || c == 'l' || c == 'i')
+    // The matcher's own reading of a count, plus the all-zero token it
+    // refuses to put a number on: "0x" is still a count that was printed.
+    parse_count_token(word).is_some()
+        || word.strip_suffix('x').is_some_and(|d| !d.is_empty() && d.len() <= 4 && d.chars().all(|c| c == '0'))
 }
 
 /// A row's normalized text carries an "Nx " count token somewhere in the
@@ -264,10 +280,11 @@ pub fn price_resolved(
         label: display_price(price, count, cfg.divine_threshold),
         amount,
         denom,
-        tier: tier_for(price.exalted * f64::from(count.max(1)), cfg),
+        tier: tier_of(price.chaos * f64::from(count.max(1)), cfg),
         item_key: item_key.to_string(),
         count,
         value_ex: price.exalted * f64::from(count.max(1)),
+        value_chaos: price.chaos * f64::from(count.max(1)),
         count_explicit,
         locks_in_one: true,
     })
@@ -286,6 +303,7 @@ fn rumour_row(item_key: &str, map_type: &str, rating: &str, y_top: u32, height: 
         tier: Tier::Unknown,
         item_key: item_key.to_string(),
         value_ex: 0.0,
+        value_chaos: 0.0,
         count: 1,
         count_explicit: false,
         locks_in_one: true,
@@ -320,7 +338,7 @@ pub fn price_lines_with_rumours(
     for line in lines {
         // Gem rows first: they never match the vocab (panel text is not a catalog name).
         if let Some(g) = gem_row(&line.unfiltered) {
-            let (label, tier, denom, amount, item_key, value_ex) = match g {
+            let (label, tier, denom, amount, item_key, value_ex, value_chaos) = match g {
                 // A specific cut skill gem, priced individually by trade. The
                 // key carries the gem name so it never templates back to the
                 // uncut price (the OCR path re-prices it each scan).
@@ -337,23 +355,16 @@ pub fn price_lines_with_rumours(
                     };
                     match state {
                         GemState::Priced(ex) => {
-                            let div = table
-                                .lookup("Divine Orb")
-                                .map(|p| p.exalted)
-                                .filter(|v| *v > 0.0);
-                            let price = khaloni_poe2_core::ninja::Price {
-                                exalted: ex,
-                                divine: div.map(|r| ex / r).unwrap_or(0.0),
-                                chaos: 0.0,
-                            };
+                            let price = table.price_from_exalted(ex);
                             let (denom, amount) = denom_amount(&price, 1, cfg.divine_threshold);
                             (
                                 display_price(&price, 1, cfg.divine_threshold),
-                                tier_for(ex, cfg),
+                                tier_of(price.chaos, cfg),
                                 denom,
                                 amount,
                                 item_key,
                                 ex,
+                                price.chaos,
                             )
                         }
                         GemState::Pending => (
@@ -363,6 +374,7 @@ pub fn price_lines_with_rumours(
                             "…".to_string(),
                             item_key,
                             0.0,
+                            0.0,
                         ),
                         GemState::Unpriced => (
                             UNKNOWN.to_string(),
@@ -370,6 +382,7 @@ pub fn price_lines_with_rumours(
                             Denom::None,
                             UNKNOWN.to_string(),
                             item_key,
+                            0.0,
                             0.0,
                         ),
                     }
@@ -391,6 +404,7 @@ pub fn price_lines_with_rumours(
                         UNKNOWN.to_string(),
                         "gem-unleveled".to_string(),
                         0.0,
+                        0.0,
                     )
                 }
             };
@@ -403,6 +417,7 @@ pub fn price_lines_with_rumours(
                 tier,
                 item_key,
                 value_ex,
+                value_chaos,
                 // Skill/support/spirit rows never carry a count on the panel.
                 count: 1,
                 count_explicit: false,
@@ -439,6 +454,7 @@ pub fn price_lines_with_rumours(
                     tier: Tier::Unknown,
                     item_key: "unpriceable".to_string(),
                     value_ex: 0.0,
+                    value_chaos: 0.0,
                     count: 1,
                     count_explicit: false,
                     locks_in_one: true,
@@ -448,8 +464,17 @@ pub fn price_lines_with_rumours(
         };
         // Two or more near-identical vocab entries scored too close to call:
         // showing either name would risk a wrong price, so this renders as
-        // "?" same as an unmatched line, never a guessed variant.
-        if hit.tier == MatchTier::Ambiguous {
+        // "?" same as an unmatched line, never a guessed variant. The same
+        // goes for a row whose two reads name different items with equal
+        // confidence: match_rows orders hits best tier first, so a second
+        // hit on the first one's tier is exactly that disagreement.
+        let contested = hits
+            .get(1)
+            .is_some_and(|other| other.tier == hit.tier && other.entry_index != hit.entry_index);
+        // A stack whose count printed but could not be read ("0x") is a
+        // known item in an unknown quantity; the price of one unit would
+        // pass for the row's price, so it gets the same "?".
+        if hit.tier == MatchTier::Ambiguous || contested || hit.count_unreadable {
             rows.push(Priced {
                 y_top: line.y_top,
                 height: line.height,
@@ -459,6 +484,7 @@ pub fn price_lines_with_rumours(
                 tier: Tier::Unknown,
                 item_key: "ambiguous".to_string(),
                 value_ex: 0.0,
+                value_chaos: 0.0,
                 count: 1,
                 count_explicit: false,
                 locks_in_one: true,
@@ -473,24 +499,17 @@ pub fn price_lines_with_rumours(
             // in flight and re-price on a later scan.
             if let Some(state) = currency.and_then(|c| c.lookup(name)) {
                 let count = hit.count.unwrap_or(1);
-                let (label, amount, denom, tier, value_ex) = match state {
+                let (label, amount, denom, tier, value_ex, value_chaos) = match state {
                     CurrencyState::Priced(ex) => {
-                        let div = table
-                            .lookup("Divine Orb")
-                            .map(|p| p.exalted)
-                            .filter(|v| *v > 0.0);
-                        let price = khaloni_poe2_core::ninja::Price {
-                            exalted: ex,
-                            divine: div.map(|r| ex / r).unwrap_or(0.0),
-                            chaos: 0.0,
-                        };
+                        let price = table.price_from_exalted(ex);
                         let (denom, amount) = denom_amount(&price, count, cfg.divine_threshold);
                         (
                             display_price(&price, count, cfg.divine_threshold),
                             amount,
                             denom,
-                            tier_for(ex * f64::from(count), cfg),
+                            tier_of(price.chaos * f64::from(count), cfg),
                             ex * f64::from(count),
+                            price.chaos * f64::from(count),
                         )
                     }
                     CurrencyState::Pending => (
@@ -499,12 +518,14 @@ pub fn price_lines_with_rumours(
                         Denom::None,
                         Tier::Unknown,
                         0.0,
+                        0.0,
                     ),
                     CurrencyState::Unpriced => (
                         UNKNOWN.to_string(),
                         UNKNOWN.to_string(),
                         Denom::None,
                         Tier::Unknown,
+                        0.0,
                         0.0,
                     ),
                 };
@@ -517,6 +538,7 @@ pub fn price_lines_with_rumours(
                     tier,
                     item_key: normalize(name),
                     value_ex,
+                    value_chaos,
                     count,
                     count_explicit: hit.count.is_some(),
                     locks_in_one: hit.tier.locks_in_one(),
@@ -532,10 +554,11 @@ pub fn price_lines_with_rumours(
             label: display_price(price, count, cfg.divine_threshold),
             amount,
             denom,
-            tier: tier_for(price.exalted * f64::from(count), cfg),
+            tier: tier_of(price.chaos * f64::from(count), cfg),
             item_key: normalize(name),
-            value_ex: price.exalted * f64::from(hit.count.unwrap_or(1)),
-            count: hit.count.unwrap_or(1),
+            value_ex: price.exalted * f64::from(count),
+            value_chaos: price.chaos * f64::from(count),
+            count,
             count_explicit: hit.count.is_some(),
             locks_in_one: hit.tier.locks_in_one(),
         });

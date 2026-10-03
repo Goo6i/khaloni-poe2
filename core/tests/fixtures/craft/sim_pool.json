@@ -1,0 +1,51 @@
+{
+  "prefixes": [
+    {"id": "Life1", "family": "IncreasedLife", "tier": 1},
+    {"id": "Life2", "family": "IncreasedLife", "tier": 2},
+    {"id": "Life3", "family": "IncreasedLife", "tier": 3},
+    {"id": "Life4", "family": "IncreasedLife", "tier": 4},
+    {"id": "Life5", "family": "IncreasedLife", "tier": 5},
+    {"id": "Armour1", "family": "LocalPhysicalDamageReductionRating", "tier": 1},
+    {"id": "Armour2", "family": "LocalPhysicalDamageReductionRating", "tier": 2},
+    {"id": "Armour3", "family": "LocalPhysicalDamageReductionRating", "tier": 3},
+    {"id": "Armour4", "family": "LocalPhysicalDamageReductionRating", "tier": 4},
+    {"id": "Thorns1", "family": "ThornsPhysicalDamage", "tier": 1},
+    {"id": "Thorns2", "family": "ThornsPhysicalDamage", "tier": 2},
+    {"id": "Thorns3", "family": "ThornsPhysicalDamage", "tier": 3},
+    {"id": "Spirit1", "family": "BaseSpirit", "tier": 1},
+    {"id": "Spirit2", "family": "BaseSpirit", "tier": 2}
+  ],
+  "suffixes": [
+    {"id": "Fire1", "family": "FireResistance", "tier": 1},
+    {"id": "Fire2", "family": "FireResistance", "tier": 2},
+    {"id": "Fire3", "family": "FireResistance", "tier": 3},
+    {"id": "Fire4", "family": "FireResistance", "tier": 4},
+    {"id": "Cold1", "family": "ColdResistance", "tier": 1},
+    {"id": "Cold2", "family": "ColdResistance", "tier": 2},
+    {"id": "Cold3", "family": "ColdResistance", "tier": 3},
+    {"id": "Cold4", "family": "ColdResistance", "tier": 4},
+    {"id": "Str1", "family": "Strength", "tier": 1},
+    {"id": "Str2", "family": "Strength", "tier": 2},
+    {"id": "Str3", "family": "Strength", "tier": 3},
+    {"id": "Regen1", "family": "LifeRegeneration", "tier": 1},
+    {"id": "Regen2", "family": "LifeRegeneration", "tier": 2}
+  ],
+  "target": [
+    {"family": "IncreasedLife", "min_tier": 2},
+    {"family": "FireResistance", "min_tier": 2},
+    {"family": "ColdResistance", "min_tier": 3}
+  ],
+  "prices": {
+    "transmute": 0.3,
+    "augment": 0.6,
+    "regal": 1.7,
+    "exalt": 3.1,
+    "chaos": 2.3,
+    "annul": 7.9,
+    "omen_dextral": 11.3,
+    "omen_sinistral": 9.7,
+    "omen_sinistral_annul": 13.1,
+    "omen_dextral_annul": 12.4,
+    "omen_whittling": 23.5
+  }
+}

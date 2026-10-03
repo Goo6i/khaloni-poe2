@@ -1,0 +1,257 @@
+{
+ "core": {
+  "items": [
+   {
+    "id": "divine",
+    "name": "Divine Orb"
+   },
+   {
+    "id": "exalted",
+    "name": "Exalted Orb"
+   },
+   {
+    "id": "chaos",
+    "name": "Chaos Orb"
+   }
+  ],
+  "rates": {
+   "exalted": 474.2,
+   "chaos": 8.32
+  },
+  "primary": "divine"
+ },
+ "items": [
+  {
+   "id": "essence-of-the-breach",
+   "name": "Essence of the Breach"
+  },
+  {
+   "id": "essence-of-hysteria",
+   "name": "Essence of Hysteria"
+  },
+  {
+   "id": "lesser-essence-of-battle",
+   "name": "Lesser Essence of Battle"
+  },
+  {
+   "id": "essence-of-horror",
+   "name": "Essence of Horror"
+  },
+  {
+   "id": "essence-of-the-abyss",
+   "name": "Essence of the Abyss"
+  },
+  {
+   "id": "essence-of-the-mind",
+   "name": "Essence of the Mind"
+  },
+  {
+   "id": "greater-essence-of-the-mind",
+   "name": "Greater Essence of the Mind"
+  },
+  {
+   "id": "lesser-essence-of-ruin",
+   "name": "Lesser Essence of Ruin"
+  },
+  {
+   "id": "perfect-essence-of-haste",
+   "name": "Perfect Essence of Haste"
+  },
+  {
+   "id": "essence-of-insanity",
+   "name": "Essence of Insanity"
+  }
+ ],
+ "lines": [
+  {
+   "id": "essence-of-the-breach",
+   "primaryValue": 0.786,
+   "volumePrimaryValue": 354.0,
+   "maxVolumeCurrency": "chaos",
+   "maxVolumeRate": 0.1529,
+   "sparkline": {
+    "totalChange": -19.56,
+    "data": [
+     -0.43,
+     29.14,
+     2.89,
+     -9.65,
+     -7.06,
+     -0.49,
+     -19.56
+    ]
+   }
+  },
+  {
+   "id": "essence-of-hysteria",
+   "primaryValue": 1.67,
+   "volumePrimaryValue": 321.3,
+   "maxVolumeCurrency": "chaos",
+   "maxVolumeRate": 0.07189,
+   "sparkline": {
+    "totalChange": 8.52,
+    "data": [
+     4.3,
+     22.23,
+     21.57,
+     17.63,
+     6.56,
+     13.4,
+     8.52
+    ]
+   }
+  },
+  {
+   "id": "lesser-essence-of-battle",
+   "primaryValue": 54.31,
+   "volumePrimaryValue": 235.3,
+   "maxVolumeCurrency": "divine",
+   "maxVolumeRate": 0.01841,
+   "sparkline": {
+    "totalChange": -9.49,
+    "data": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     0,
+     -9.49
+    ]
+   }
+  },
+  {
+   "id": "essence-of-horror",
+   "primaryValue": 1.29,
+   "volumePrimaryValue": 188.6,
+   "maxVolumeCurrency": "chaos",
+   "maxVolumeRate": 0.09348,
+   "sparkline": {
+    "totalChange": 115.1,
+    "data": [
+     16.06,
+     32.9,
+     43.75,
+     27.83,
+     34.35,
+     67.96,
+     115.1
+    ]
+   }
+  },
+  {
+   "id": "essence-of-the-abyss",
+   "primaryValue": 0.2289,
+   "volumePrimaryValue": 178.2,
+   "maxVolumeCurrency": "chaos",
+   "maxVolumeRate": 0.5252,
+   "sparkline": {
+    "totalChange": 33.62,
+    "data": [
+     1.36,
+     3.92,
+     7.71,
+     17.91,
+     79.06,
+     72.53,
+     33.62
+    ]
+   }
+  },
+  {
+   "id": "essence-of-the-mind",
+   "primaryValue": 0.002109,
+   "volumePrimaryValue": 0.0007029,
+   "maxVolumeCurrency": "exalted",
+   "maxVolumeRate": 1,
+   "sparkline": {
+    "totalChange": 0,
+    "data": [
+     -0.52,
+     -3.12,
+     -6.67,
+     83.33,
+     66.67,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "id": "greater-essence-of-the-mind",
+   "primaryValue": 0.0005384,
+   "volumePrimaryValue": 0.004218,
+   "maxVolumeCurrency": "exalted",
+   "maxVolumeRate": 3.92,
+   "sparkline": {
+    "totalChange": 111.1,
+    "data": [
+     49.01,
+     70.0,
+     51.06,
+     162.4,
+     131.2,
+     113.0,
+     111.1
+    ]
+   }
+  },
+  {
+   "id": "lesser-essence-of-ruin",
+   "primaryValue": 0.1054,
+   "volumePrimaryValue": 0.01757,
+   "maxVolumeCurrency": "exalted",
+   "maxVolumeRate": 0.02,
+   "sparkline": {
+    "totalChange": 4900,
+    "data": [
+     0,
+     100,
+     100,
+     1900,
+     null,
+     null,
+     4900
+    ]
+   }
+  },
+  {
+   "id": "perfect-essence-of-haste",
+   "primaryValue": 0.032,
+   "volumePrimaryValue": 4.97,
+   "maxVolumeCurrency": "exalted",
+   "maxVolumeRate": 0.06589,
+   "sparkline": {
+    "totalChange": 119.0,
+    "data": [
+     57.54,
+     32.04,
+     104.3,
+     95.25,
+     187.7,
+     232.6,
+     119.0
+    ]
+   }
+  },
+  {
+   "id": "essence-of-insanity",
+   "primaryValue": 0.05951,
+   "volumePrimaryValue": 2.86,
+   "maxVolumeCurrency": "exalted",
+   "maxVolumeRate": 0.03544,
+   "sparkline": {
+    "totalChange": 26.94,
+    "data": [
+     11.8,
+     26.75,
+     19.08,
+     -18.58,
+     -12.05,
+     -8.8,
+     26.94
+    ]
+   }
+  }
+ ]
+}

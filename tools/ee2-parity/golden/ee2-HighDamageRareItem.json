@@ -1,0 +1,272 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "pdps": {
+       "min": 1357
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "implicit.stat_1980802737",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1202301673",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1967051901",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_1940865751",
+       "value": {
+        "min": 66
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 175
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 175
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "fractured.stat_210067635",
+       "value": {
+        "min": 23
+       }
+      },
+      {
+       "disabled": true,
+       "id": "fractured.stat_681332047",
+       "value": {
+        "min": 23
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 2.03
+      },
+      "crit": {
+       "min": 5
+      },
+      "pdps": {
+       "min": 1357
+      },
+      "reload_time": {
+       "max": 0.61
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "implicit.stat_1980802737",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1202301673",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1967051901",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_1940865751",
+       "value": {
+        "min": 66
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 175
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 175
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "fractured.stat_210067635",
+       "value": {
+        "min": 23
+       }
+      },
+      {
+       "disabled": true,
+       "id": "fractured.stat_681332047",
+       "value": {
+        "min": 23
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

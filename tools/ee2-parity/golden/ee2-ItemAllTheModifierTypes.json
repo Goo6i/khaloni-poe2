@@ -1,0 +1,222 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "dps": {
+       "min": 500
+      },
+      "edps": {
+       "min": 240
+      },
+      "rune_sockets": {
+       "min": 2
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "enchant.stat_387439868",
+       "value": {
+        "min": 45
+       }
+      },
+      {
+       "disabled": true,
+       "id": "rune.stat_1368271171",
+       "value": {
+        "min": 30
+       }
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_1967051901",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": true,
+       "id": "skill.hyena_cackle",
+       "value": {
+        "min": 18
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_387439868",
+       "value": {
+        "min": 100
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_669069897",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1368271171",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 1.87
+      },
+      "crit": {
+       "min": 5
+      },
+      "dps": {
+       "min": 500
+      },
+      "edps": {
+       "min": 240
+      },
+      "reload_time": {
+       "max": 0.93
+      },
+      "rune_sockets": {
+       "min": 2
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.crossbow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "enchant.stat_387439868",
+       "value": {
+        "min": 45
+       }
+      },
+      {
+       "disabled": false,
+       "id": "rune.stat_1368271171",
+       "value": {
+        "min": 30
+       }
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_1967051901",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": true,
+       "id": "skill.hyena_cackle",
+       "value": {
+        "min": 18
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_387439868",
+       "value": {
+        "min": 100
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_669069897",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1368271171",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

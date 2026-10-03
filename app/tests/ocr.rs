@@ -213,37 +213,38 @@ fn union_consumes_every_overlapping_whole_line_not_just_the_biggest_overlap() {
 
 // --- optical scroll estimation ---
 
-fn synthetic_profile(len: usize, bars: &[(usize, usize)]) -> Vec<u16> {
-    let mut p = vec![130u16; len];
-    for &(a, b) in bars {
-        for v in p.iter_mut().take(b.min(len)).skip(a) {
-            *v = 200;
-        }
-    }
-    p
+/// A 400 px wide frame of `len` rows: parchment (130) with white bars.
+fn synthetic_frame(len: u32, bars: &[(u32, u32)]) -> image::GrayImage {
+    image::GrayImage::from_fn(400, len, |_, y| {
+        image::Luma([if bars.iter().any(|&(a, b)| y >= a && y < b) { 200 } else { 130 }])
+    })
 }
 
-fn shifted(profile: &[u16], dy: i32) -> Vec<u16> {
-    let n = profile.len() as i32;
-    (0..n)
-        .map(|i| {
-            let src = i - dy;
-            if src >= 0 && src < n {
-                profile[src as usize]
-            } else {
-                130
-            }
-        })
-        .collect()
+/// `frame` with its content moved down by `dy` rows (up when negative),
+/// parchment filling in.
+fn shifted(frame: &image::GrayImage, dy: i32) -> image::GrayImage {
+    let n = frame.height() as i32;
+    image::GrayImage::from_fn(frame.width(), frame.height(), |x, y| {
+        let src = y as i32 - dy;
+        if (0..n).contains(&src) {
+            *frame.get_pixel(x, src as u32)
+        } else {
+            image::Luma([130])
+        }
+    })
+}
+
+fn motion(a: &image::GrayImage, b: &image::GrayImage) -> khaloni_poe2::ocr::Motion {
+    use khaloni_poe2::ocr::{track_motion, RowSignature, UiScale};
+    track_motion(&RowSignature::of(a), &RowSignature::of(b), (0, a.height()), UiScale::REFERENCE)
 }
 
 #[test]
 fn motion_tracking_recovers_known_shifts() {
-    let base = synthetic_profile(1000, &[(100, 170), (250, 320), (400, 470), (700, 770)]);
+    let base = synthetic_frame(1000, &[(100, 170), (250, 320), (400, 470), (700, 770)]);
     for dy in [-180i32, -60, -7, 7, 60, 180] {
-        let cur = shifted(&base, dy);
         assert_eq!(
-            khaloni_poe2::ocr::track_motion(&base, &cur),
+            motion(&base, &shifted(&base, dy)),
             khaloni_poe2::ocr::Motion::Scrolled(dy),
             "shift {dy} must be recovered exactly"
         );
@@ -252,44 +253,36 @@ fn motion_tracking_recovers_known_shifts() {
 
 #[test]
 fn flat_and_static_frames_are_still() {
-    let flat = vec![150u16; 1000];
-    assert_eq!(
-        khaloni_poe2::ocr::track_motion(&flat, &flat),
-        khaloni_poe2::ocr::Motion::Still,
-        "flat profiles carry no signal"
-    );
-    let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
-    assert_eq!(
-        khaloni_poe2::ocr::track_motion(&base, &base),
-        khaloni_poe2::ocr::Motion::Still,
-        "identical frames are not a scroll"
-    );
+    let flat = image::GrayImage::from_pixel(400, 1000, image::Luma([150]));
+    assert_eq!(motion(&flat, &flat), khaloni_poe2::ocr::Motion::Still, "flat frames carry no signal");
+    let base = synthetic_frame(1000, &[(100, 170), (400, 470)]);
+    assert_eq!(motion(&base, &base), khaloni_poe2::ocr::Motion::Still, "identical frames are not a scroll");
 }
 
 #[test]
-fn a_tiny_shift_is_still_not_a_scroll() {
-    // Sub-3-row drift is jitter; POSITION_SNAP absorbs it downstream.
-    let base = synthetic_profile(1000, &[(100, 170), (400, 470)]);
-    assert_eq!(
-        khaloni_poe2::ocr::track_motion(&base, &shifted(&base, 2)),
-        khaloni_poe2::ocr::Motion::Still
-    );
+fn a_one_row_shift_is_a_scroll() {
+    // Tracking runs on every captured frame, so a slow drag moves the list
+    // a row or two per frame; those must add up, or the prices fall
+    // behind their rows.
+    let base = synthetic_frame(1000, &[(100, 170), (400, 470)]);
+    assert_eq!(motion(&base, &shifted(&base, 1)), khaloni_poe2::ocr::Motion::Scrolled(1));
+    assert_eq!(motion(&base, &shifted(&base, -2)), khaloni_poe2::ocr::Motion::Scrolled(-2));
 }
 
 #[test]
 fn uncorrelated_content_is_lost() {
-    let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
-    let b = synthetic_profile(1000, &[(37, 61), (533, 601), (804, 851)]);
+    let a = synthetic_frame(1000, &[(100, 170), (400, 470)]);
+    let b = synthetic_frame(1000, &[(37, 61), (533, 601), (804, 851)]);
     assert_eq!(
-        khaloni_poe2::ocr::track_motion(&a, &b),
+        motion(&a, &b),
         khaloni_poe2::ocr::Motion::Lost,
         "a panel change is not a scroll and must not hold old positions"
     );
 }
 
 #[test]
-fn mismatched_profile_lengths_are_lost() {
-    let a = synthetic_profile(1000, &[(100, 170), (400, 470)]);
-    let b = synthetic_profile(999, &[(100, 170), (400, 470)]);
-    assert_eq!(khaloni_poe2::ocr::track_motion(&a, &b), khaloni_poe2::ocr::Motion::Lost);
+fn mismatched_frame_heights_are_lost() {
+    let a = synthetic_frame(1000, &[(100, 170), (400, 470)]);
+    let b = synthetic_frame(999, &[(100, 170), (400, 470)]);
+    assert_eq!(motion(&a, &b), khaloni_poe2::ocr::Motion::Lost);
 }

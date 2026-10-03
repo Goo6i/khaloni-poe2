@@ -1,0 +1,30 @@
+Item Class: Gloves
+Rarity: Unique
+Maligaro's Virtuosity
+Fine Bracers
+--------
+Evasion Rating: 204 (augmented)
+--------
+Requires: Level 45, 52 (augmented) Dex
+--------
+Sockets: S 
+--------
+Item Level: 81
+--------
+18% increased Armour, Evasion and Energy Shield (rune)
+--------
+{ Unique Modifier — Evasion }
+76(60-80)% increased Evasion Rating
+{ Unique Modifier — Critical }
+27(20-30)% increased Critical Hit Chance
+{ Unique Modifier — Attack, Speed }
+5% increased Attack Speed
+{ Unique Modifier — Attribute }
++19(10-20) to Dexterity
+{ Unique Modifier — Critical }
+Your Critical Hit Chance cannot be Rerolled — Unscalable Value
+{ Unique Modifier — Damage, Critical }
+Your Critical Damage Bonus is 250% — Unscalable Value
+--------
+Maligaro operated effortlessly,
+with great speed and terrible consequences.

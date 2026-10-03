@@ -1,0 +1,265 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 272
+      },
+      "ev": {
+       "min": 246
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.gloves"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_cold_resistance",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 46
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3032590688",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3556824919",
+       "value": {
+        "min": 21
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_3032590688",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_3556824919",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_210067635",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_681332047",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 272
+      },
+      "ev": {
+       "min": 246
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.gloves"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_cold_resistance",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 46
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3032590688",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3556824919",
+       "value": {
+        "min": 21
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_3032590688",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_3556824919",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_210067635",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_681332047",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

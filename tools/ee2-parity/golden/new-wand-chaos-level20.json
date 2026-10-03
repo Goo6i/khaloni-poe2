@@ -1,0 +1,199 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.wand"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 43
+       }
+      },
+      {
+       "disabled": false,
+       "id": "skill.chaosbolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 115
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_736967255",
+       "value": {
+        "min": 65
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_4226189338",
+       "value": {
+        "min": 5
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_124131830",
+       "value": {
+        "min": 3
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3639275092",
+       "value": {
+        "max": -20
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.wand"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 43
+       }
+      },
+      {
+       "disabled": false,
+       "id": "skill.chaosbolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 115
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_736967255",
+       "value": {
+        "min": 65
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_4226189338",
+       "value": {
+        "min": 5
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_124131830",
+       "value": {
+        "min": 3
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3639275092",
+       "value": {
+        "max": -20
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

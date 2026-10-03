@@ -1,0 +1,27 @@
+Item Class: Bows
+Rarity: Rare
+Tempest Wing
+Warmonger Bow
+--------
+Quality: +20% (augmented)
+Physical Damage: 67-101 (augmented)
+Elemental Damage: 96-151 (fire), 71-118 (cold), 9-288 (lightning)
+Critical Hit Chance: 5.00%
+Attacks per Second: 1.20
+--------
+Requires: Level 78, 163 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Cremating" (Tier: 2) — Damage, Elemental, Fire, Attack }
+Adds 96(84-104) to 151(132-168) Fire Damage
+{ Prefix Modifier "Entombing" (Tier: 2) — Damage, Elemental, Cold, Attack }
+Adds 71(65-79) to 118(103-126) Cold Damage
+{ Prefix Modifier "Electrocuting" (Tier: 2) — Damage, Elemental, Lightning, Attack }
+Adds 9(1-16) to 288(239-300) Lightning Damage
+{ Suffix Modifier "of the Ranger" (Tier: 3) — Attack }
++212(190-237) to Accuracy Rating
+{ Suffix Modifier "of the Marksman" (Tier: 2) }
++3 to Level of all Projectile Skills

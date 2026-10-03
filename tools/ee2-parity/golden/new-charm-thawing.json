@@ -1,0 +1,191 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "flask.charm"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "implicit.stat_1691862754",
+       "value": {}
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_1256719186",
+       "value": {
+        "min": 26
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2541588185",
+       "value": {
+        "min": 26
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "flask.charm"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "implicit.stat_1691862754",
+       "value": {}
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_1256719186",
+       "value": {
+        "min": 26
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2541588185",
+       "value": {
+        "min": 26
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

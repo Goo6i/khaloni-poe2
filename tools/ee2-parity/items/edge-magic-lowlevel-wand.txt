@@ -1,0 +1,14 @@
+Item Class: Wands
+Rarity: Magic
+Apprentice's Withered Wand of Nourishment
+--------
+Requires: Level 11
+--------
+Item Level: 23
+--------
+Grants Skill: Level 4 Chaos Bolt
+--------
+{ Prefix Modifier "Apprentice's" (Tier: 8) — Damage, Caster }
+31(25-34)% increased Spell Damage
+{ Suffix Modifier "of Nourishment" (Tier: 3) — Mana }
+Gain 9(7-10) Mana per enemy killed

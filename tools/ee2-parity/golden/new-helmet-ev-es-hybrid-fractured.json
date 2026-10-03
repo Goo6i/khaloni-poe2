@@ -1,0 +1,243 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "es": {
+       "min": 119
+      },
+      "ev": {
+       "min": 387
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.helmet"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_intelligence",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 34
+       }
+      },
+      {
+       "disabled": true,
+       "id": "fractured.stat_1999113824",
+       "value": {
+        "min": 74
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_suffix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_3917489142",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2306002879",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "es": {
+       "min": 119
+      },
+      "ev": {
+       "min": 387
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.helmet"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_intelligence",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 34
+       }
+      },
+      {
+       "disabled": true,
+       "id": "fractured.stat_1999113824",
+       "value": {
+        "min": 74
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_suffix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_3917489142",
+       "value": {
+        "min": 11
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2306002879",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

@@ -1,0 +1,30 @@
+Item Class: Crossbows
+Rarity: Rare
+Gale Bolt
+Gemini Crossbow
+--------
+Quality: +20% (augmented)
+Physical Damage: 136-478 (augmented)
+Critical Hit Chance: 9.31% (augmented)
+Attacks per Second: 1.97 (augmented)
+Reload Time: 0.90 (augmented)
+--------
+Requires: Level 78, 89 Str, 89 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Implicit Modifier — Attack }
+Loads an additional bolt
+--------
+{ Prefix Modifier "Tyrannical" (Tier: 2) — Damage, Physical, Attack }
+166(155-169)% increased Physical Damage
+{ Prefix Modifier "Tempered" (Tier: 2) — Damage, Physical, Attack }
+Adds 31(30-45) to 58(52-78) Physical Damage
+{ Suffix Modifier "of Celebration" (Tier: 1) — Attack, Speed }
+23(23-25)% increased Attack Speed
+{ Suffix Modifier "of Destruction" (Tier: 1) — Damage, Attack, Critical }
++37(35-39)% to Critical Damage Bonus
+{ Suffix Modifier "of Ruin" (Tier: 2) — Attack, Critical }
++4.31(3.81-4.4)% to Critical Hit Chance

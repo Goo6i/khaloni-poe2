@@ -1,0 +1,163 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 2927
+      },
+      "rune_sockets": {
+       "min": 3
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.chest"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_strength",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1692879867",
+       "value": {
+        "max": -46
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3855016469",
+       "value": {
+        "min": 40
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "ar": {
+       "min": 2927
+      },
+      "rune_sockets": {
+       "min": 3
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "armour.chest"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_strength",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1692879867",
+       "value": {
+        "max": -46
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3855016469",
+       "value": {
+        "min": 40
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

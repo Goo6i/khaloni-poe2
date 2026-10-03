@@ -2,28 +2,57 @@ use std::time::{Duration, Instant};
 
 use crate::pricing::{Denom, Priced, Tier};
 
-/// What one OCR pass produced: priced rows (with the price service's
-/// staleness flag); a signal that the brightness gate was closed, so
-/// tesseract never even ran (too dark to be the panel; see the brightness
-/// hysteresis in main.rs); or a signal that the gate was open (bright
-/// enough to plausibly be the panel) but band detection found no reward
-/// bars, so tesseract wasn't run against nothing (see ocr::detect_bands).
+/// Where the list stood when a scan was read: `offset` is the scroll
+/// accumulated since tracking last (re)started, in preprocessed pixels,
+/// and `epoch` counts those restarts (each lost track begins a new one),
+/// so offsets from different epochs are never compared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ScrollMark {
+    pub epoch: u64,
+    pub offset: i64,
+}
+
+/// One pass's priced rows. `at` is the scroll position of the frame they
+/// were read from (None: read at the current position). A `partial` scan
+/// carries only some of the rows on screen (template hits that did not
+/// wait for tesseract): it updates and adds slots, but says nothing about
+/// the slots it does not mention.
+pub struct Scan {
+    pub rows: Vec<Priced>,
+    /// The price service's staleness flag.
+    pub stale: bool,
+    pub at: Option<ScrollMark>,
+    pub partial: bool,
+}
+
+/// What one pass of the reward pipeline produced: priced rows; a signal
+/// that the bar gate is closed, so no panel is on screen; a signal that
+/// the gate is open but this frame shows no reward bar; or the list's
+/// motion since the previous frame.
 pub enum ScanResult {
-    Rows(Vec<Priced>, bool),
+    Rows(Scan),
     NoBands,
     GateEmpty,
-    /// The panel content shifted vertically by this many PREPROCESSED
-    /// pixels (optical scroll estimate between consecutive frames; the
-    /// caller converts capture-space dy through UPSCALE). Slots move
-    /// instantly; no confirmation/miss bookkeeping is touched, so a scan
-    /// landing after the scroll matches the shifted slots in place.
-    Scrolled(i64),
-    /// Frame-to-frame correlation broke (flick faster than the search
-    /// range, panel switch mid-scroll). If a scroll was in progress the
-    /// held positions are untrustworthy and the display hides until the
-    /// next Rows result re-anchors; outside a scroll it is ignored so
-    /// tooltip occlusion keeps its ride-through tolerance.
-    TrackingLost,
+    /// The list content moved by `dy` preprocessed pixels (positive:
+    /// down), leaving the scroll position at `to`. `span` is the list's
+    /// visible extent (top, bottom) in preprocessed pixels: a row whose
+    /// centre leaves it has scrolled out of view. Slots move instantly; no
+    /// confirmation or miss bookkeeping is touched, so a scan landing
+    /// after the scroll matches the moved slots in place.
+    Scrolled { dy: i64, to: ScrollMark, span: (i64, i64) },
+    /// Frame-to-frame tracking broke (a flick the tracker cannot follow,
+    /// a panel switch); positions continue from `to`, a new epoch. If a
+    /// scroll was in progress the held positions are untrustworthy and the
+    /// display hides until the next scan re-anchors; outside a scroll it
+    /// is ignored so tooltip occlusion keeps its ride-through tolerance.
+    TrackingLost { to: ScrollMark },
+}
+
+impl ScanResult {
+    /// A complete scan read at the current scroll position.
+    pub fn rows(rows: Vec<Priced>, stale: bool) -> ScanResult {
+        ScanResult::Rows(Scan { rows, stale, at: None, partial: false })
+    }
 }
 
 // --- Slot-model constants, ported from the reference overlay's MergeReads
@@ -80,6 +109,7 @@ struct Snapshot {
     tier: Tier,
     count: u32,
     value_ex: f64,
+    value_chaos: f64,
 }
 
 impl Snapshot {
@@ -91,6 +121,7 @@ impl Snapshot {
             tier: row.tier,
             count: row.count,
             value_ex: row.value_ex,
+            value_chaos: row.value_chaos,
         }
     }
 }
@@ -108,7 +139,9 @@ struct PendingSwitch {
 /// Y rather than by item name, since the item occupying a position can
 /// change (a re-rolled reward) without the position itself moving.
 struct Slot {
-    y: u32,
+    /// Top of the row in preprocessed pixels. Signed: a slot is moved by
+    /// scrolls, and one that leaves the list is dropped, never clamped.
+    y: i64,
     height: u32,
     /// The item currently tracked: either on display, or the candidate
     /// awaiting its CONFIRM_FUZZY-th matching read before first display.
@@ -121,15 +154,17 @@ struct Slot {
     pending: Option<PendingSwitch>,
     /// Consecutive scans with no read matching this slot at all.
     misses: u8,
-    /// The last read that had an explicit "Nx" count, and when: honored for
-    /// STACK_STICKY after the marker itself drops out of a matching read.
-    last_explicit: Option<(Snapshot, Instant)>,
+    /// The last read that had an explicit "Nx" count, the item it was a
+    /// count OF, and when: honored for STACK_STICKY after the marker itself
+    /// drops out of a matching read of that same item. A remembered "3x"
+    /// says nothing about whatever replaces the item in this position.
+    last_explicit: Option<(String, Snapshot, Instant)>,
 }
 
 impl Slot {
-    fn new(row: Priced) -> Slot {
+    fn new(row: Priced, y: i64) -> Slot {
         let mut slot = Slot {
-            y: row.y_top,
+            y,
             height: row.height,
             item_key: String::new(),
             displayed: false,
@@ -143,22 +178,32 @@ impl Slot {
         slot
     }
 
-    fn touch_position(&mut self, row: &Priced) {
-        if row.y_top.abs_diff(self.y) > POSITION_SNAP_PX {
-            self.y = row.y_top;
+    fn touch_position(&mut self, row: &Priced, y: i64) {
+        if y.abs_diff(self.y) > u64::from(POSITION_SNAP_PX) {
+            self.y = y;
         }
         self.height = row.height;
     }
 
+    fn remember_explicit(&mut self, row: &Priced) {
+        self.last_explicit = Some((row.item_key.clone(), Snapshot::from_row(row), Instant::now()));
+    }
+
     /// Resolves what to show for a read of the item this slot is ALREADY
-    /// displaying: explicit-read > locked (keep exactly what's shown) - no
-    /// remembered/default fallback is needed here, since something is
-    /// already on screen.
+    /// displaying. Only the stack count is sticky: a read that lost its
+    /// "Nx" marker was priced as a single unit, so while the slot shows a
+    /// counted stack that read's amounts are for the wrong quantity and
+    /// what is on screen stays. Every other same-item read is the fresher
+    /// truth and replaces the display - a gem row shown as "…" while its
+    /// trade search ran must pick up the price the moment a read carries
+    /// it, and a repriced table must reach rows that never had a count.
     fn resolve_established(&mut self, row: &Priced) -> Snapshot {
         if row.count_explicit {
-            let snap = Snapshot::from_row(row);
-            self.last_explicit = Some((snap.clone(), Instant::now()));
-            return snap;
+            self.remember_explicit(row);
+            return Snapshot::from_row(row);
+        }
+        if row.count == self.snap.count {
+            return Snapshot::from_row(row);
         }
         self.snap.clone()
     }
@@ -170,12 +215,11 @@ impl Slot {
     /// shown before.
     fn resolve_new(&mut self, row: &Priced) -> Snapshot {
         if row.count_explicit {
-            let snap = Snapshot::from_row(row);
-            self.last_explicit = Some((snap.clone(), Instant::now()));
-            return snap;
+            self.remember_explicit(row);
+            return Snapshot::from_row(row);
         }
-        if let Some((snap, when)) = &self.last_explicit {
-            if when.elapsed() < STACK_STICKY {
+        if let Some((key, snap, when)) = &self.last_explicit {
+            if *key == row.item_key && when.elapsed() < STACK_STICKY {
                 return snap.clone();
             }
         }
@@ -186,6 +230,7 @@ impl Slot {
     /// yet: a confident read locks in on the spot; a Fuzzy one starts (or
     /// restarts) the CONFIRM_FUZZY-read confirmation count.
     fn establish_pre_display(&mut self, row: &Priced) {
+        self.forget_other_items(&row.item_key);
         self.item_key = row.item_key.clone();
         self.pending = None;
         if row.locks_in_one {
@@ -196,8 +241,16 @@ impl Slot {
             self.displayed = false;
             self.confirm = 1;
             if row.count_explicit {
-                self.last_explicit = Some((Snapshot::from_row(row), Instant::now()));
+                self.remember_explicit(row);
             }
+        }
+    }
+
+    /// Drops a remembered count that belongs to a different item than the
+    /// one this slot is about to track.
+    fn forget_other_items(&mut self, item_key: &str) {
+        if self.last_explicit.as_ref().is_some_and(|(key, _, _)| key != item_key) {
+            self.last_explicit = None;
         }
     }
 
@@ -205,6 +258,7 @@ impl Slot {
     /// reads that triggered it are themselves the confirmation, so the new
     /// item displays immediately regardless of its own match tier.
     fn commit_switch(&mut self, row: &Priced) {
+        self.forget_other_items(&row.item_key);
         self.item_key = row.item_key.clone();
         self.snap = self.resolve_new(row);
         self.displayed = true;
@@ -216,9 +270,9 @@ impl Slot {
 /// Applies one matched read to a slot. A miss (no read at all this scan) is
 /// handled by the caller and never reaches this function, so "no
 /// information" naturally never touches confirm/pending/displayed/snap.
-fn apply_read(slot: &mut Slot, row: Priced, immediate_switch: bool) {
+fn apply_read(slot: &mut Slot, row: Priced, y: i64, immediate_switch: bool) {
     slot.misses = 0;
-    slot.touch_position(&row);
+    slot.touch_position(&row, y);
 
     if row.item_key == slot.item_key {
         // Same item as tracked: a same-item read cancels any switch
@@ -234,7 +288,7 @@ fn apply_read(slot: &mut Slot, row: Priced, immediate_switch: bool) {
         } else {
             slot.confirm = slot.confirm.saturating_add(1);
             if row.count_explicit {
-                slot.last_explicit = Some((Snapshot::from_row(&row), Instant::now()));
+                slot.remember_explicit(&row);
             }
             if slot.confirm >= CONFIRM_FUZZY {
                 slot.snap = slot.resolve_new(&row);
@@ -305,6 +359,19 @@ pub struct Stabilizer {
     /// Set by TrackingLost during a scroll: positions are untrustworthy,
     /// so rows() hides everything until the next Rows result re-anchors.
     lost_hidden: bool,
+    /// The list's scroll position as of the last motion message: a scan
+    /// read at an earlier position is moved by the scroll since.
+    mark: Option<ScrollMark>,
+    /// The list's visible extent (preprocessed px) from the last scroll.
+    span: Option<(i64, i64)>,
+}
+
+/// Whether a row at `y` of `height` is still in the list: its centre is
+/// inside the visible span. A row half scrolled out keeps its price until
+/// most of it is gone.
+fn in_span(y: i64, height: u32, span: (i64, i64)) -> bool {
+    let centre = y + i64::from(height / 2);
+    centre >= span.0 && centre < span.1
 }
 
 impl Stabilizer {
@@ -328,8 +395,11 @@ impl Stabilizer {
                 self.empty_streak = 0;
                 self.nobands_streak = 0;
                 self.lost_hidden = false;
+                self.mark = None;
+                self.span = None;
             }
-            ScanResult::TrackingLost => {
+            ScanResult::TrackingLost { to } => {
+                self.mark = Some(to);
                 // Only a scroll makes held positions wrong; outside one,
                 // ride it out like any other occlusion/transition frame.
                 if self.scroll_recent > 0 {
@@ -342,29 +412,47 @@ impl Stabilizer {
                     self.slots.clear();
                 }
             }
-            ScanResult::Scrolled(dy) => {
+            ScanResult::Scrolled { dy, to, span } => {
                 self.scroll_recent = 2;
-                // Instant translation; slots scrolled above the region top
-                // are dropped (they re-enter via OCR if scrolled back).
+                self.mark = Some(to);
+                self.span = Some(span);
+                // Instant translation. A slot that leaves the list at
+                // either edge is dropped; it re-enters from a scan if the
+                // list comes back.
                 self.slots.retain_mut(|slot| {
-                    let ny = i64::from(slot.y) + dy;
-                    if ny < -i64::from(slot.height) {
-                        return false;
-                    }
-                    slot.y = ny.max(0) as u32;
-                    true
+                    slot.y += dy;
+                    in_span(slot.y, slot.height, span)
                 });
             }
-            ScanResult::Rows(rows, stale) => {
+            ScanResult::Rows(scan) => {
+                // Rows read at an earlier scroll position move by the
+                // scroll since; a read from before tracking was lost has
+                // no known place and is dropped whole.
+                let Some(shift) = self.shift_since(scan.at) else {
+                    return;
+                };
+                let span = self.span;
+                let was_empty = scan.rows.is_empty();
+                let rows: Vec<(i64, Priced)> = scan
+                    .rows
+                    .into_iter()
+                    .map(|r| (i64::from(r.y_top) + shift, r))
+                    .filter(|(y, r)| span.is_none_or(|sp| in_span(*y, r.height, sp)))
+                    .collect();
                 self.nobands_streak = 0;
-                self.stale = stale;
+                self.stale = scan.stale;
+                let post_scroll = self.scroll_recent > 0;
+                if scan.partial {
+                    self.update(rows, post_scroll, false, false);
+                    return;
+                }
                 // A scan after lost tracking is the new ground truth:
                 // slot positions are arbitrary, so anything this scan
                 // does not match is evicted instead of miss-counted
                 // (otherwise a stale slot re-shows at a wrong position
                 // the moment the lost-hide lifts).
                 let resync = std::mem::take(&mut self.lost_hidden);
-                if rows.is_empty() {
+                if was_empty {
                     self.empty_streak = self.empty_streak.saturating_add(1);
                 } else {
                     self.empty_streak = 0;
@@ -372,17 +460,37 @@ impl Stabilizer {
                 if self.empty_streak >= STALE_CLEAR_AFTER {
                     self.slots.clear();
                 } else {
-                    let post_scroll = self.scroll_recent > 0;
                     self.scroll_recent = self.scroll_recent.saturating_sub(1);
-                    self.update(rows, post_scroll, resync);
+                    self.update(rows, post_scroll, resync, true);
                 }
             }
         }
     }
 
-    fn update(&mut self, rows: Vec<Priced>, post_scroll: bool, resync: bool) {
+    /// How far the list has scrolled since a scan read at `at`, or None
+    /// when it was read before tracking was lost. A scan from a newer
+    /// epoch than any motion seen (the first after the gate opened) is
+    /// taken as where the list is now.
+    fn shift_since(&mut self, at: Option<ScrollMark>) -> Option<i64> {
+        let Some(at) = at else {
+            return Some(0);
+        };
+        match self.mark {
+            Some(now) if at.epoch < now.epoch => None,
+            Some(now) if at.epoch == now.epoch => Some(now.offset - at.offset),
+            _ => {
+                self.mark = Some(at);
+                Some(0)
+            }
+        }
+    }
+
+    /// Matches reads (with their current positions) to slots. A partial
+    /// scan (`count_misses` false) says nothing about the slots it does
+    /// not mention.
+    fn update(&mut self, rows: Vec<(i64, Priced)>, post_scroll: bool, resync: bool, count_misses: bool) {
         let mut matched = vec![false; self.slots.len()];
-        for row in rows {
+        for (y, row) in rows {
             // Post-scroll frames can carry motion blur that fakes count
             // tokens; do not mint NEW "?" slots from them (existing slots
             // still update normally).
@@ -392,22 +500,25 @@ impl Stabilizer {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| !matched[*i])
-                .filter(|(_, s)| s.y.abs_diff(row.y_top) <= Y_MATCH_TOLERANCE_PX)
-                .min_by_key(|(_, s)| s.y.abs_diff(row.y_top))
+                .filter(|(_, s)| s.y.abs_diff(y) <= u64::from(Y_MATCH_TOLERANCE_PX))
+                .min_by_key(|(_, s)| s.y.abs_diff(y))
                 .map(|(i, _)| i);
             match existing {
                 Some(i) => {
                     matched[i] = true;
-                    apply_read(&mut self.slots[i], row, post_scroll);
+                    apply_read(&mut self.slots[i], row, y, post_scroll);
                 }
                 None if post_scroll && is_unknown => {}
                 None => {
-                    self.slots.push(Slot::new(row));
+                    self.slots.push(Slot::new(row, y));
                     matched.push(true);
                 }
             }
         }
 
+        if !count_misses {
+            return;
+        }
         let mut i = 0;
         while i < self.slots.len() {
             if matched[i] {
@@ -439,11 +550,14 @@ impl Stabilizer {
         let mut out: Vec<Priced> = self
             .slots
             .iter()
-            .filter(|s| s.displayed)
+            .filter(|s| s.displayed && self.span.is_none_or(|sp| in_span(s.y, s.height, sp)))
             .map(|s| Priced {
                 count: s.snap.count,
                 value_ex: s.snap.value_ex,
-                y_top: s.y,
+                value_chaos: s.snap.value_chaos,
+                // The span's top is a bar's top inside the region, so a row
+                // still in the list never starts above the region.
+                y_top: u32::try_from(s.y).unwrap_or(0),
                 height: s.height,
                 label: s.snap.label.clone(),
                 amount: s.snap.amount.clone(),
@@ -462,13 +576,15 @@ impl Stabilizer {
         self.stale
     }
 
-    /// Drops everything immediately (scan toggled off, game window gone).
+    /// Drops everything immediately (pricing paused, game window gone).
     pub fn clear(&mut self) {
         self.slots.clear();
         self.stale = false;
         self.empty_streak = 0;
         self.nobands_streak = 0;
         self.lost_hidden = false;
+        self.mark = None;
+        self.span = None;
     }
 }
 
@@ -487,6 +603,7 @@ mod tests {
             item_key: item_key.to_string(),
             count: 1,
             value_ex: 1.0,
+            value_chaos: 1.0,
             count_explicit,
             locks_in_one,
         }
@@ -500,10 +617,19 @@ mod tests {
         row(item_key, amount, y_top, false, false)
     }
 
+    /// A scroll inside a list taller than any of these tests' rows.
+    fn scrolled(dy: i64) -> ScanResult {
+        ScanResult::Scrolled { dy, to: ScrollMark { epoch: 0, offset: dy }, span: (0, 100_000) }
+    }
+
+    fn lost() -> ScanResult {
+        ScanResult::TrackingLost { to: ScrollMark { epoch: 1, offset: 0 } }
+    }
+
     #[test]
     fn lock_in_one_for_exact_tier_read() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "a locks_in_one read must display after a single scan");
         assert_eq!(s.rows()[0].item_key, "a");
     }
@@ -511,39 +637,39 @@ mod tests {
     #[test]
     fn fuzzy_read_needs_two_consecutive_identical_reads_to_display() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![fuzzy("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![fuzzy("a", "3 ex", 100)], false));
         assert!(s.rows().is_empty(), "a single Fuzzy read must not display yet");
 
-        s.apply(ScanResult::Rows(vec![fuzzy("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![fuzzy("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "a second consecutive identical Fuzzy read must confirm and display");
     }
 
     #[test]
     fn switch_after_two_consecutive_different_reads() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows()[0].item_key, "a");
 
         // First read of a different item: not enough to switch yet.
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(s.rows()[0].item_key, "a", "a single different read must not switch the slot");
 
         // Second consecutive read of the SAME different item: switches.
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(s.rows()[0].item_key, "b", "two consecutive different reads must switch the slot");
     }
 
     #[test]
     fn miss_preserves_the_lock_and_does_not_reset_a_pending_switch() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         // First of two switch-reads for "b".
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(s.rows()[0].item_key, "a");
 
         // A miss for the y=100 slot: some unrelated row elsewhere, so this
         // is a per-slot miss, not a global empty scan.
-        s.apply(ScanResult::Rows(vec![exact("unrelated", "9 ex", 500)], false));
+        s.apply(ScanResult::rows(vec![exact("unrelated", "9 ex", 500)], false));
         assert_eq!(
             s.rows().iter().find(|r| r.y_top == 100).unwrap().item_key,
             "a",
@@ -552,7 +678,7 @@ mod tests {
 
         // Second consecutive "b" read: the miss in between must not have
         // reset the pending-switch streak, so this completes the switch.
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(
             s.rows().iter().find(|r| r.y_top == 100).unwrap().item_key,
             "b",
@@ -563,11 +689,11 @@ mod tests {
     #[test]
     fn evict_after_eight_consecutive_misses() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert!(s.rows().iter().any(|r| r.item_key == "a"));
 
         for _ in 0..7 {
-            s.apply(ScanResult::Rows(vec![exact("other", "1 ex", 500)], false));
+            s.apply(ScanResult::rows(vec![exact("other", "1 ex", 500)], false));
         }
         assert!(
             s.rows().iter().any(|r| r.item_key == "a"),
@@ -575,7 +701,7 @@ mod tests {
         );
 
         // 8th consecutive miss for the y=100 slot: evicted.
-        s.apply(ScanResult::Rows(vec![exact("other", "1 ex", 500)], false));
+        s.apply(ScanResult::rows(vec![exact("other", "1 ex", 500)], false));
         assert!(
             !s.rows().iter().any(|r| r.item_key == "a"),
             "the 8th consecutive miss must evict the slot"
@@ -585,25 +711,25 @@ mod tests {
     #[test]
     fn two_stage_stale_hides_at_eight_and_clears_at_twelve() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
 
         for i in 1..8 {
-            s.apply(ScanResult::Rows(vec![], false));
+            s.apply(ScanResult::rows(vec![], false));
             assert_eq!(s.rows().len(), 1, "empty scan {i} of 7 must not hide yet");
         }
-        s.apply(ScanResult::Rows(vec![], false));
+        s.apply(ScanResult::rows(vec![], false));
         assert!(s.rows().is_empty(), "the 8th consecutive empty scan must hide the display");
 
         // Slot is kept alive underneath: a read of the SAME item displays
         // immediately (fast recovery), no re-confirmation needed.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "the slot must have survived the hide, showing again immediately");
 
         // Drive it back into an empty streak and all the way to 12 to
         // force a real clear.
         for _ in 0..12 {
-            s.apply(ScanResult::Rows(vec![], false));
+            s.apply(ScanResult::rows(vec![], false));
         }
 
         // A different item at the same position: if the old slot had
@@ -611,7 +737,7 @@ mod tests {
         // immediately. If it had only been hidden, "a" would still be the
         // tracked item and this would enter the 2-read pending-switch path
         // instead of showing right away.
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(
             s.rows().first().map(|r| r.item_key.as_str()),
             Some("b"),
@@ -622,7 +748,7 @@ mod tests {
     #[test]
     fn gate_empty_clears_immediately_even_after_a_single_hit() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100), exact("b", "1 ex", 200)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100), exact("b", "1 ex", 200)], false));
         assert_eq!(s.rows().len(), 2);
 
         s.apply(ScanResult::GateEmpty);
@@ -631,7 +757,7 @@ mod tests {
         // Verify it's a real clear, not just a hide: a different item at
         // the same position displays immediately rather than needing a
         // 2-read pending switch.
-        s.apply(ScanResult::Rows(vec![exact("c", "5 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("c", "5 ex", 100)], false));
         assert_eq!(s.rows().first().map(|r| r.item_key.as_str()), Some("c"));
     }
 
@@ -643,7 +769,7 @@ mod tests {
         // ANY scene brightness. Do not raise this constant without an
         // explicit user decision.
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
 
         s.apply(ScanResult::NoBands);
@@ -653,7 +779,7 @@ mod tests {
 
         // Slot kept alive underneath: a read of the SAME item displays
         // immediately (fast recovery), no re-confirmation needed.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1, "the slot must have survived the NoBands hide, showing again immediately");
 
         // Drive it back into a NoBands streak all the way to 4 to force a
@@ -664,7 +790,7 @@ mod tests {
 
         // A different item at the same position: if the old slot had truly
         // been cleared, this is a brand new slot and displays immediately.
-        s.apply(ScanResult::Rows(vec![exact("b", "1 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("b", "1 ex", 100)], false));
         assert_eq!(
             s.rows().first().map(|r| r.item_key.as_str()),
             Some("b"),
@@ -675,12 +801,12 @@ mod tests {
     #[test]
     fn nobands_recovery_resets_the_streak() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         s.apply(ScanResult::NoBands);
         assert_eq!(s.rows().len(), 1, "1 NoBands must not hide yet");
 
         // A real Rows pass in between must reset the NoBands streak.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         s.apply(ScanResult::NoBands);
         assert_eq!(
             s.rows().len(),
@@ -692,11 +818,11 @@ mod tests {
     #[test]
     fn y_within_match_tolerance_still_matches_and_moves_the_slot() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
 
         // 80px drift: within Y_MATCH_TOLERANCE_PX (90) but beyond
         // POSITION_SNAP_PX (22), so it's the same slot, moved for real.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 180)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 180)], false));
         assert_eq!(s.rows().len(), 1, "an 80px drift must still match the same slot, not create a new one");
         assert_eq!(s.rows()[0].y_top, 180, "a real position change beyond the snap radius must move the slot");
     }
@@ -704,10 +830,10 @@ mod tests {
     #[test]
     fn position_snap_ignores_small_drift() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
 
         // 10px drift: inside POSITION_SNAP_PX (22), treated as jitter.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 110)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 110)], false));
         assert_eq!(s.rows()[0].y_top, 100, "small jitter must not move the slot");
     }
 
@@ -715,13 +841,13 @@ mod tests {
     fn count_stickiness_covers_a_dropped_marker_while_confirming() {
         let mut s = Stabilizer::new();
         // First (of two) Fuzzy reads carries an explicit "3x".
-        s.apply(ScanResult::Rows(vec![row("a", "3 ex", 100, false, true)], false));
+        s.apply(ScanResult::rows(vec![row("a", "3 ex", 100, false, true)], false));
         assert!(s.rows().is_empty());
 
         // Second, confirming read has the same item but the count marker
         // dropped this frame (count_explicit=false); the remembered "3 ex"
         // must be what actually displays, not a default-1 amount.
-        s.apply(ScanResult::Rows(vec![row("a", "1 ex", 100, false, false)], false));
+        s.apply(ScanResult::rows(vec![row("a", "1 ex", 100, false, false)], false));
         assert_eq!(s.rows().len(), 1);
         assert_eq!(s.rows()[0].amount, "3 ex", "a fresh remembered explicit count must be used, not the default");
     }
@@ -729,12 +855,12 @@ mod tests {
     #[test]
     fn count_stickiness_expires_after_1500ms() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![row("a", "3 ex", 100, false, true)], false));
+        s.apply(ScanResult::rows(vec![row("a", "3 ex", 100, false, true)], false));
         assert!(s.rows().is_empty());
 
         std::thread::sleep(Duration::from_millis(1600));
 
-        s.apply(ScanResult::Rows(vec![row("a", "1 ex", 100, false, false)], false));
+        s.apply(ScanResult::rows(vec![row("a", "1 ex", 100, false, false)], false));
         assert_eq!(s.rows().len(), 1);
         assert_eq!(s.rows()[0].amount, "1 ex", "an expired remembered count must fall back to the read's own amount");
     }
@@ -742,30 +868,30 @@ mod tests {
     #[test]
     fn stale_flag_tracks_the_latest_rows_result() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], true));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], true));
         assert!(s.stale());
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert!(!s.stale());
     }
 
     #[test]
     fn scrolled_shifts_rows_instantly_and_preserves_state() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 300), exact("b", "1 ex", 900)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 300), exact("b", "1 ex", 900)], false));
         assert_eq!(s.rows().len(), 2);
 
-        s.apply(ScanResult::Scrolled(-120));
+        s.apply(scrolled(-120));
         let ys: Vec<u32> = s.rows().iter().map(|r| r.y_top).collect();
         assert_eq!(ys, vec![180, 780], "labels must move by the scroll delta immediately");
 
         // Scroll must not count as a miss: a following matching read keeps
         // both slots displayed with no re-confirmation.
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 180), exact("b", "1 ex", 780)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 180), exact("b", "1 ex", 780)], false));
         assert_eq!(s.rows().len(), 2);
 
         // Accumulation.
-        s.apply(ScanResult::Scrolled(50));
-        s.apply(ScanResult::Scrolled(50));
+        s.apply(scrolled(50));
+        s.apply(scrolled(50));
         let ys: Vec<u32> = s.rows().iter().map(|r| r.y_top).collect();
         assert_eq!(ys, vec![280, 880]);
     }
@@ -773,43 +899,124 @@ mod tests {
     #[test]
     fn scrolled_drops_rows_pushed_above_the_region() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100), exact("b", "1 ex", 900)], false));
-        s.apply(ScanResult::Scrolled(-600));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100), exact("b", "1 ex", 900)], false));
+        s.apply(scrolled(-600));
         let rows = s.rows();
         assert_eq!(rows.len(), 1, "the slot scrolled far above the top is dropped");
         assert_eq!(rows[0].item_key, "b");
         assert_eq!(rows[0].y_top, 300);
     }
 
+    fn tagged(rows: Vec<Priced>, epoch: u64, offset: i64, partial: bool) -> ScanResult {
+        ScanResult::Rows(Scan { rows, stale: false, at: Some(ScrollMark { epoch, offset }), partial })
+    }
+
+    #[test]
+    fn a_read_made_before_a_scroll_moves_by_the_scroll_since() {
+        let mut s = Stabilizer::new();
+        s.apply(scrolled(-120));
+        s.apply(tagged(vec![exact("a", "3 ex", 600)], 0, 0, false));
+        assert_eq!(s.rows()[0].y_top, 480, "read at offset 0, shown at offset -120");
+    }
+
+    #[test]
+    fn a_read_made_before_tracking_was_lost_is_dropped() {
+        let mut s = Stabilizer::new();
+        s.apply(tagged(vec![exact("a", "3 ex", 300)], 0, 0, false));
+        s.apply(lost());
+        s.apply(tagged(vec![exact("b", "1 ex", 600)], 0, 0, false));
+        let keys: Vec<String> = s.rows().iter().map(|r| r.item_key.clone()).collect();
+        assert_eq!(keys, ["a"], "a read from the old epoch has no known place");
+        s.apply(tagged(vec![exact("b", "1 ex", 600)], 1, 0, false));
+        assert!(s.rows().iter().any(|r| r.item_key == "b"));
+    }
+
+    #[test]
+    fn a_partial_scan_says_nothing_about_rows_it_does_not_mention() {
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
+        for _ in 0..EVICT_AFTER + 2 {
+            s.apply(tagged(vec![exact("b", "1 ex", 600)], 0, 0, true));
+        }
+        let keys: Vec<String> = s.rows().iter().map(|r| r.item_key.clone()).collect();
+        assert_eq!(keys, ["a", "b"], "template hits alone never evict a row");
+    }
+
     #[test]
     fn tracking_lost_after_a_scroll_hides_until_the_next_scan() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
-        s.apply(ScanResult::Scrolled(30));
-        s.apply(ScanResult::TrackingLost);
+        s.apply(scrolled(30));
+        s.apply(lost());
         assert!(s.rows().is_empty(), "lost tracking during a scroll must hide");
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 400)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 400)], false));
         assert_eq!(s.rows().len(), 1, "a fresh scan re-shows re-anchored rows");
     }
 
     #[test]
     fn tracking_lost_without_a_recent_scroll_is_ignored() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
-        s.apply(ScanResult::TrackingLost); // tooltip popped, no scroll
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(lost()); // tooltip popped, no scroll
         assert_eq!(s.rows().len(), 1, "occlusion tolerance must keep rows visible");
     }
 
     #[test]
     fn gate_empty_resets_the_lost_hidden_state() {
         let mut s = Stabilizer::new();
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
-        s.apply(ScanResult::Scrolled(30));
-        s.apply(ScanResult::TrackingLost);
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(scrolled(30));
+        s.apply(lost());
         assert!(s.rows().is_empty());
         s.apply(ScanResult::GateEmpty);
-        s.apply(ScanResult::Rows(vec![exact("a", "3 ex", 100)], false));
+        s.apply(ScanResult::rows(vec![exact("a", "3 ex", 100)], false));
         assert_eq!(s.rows().len(), 1);
+    }
+    #[test]
+    fn a_pending_price_is_replaced_when_the_price_arrives() {
+        let mut s = Stabilizer::new();
+        let key = "gemx:detonate living:20";
+        s.apply(ScanResult::rows(vec![exact(key, "…", 300)], false));
+        assert_eq!(s.rows()[0].amount, "…");
+        let mut priced = exact(key, "45", 300);
+        priced.value_ex = 45.0;
+        s.apply(ScanResult::rows(vec![priced], false));
+        assert_eq!(s.rows()[0].amount, "45", "an uncounted same-item read must refresh the display");
+        assert_eq!(s.rows()[0].value_ex, 45.0);
+    }
+
+    #[test]
+    fn a_read_that_lost_its_count_marker_does_not_shrink_a_displayed_stack() {
+        let mut s = Stabilizer::new();
+        let mut stack = row("exalted orb", "3 (1 each)", 300, true, true);
+        stack.count = 3;
+        s.apply(ScanResult::rows(vec![stack], false));
+        s.apply(ScanResult::rows(vec![exact("exalted orb", "1", 300)], false));
+        assert_eq!(s.rows()[0].amount, "3 (1 each)");
+        assert_eq!(s.rows()[0].count, 3);
+    }
+
+    #[test]
+    fn a_remembered_count_never_prices_the_item_that_replaces_it() {
+        // Two agreeing reads switch the slot to a new, uncounted item well
+        // inside the stickiness window.
+        let mut s = Stabilizer::new();
+        let mut stack = row("exalted orb", "3 (1 each)", 300, true, true);
+        stack.count = 3;
+        s.apply(ScanResult::rows(vec![stack.clone()], false));
+        for _ in 0..2 {
+            s.apply(ScanResult::rows(vec![exact("divine orb", "1 div", 300)], false));
+        }
+        assert_eq!(s.rows()[0].item_key, "divine orb");
+        assert_eq!(s.rows()[0].amount, "1 div");
+
+        // Same through the post-scroll immediate switch.
+        let mut s = Stabilizer::new();
+        s.apply(ScanResult::rows(vec![stack], false));
+        s.apply(scrolled(0));
+        s.apply(ScanResult::rows(vec![exact("chaos orb", "1 chaos", 300)], false));
+        assert_eq!(s.rows()[0].item_key, "chaos orb");
+        assert_eq!(s.rows()[0].amount, "1 chaos");
     }
 }

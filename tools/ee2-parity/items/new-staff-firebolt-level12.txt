@@ -1,0 +1,19 @@
+Item Class: Staves
+Rarity: Rare
+Ember Pillar
+Ashen Staff
+--------
+Requires: Level 33, 50 Int
+--------
+Item Level: 38
+--------
+Grants Skill: Level 12 Firebolt
+--------
+{ Prefix Modifier "Professor's" (Tier: 6) — Damage, Caster }
+74(70-89)% increased Spell Damage
+{ Prefix Modifier "Scorching" (Tier: 6) — Damage, Elemental, Fire }
+58(50-69)% increased Fire Damage
+{ Suffix Modifier "of Coals" (Tier: 4) — Elemental, Fire, Caster, Gem }
++2 to Level of all Fire Spell Skills
+{ Suffix Modifier "of Nimbleness" (Tier: 5) — Caster, Speed }
+21(20-25)% increased Cast Speed

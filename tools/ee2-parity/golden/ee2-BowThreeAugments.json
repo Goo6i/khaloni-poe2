@@ -1,0 +1,163 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "dps": {
+       "min": 549
+      },
+      "pdps": {
+       "min": 469
+      },
+      "rune_sockets": {
+       "min": 3
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "rune.stat_3885405204",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_55876295",
+       "value": {
+        "min": 9
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 1.25
+      },
+      "crit": {
+       "min": 8.1
+      },
+      "dps": {
+       "min": 549
+      },
+      "pdps": {
+       "min": 469
+      },
+      "rune_sockets": {
+       "min": 3
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "rune.stat_3885405204",
+       "value": {
+        "min": 1
+       }
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_55876295",
+       "value": {
+        "min": 9
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

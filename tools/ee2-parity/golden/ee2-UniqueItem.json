@@ -1,0 +1,131 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "The Eternal Spark",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_4015621042",
+       "value": {
+        "min": 54
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3308030688",
+       "value": {}
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1671376347",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1011760251",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_789117908",
+       "value": {}
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Crystal Focus"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "The Eternal Spark",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_4015621042",
+       "value": {
+        "min": 54
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3308030688",
+       "value": {}
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1671376347",
+       "value": {
+        "min": 25
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1011760251",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_789117908",
+       "value": {}
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Crystal Focus"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

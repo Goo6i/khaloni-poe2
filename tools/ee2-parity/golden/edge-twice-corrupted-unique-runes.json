@@ -1,0 +1,175 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "rune_sockets": {
+       "min": 2
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "Loreweave",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "rune.stat_3372524247",
+       "value": {
+        "min": 14
+       }
+      },
+      {
+       "disabled": true,
+       "id": "rune.stat_4220027924",
+       "value": {
+        "min": 14
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3299347043",
+       "value": {
+        "min": 66
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2901986750",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_1379411836",
+       "value": {
+        "min": 21
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2897413282",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ornate Ringmail"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "rune_sockets": {
+       "min": 2
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "Loreweave",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "rune.stat_3372524247",
+       "value": {
+        "min": 14
+       }
+      },
+      {
+       "disabled": true,
+       "id": "rune.stat_4220027924",
+       "value": {
+        "min": 14
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3299347043",
+       "value": {
+        "min": 66
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2901986750",
+       "value": {
+        "min": 11
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_1379411836",
+       "value": {
+        "min": 21
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2897413282",
+       "value": {
+        "min": 21
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ornate Ringmail"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

@@ -1,0 +1,29 @@
+Item Class: Helmets
+Rarity: Rare
+Spirit Visage
+Grinning Mask
+--------
+Quality: +20% (augmented)
+Evasion Rating: 421 (augmented)
+Energy Shield: 131 (augmented)
+--------
+Requires: Level 80, 59 Dex, 59 Int
+--------
+Sockets: S 
+--------
+Item Level: 80
+--------
+{ Fractured Prefix Modifier "Illusion's" (Tier: 2) — Defences }
+81(74-85)% increased Evasion and Energy Shield (fractured)
+{ Prefix Modifier "Will-o-wisp's" (Tier: 3) — Defences }
++47(39-55) to Evasion Rating
++17(14-20) to maximum Energy Shield
+{ Prefix Modifier "Shadowy" (Tier: 5) — Defences }
+21(21-26)% increased Evasion and Energy Shield
++38(29-40) to Stun Threshold
+{ Suffix Modifier "of the Sage" (Tier: 3) — Attribute }
++26(25-27) to Intelligence
+{ Suffix Modifier "of Archaeology" (Tier: 3) }
+13(11-14)% increased Rarity of Items found
+--------
+Fractured Item

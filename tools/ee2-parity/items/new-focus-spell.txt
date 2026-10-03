@@ -1,0 +1,24 @@
+Item Class: Foci
+Rarity: Rare
+Mind Beacon
+Tasalian Focus
+--------
+Quality: +20% (augmented)
+Energy Shield: 214 (augmented)
+--------
+Requires: Level 80, 157 Int
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Resplendent" (Tier: 3) — Defences }
+76(68-79)% increased Energy Shield
+{ Prefix Modifier "Runic" (Tier: 3) — Damage, Caster }
+82(75-89)% increased Spell Damage
+{ Prefix Modifier "Azure" (Tier: 6) — Mana }
++96(90-104) to maximum Mana
+{ Suffix Modifier "of Flamecraft" (Tier: 2) — Elemental, Fire, Caster, Gem }
++2 to Level of all Fire Spell Skills
+{ Suffix Modifier "of Legerdemain" (Tier: 3) — Caster, Speed }
+22(20-24)% increased Cast Speed
+{ Suffix Modifier "of Unmaking" (Tier: 3) — Caster, Critical }
+39(35-39)% increased Critical Hit Chance for Spells

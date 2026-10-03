@@ -1,0 +1,24 @@
+Item Class: Wands
+Rarity: Rare
+Plague Whisper
+Withered Wand
+--------
+Requires: Level 90, 125 (augmented) Int
+--------
+Item Level: 82
+--------
+Grants Skill: Level 20 Chaos Bolt
+--------
+{ Prefix Modifier "Runic" (Tier: 3) — Damage, Caster }
+86(75-89)% increased Spell Damage
+{ Prefix Modifier "Occultist's" (Tier: 3) — Mana, Damage, Caster }
+41(40-44)% increased Spell Damage
++45(43-46) to maximum Mana
+{ Prefix Modifier "Malignant" (Tier: 4) — Damage, Chaos }
+68(65-74)% increased Chaos Damage
+{ Suffix Modifier "of Ruin" (Tier: 1) — Chaos, Caster, Gem }
++5 to Level of all Chaos Spell Skills
+{ Suffix Modifier "of the Sorcerer" (Tier: 1) — Caster, Gem }
++3 to Level of all Spell Skills
+{ Suffix Modifier "of the Apt" (Tier: 4) }
+20% reduced Attribute Requirements

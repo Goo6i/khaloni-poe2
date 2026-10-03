@@ -1,0 +1,14 @@
+Item Class: Body Armours
+Rarity: Magic
+Phantasm's Exquisite Vest of the Drake
+--------
+Evasion Rating: 776 (augmented)
+--------
+Requires: Level 70, 121 Dex
+--------
+Item Level: 78
+--------
+{ Prefix Modifier "Phantasm's" (Tier: 3) — Defences }
+72(68-79)% increased Evasion Rating
+{ Suffix Modifier "of the Drake" (Tier: 6) — Elemental, Fire, Resistance }
++18(16-20)% to Fire Resistance

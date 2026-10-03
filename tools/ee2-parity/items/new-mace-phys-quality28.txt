@@ -1,0 +1,31 @@
+Item Class: Two Hand Maces
+Rarity: Rare
+Skull Breaker
+Sacred Maul
+--------
+Quality: +28% (augmented)
+Physical Damage: 412-771 (augmented)
+Critical Hit Chance: 5.00%
+Attacks per Second: 1.20
+--------
+Requires: Level 59, 102 (augmented) Str
+--------
+Sockets: S S S
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Tyrannical" (Tier: 2) — Damage, Physical, Attack }
+162(155-169)% increased Physical Damage
+{ Prefix Modifier "Tempered" (Tier: 2) — Damage, Physical, Attack }
+Adds 38(30-45) to 71(52-78) Physical Damage
+{ Prefix Modifier "Conqueror's" (Tier: 3) — Damage, Physical, Attack }
+57(55-64)% increased Physical Damage
++131(124-149) to Accuracy Rating
+{ Suffix Modifier "of the Apt" (Tier: 4) }
+20% reduced Attribute Requirements
+{ Suffix Modifier "of the Titan" (Tier: 1) — Attribute }
++33(31-33) to Strength
+{ Suffix Modifier "of Stunning" (Tier: 2) }
+Causes 58(51-60)% increased Stun Buildup
+--------
+Corrupted

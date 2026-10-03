@@ -1,0 +1,27 @@
+Item Class: Amulets
+Rarity: Rare
+Dire Scarab
+Absent Amulet
+--------
+Quality (Attack Modifiers): +20% (augmented)
+--------
+Requires: Level 58
+--------
+Item Level: 80
+--------
+{ Implicit Modifier }
+-1 Prefix Modifier allowed
+-1 Suffix Modifier allowed
+--------
+Grants Skill: Level 17 Eternal Rage
+--------
+{ Prefix Modifier "Countess'" (Tier: 1) }
++50(47-50) to Spirit
+{ Prefix Modifier "Occultist's" (Tier: 2) — Damage, Caster }
+26(23-26)% increased Spell Damage
+{ Suffix Modifier "of the Lightning" (Tier: 2) — Elemental, Lightning, Resistance }
++36(36-40)% to Lightning Resistance
+{ Suffix Modifier "of the Veil" }
+Desecrated Suffix
+--------
+We grasp the eternal unborn...

@@ -1,0 +1,22 @@
+Item Class: Body Armours
+Rarity: Rare
+Skull Shell
+Vile Robe
+--------
+Quality: +12% (augmented)
+Energy Shield: 310 (augmented)
+--------
+Requires: Level 65, 121 Int
+--------
+Sockets: S S
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Resplendent" (Tier: 2) — Defences }
++85(80-90) to maximum Energy Shield
+{ Desecrated Prefix Modifier }
+Desecrated Prefix
+{ Suffix Modifier "of the Polar Bear" (Tier: 4) — Elemental, Cold, Resistance }
++30(26-30)% to Cold Resistance
+{ Suffix Modifier "of the Lightning" (Tier: 5) — Elemental, Lightning, Resistance }
++22(21-25)% to Lightning Resistance

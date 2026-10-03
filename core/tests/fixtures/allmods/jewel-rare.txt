@@ -1,0 +1,15 @@
+Item Class: Jewels
+Rarity: Rare
+Kraken Shine
+Sapphire
+--------
+Item Level: 79
+--------
+{ Prefix Modifier "Bestial" (Tier: 1) — Damage }
+11(5-15)% increased Damage while Shapeshifted
+{ Prefix Modifier "Chaotic" (Tier: 1) — Damage, Chaos }
+8(7-13)% increased Chaos Damage
+{ Suffix Modifier "of Unmaking" (Tier: 1) — Damage, Caster, Critical }
+15(10-20)% increased Critical Spell Damage Bonus
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.

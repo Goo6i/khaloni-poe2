@@ -71,6 +71,9 @@ pub struct Item {
     pub implicits: Vec<ItemMod>,
     pub explicits: Vec<ItemMod>,
     pub sections: Vec<Vec<String>>,
+    /// The clipboard text as it was copied. The trade search is built from
+    /// this (see `ee2::build`), not from the fields above.
+    pub raw: String,
 }
 
 pub fn parse_item(text: &str) -> Result<Item, ParseError> {
@@ -79,8 +82,15 @@ pub fn parse_item(text: &str) -> Result<Item, ParseError> {
         return Err(ParseError::Empty);
     }
     let head = &sections[0];
-    let item_class =
-        field(head, "Item Class: ").ok_or(ParseError::MissingHeader("Item Class"))?;
+    // Meta skill gems copy without an "Item Class:" line: their header is
+    // "Rarity: Gem" and the name. EE2 accepts exactly that shape (two or
+    // three lines led by the rarity), so the same texts price here.
+    let classless = (2..=3).contains(&head.len()) && head[0].starts_with("Rarity: ");
+    let item_class = match field(head, "Item Class: ") {
+        Some(class) => class,
+        None if classless => String::new(),
+        None => return Err(ParseError::MissingHeader("Item Class")),
+    };
     let rarity_s = field(head, "Rarity: ").ok_or(ParseError::MissingHeader("Rarity"))?;
     let rarity = Rarity::parse(&rarity_s);
 
@@ -129,6 +139,7 @@ pub fn parse_item(text: &str) -> Result<Item, ParseError> {
         implicits,
         explicits,
         sections,
+        raw: text.to_string(),
     })
 }
 

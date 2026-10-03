@@ -6,7 +6,7 @@
 //! every target, ocr cfg or not, and is cheap enough for the 700 ms
 //! full-frame cadence inside the rumour worker):
 //!
-//! 1. Blob sweep: `rumours::panel_candidates` — the same step-4
+//! 1. Blob sweep: `rumours::panel_candidates` — the same
 //!    subsampled threshold/close/label pass the rumour recognizer's
 //!    tooltip finder uses — yields every bright parchment-like blob.
 //!    This module applies its own size gates because the reward panel
@@ -37,11 +37,11 @@ use khaloni_poe2_core::rumour_scan::Rect;
 use crate::ocr;
 use crate::rumours;
 
-/// Minimum candidate size (full-res px). Loose on purpose: the reward
-/// panel is ~990x1030 at 4K but proportionally smaller on window-sized
-/// Windows captures (~500x515 at 1080p); band validation, not size, is
-/// the discriminator. The floor only skips blobs too small to hold two
-/// BAND_MIN_H bands plus gaps with room to spare.
+/// Minimum candidate size in 4K px, scaled with the frame like every
+/// other length here (`ocr::UiScale`). Loose on purpose: the reward panel
+/// is ~990x1030 at 4K; band validation, not size, is the discriminator.
+/// The floor only skips blobs too small to hold two BAND_MIN_H bands plus
+/// gaps with room to spare.
 const MIN_W: u32 = 260;
 const MIN_H: u32 = 260;
 /// A candidate wider/taller than this fraction (in tenths) of the frame
@@ -62,7 +62,7 @@ const MIN_REWARD_BANDS: usize = 2;
 /// CROP_PADs. Measured on the panel_choice composite: the blob's bottom
 /// edge clips 46 px of the panel (the map background fades under the
 /// sweep threshold there), so PAD_Y_DN recovers it; the other sides only
-/// need slack for the step-4 subsample grid snap.
+/// need slack for the subsample grid snap. 4K pixels, scaled with the frame.
 const PAD_X: u32 = 8;
 const PAD_Y_UP: u32 = 16;
 const PAD_Y_DN: u32 = 48;
@@ -76,10 +76,14 @@ const PAD_Y_DN: u32 = 48;
 pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
     let dbg = std::env::var("KHALONI_DEBUG").is_ok();
     let (gw, gh) = (gray.width(), gray.height());
+    // The frame is the game's whole client area, so its height gives the
+    // interface scale the band measurements need.
+    let scale = ocr::UiScale::from_frame_height(gh);
+    let (min_w, min_h) = (scale.px(MIN_W), scale.px(MIN_H));
     let mut best: Option<(u64, Rect)> = None; // (area, padded box)
     for cand in rumours::panel_candidates(gray) {
         let (w, h) = (cand.rect.width(), cand.rect.height());
-        if w < MIN_W || h < MIN_H || cand.fill < MIN_FILL {
+        if w < min_w || h < min_h || cand.fill < MIN_FILL {
             continue;
         }
         if w * 10 > gw * MAX_FRAME_TENTHS || h * 10 > gh * MAX_FRAME_TENTHS {
@@ -89,7 +93,7 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
             continue;
         }
         // The blob box is subsample-grid aligned and can overshoot the
-        // frame edge by up to PANEL_STEP - 1: clamp before cropping.
+        // frame edge by up to one grid step: clamp before cropping.
         let x1 = cand.rect.x1.min(gw);
         let y1 = cand.rect.y1.min(gh);
         if x1 <= cand.rect.x0 || y1 <= cand.rect.y0 {
@@ -99,9 +103,11 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
             imageops::crop_imm(gray, cand.rect.x0, cand.rect.y0, x1 - cand.rect.x0, y1 - cand.rect.y0)
                 .to_image();
         let profile = ocr::row_profile(&crop);
-        let bands = ocr::detect_bands_from_profile(&profile);
-        let reward_bands =
-            bands.iter().filter(|&&(y0, y1)| ocr::is_reward_bar(&crop, &profile, y0, y1)).count();
+        let bands = ocr::detect_bands_from_profile_at(&profile, scale);
+        let reward_bands = bands
+            .iter()
+            .filter(|&&(y0, y1)| ocr::is_reward_bar_at(&crop, &profile, y0, y1, scale))
+            .count();
         if dbg {
             eprintln!(
                 "autoregion: candidate {:?} fill={:.2} bands={} reward-bars={} -> {}",
@@ -120,10 +126,10 @@ pub fn detect_reward_region(gray: &GrayImage) -> Option<Rect> {
             best = Some((
                 area,
                 Rect {
-                    x0: cand.rect.x0.saturating_sub(PAD_X),
-                    y0: cand.rect.y0.saturating_sub(PAD_Y_UP),
-                    x1: (x1 + PAD_X).min(gw),
-                    y1: (y1 + PAD_Y_DN).min(gh),
+                    x0: cand.rect.x0.saturating_sub(scale.px(PAD_X)),
+                    y0: cand.rect.y0.saturating_sub(scale.px(PAD_Y_UP)),
+                    x1: (x1 + scale.px(PAD_X)).min(gw),
+                    y1: (y1 + scale.px(PAD_Y_DN)).min(gh),
                 },
             ));
         }

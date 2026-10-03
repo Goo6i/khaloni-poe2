@@ -5,7 +5,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayEvent {
     OpenSettings,
-    ToggleOverlay,
     TogglePause,
     Quit,
 }
@@ -42,7 +41,6 @@ mod win {
 
     // Menu ids double as the routing keys in drain_events.
     const ID_SETTINGS: &str = "open-settings";
-    const ID_OVERLAY: &str = "toggle-overlay";
     const ID_PAUSE: &str = "pause-pricing";
     const ID_QUIT: &str = "quit";
 
@@ -90,7 +88,6 @@ mod win {
         // and flips it on TogglePause, same split as on Linux.
         let menu = Menu::with_items(&[
             &MenuItem::with_id(ID_SETTINGS, "Open Settings", true, None),
-            &MenuItem::with_id(ID_OVERLAY, "Toggle Overlay", true, None),
             &CheckMenuItem::with_id(ID_PAUSE, "Pause Pricing", true, false, None),
             &PredefinedMenuItem::separator(),
             &MenuItem::with_id(ID_QUIT, "Quit", true, None),
@@ -126,7 +123,6 @@ mod win {
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             let event = match ev.id().as_ref() {
                 ID_SETTINGS => TrayEvent::OpenSettings,
-                ID_OVERLAY => TrayEvent::ToggleOverlay,
                 ID_PAUSE => TrayEvent::TogglePause,
                 ID_QUIT => TrayEvent::Quit,
                 _ => continue,
@@ -174,7 +170,7 @@ mod linux {
             let (width, height) = img.dimensions();
             let mut data = img.into_vec();
             // SNI wants ARGB32 in network byte order; image gives RGBA.
-            for px in data.chunks_exact_mut(4) {
+            for px in data.as_chunks_mut::<4>().0 {
                 px.rotate_right(1);
             }
             Some(ksni::Icon {
@@ -224,14 +220,6 @@ mod linux {
                     label: "Open Settings".into(),
                     activate: Box::new(|t: &mut Self| {
                         let _ = t.tx.send(TrayEvent::OpenSettings);
-                    }),
-                    ..Default::default()
-                }
-                .into(),
-                StandardItem {
-                    label: "Toggle Overlay".into(),
-                    activate: Box::new(|t: &mut Self| {
-                        let _ = t.tx.send(TrayEvent::ToggleOverlay);
                     }),
                     ..Default::default()
                 }

@@ -1,0 +1,12 @@
+Item Class: Jewels
+Rarity: Magic
+Vicious Ruby of Deadliness
+--------
+Item Level: 76
+--------
+{ Prefix Modifier "Vicious" (Tier: 1) — Damage, Physical }
+11(5-15)% increased Global Physical Damage
+{ Suffix Modifier "of Deadliness" (Tier: 1) — Attack, Critical }
+9(6-16)% increased Critical Hit Chance for Attacks
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.

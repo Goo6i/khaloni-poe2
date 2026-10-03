@@ -1,0 +1,687 @@
+{
+  "base": "Attuned Wand",
+  "buy": {
+    "listings": 5,
+    "price": 400.0
+  },
+  "case": "attuned-wand-spell-cast-essence",
+  "cheapest": "essence-start (Greater Essence of Alacrity, Greater Exalted, clearing blockers first)",
+  "item_level": 81,
+  "model_line": "uniform model: PoE2 does not publish weights (optimistic floor: assumes every tier equally likely)",
+  "mods": [],
+  "patch": "0.5.5",
+  "rarity": "Normal",
+  "strategies": [
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 174.2,
+      "give_up_rate": 0.0,
+      "median": 117.1,
+      "not_worth_crafting": false,
+      "p90": 403.6,
+      "per_finished": 174.2,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Alacrity",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 92.6,
+          "p_success": null,
+          "step": "Greater Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 7.408
+        },
+        {
+          "closed_form": false,
+          "cost": 75.37,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 5.798
+        },
+        {
+          "closed_form": false,
+          "cost": 2.954,
+          "p_success": null,
+          "step": "Greater Exalted Orb",
+          "uses": 0.844
+        },
+        {
+          "closed_form": false,
+          "cost": 0.192,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.032
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Alacrity, Greater Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 183.9,
+      "give_up_rate": 0.0,
+      "median": 129.1,
+      "not_worth_crafting": false,
+      "p90": 420.1,
+      "per_finished": 183.9,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Alacrity",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 135.4,
+          "p_success": null,
+          "step": "Perfect Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 5.414
+        },
+        {
+          "closed_form": false,
+          "cost": 42.85,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 3.296
+        },
+        {
+          "closed_form": false,
+          "cost": 2.496,
+          "p_success": null,
+          "step": "Perfect Exalted Orb",
+          "uses": 0.156
+        },
+        {
+          "closed_form": false,
+          "cost": 0.204,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.034
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Alacrity, Perfect Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 291.6,
+      "give_up_rate": 0.0,
+      "median": 180.1,
+      "not_worth_crafting": false,
+      "p90": 713.1,
+      "per_finished": 291.6,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Sorcery",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 208.9,
+          "p_success": null,
+          "step": "Perfect Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 7.738
+        },
+        {
+          "closed_form": false,
+          "cost": 78.23,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 5.588
+        },
+        {
+          "closed_form": false,
+          "cost": 0.288,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.048
+        },
+        {
+          "closed_form": false,
+          "cost": 1.088,
+          "p_success": null,
+          "step": "Perfect Exalted Orb",
+          "uses": 0.068
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Sorcery, Perfect Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 298.9,
+      "give_up_rate": 0.0,
+      "median": 189.1,
+      "not_worth_crafting": false,
+      "p90": 690.1,
+      "per_finished": 298.9,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Sorcery",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 160.6,
+          "p_success": null,
+          "step": "Greater Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 11.07
+        },
+        {
+          "closed_form": false,
+          "cost": 131.9,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 9.42
+        },
+        {
+          "closed_form": false,
+          "cost": 3.157,
+          "p_success": null,
+          "step": "Greater Exalted Orb",
+          "uses": 0.902
+        },
+        {
+          "closed_form": false,
+          "cost": 0.276,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.046
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Sorcery, Greater Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 321.2,
+      "give_up_rate": 0.002,
+      "median": 207.1,
+      "not_worth_crafting": false,
+      "p90": 821.1,
+      "per_finished": 325.1,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Alacrity",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 130.8,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 13.08
+        },
+        {
+          "closed_form": false,
+          "cost": 183.1,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 14.08
+        },
+        {
+          "closed_form": false,
+          "cost": 3.972,
+          "p_success": null,
+          "step": "Exalted Orb",
+          "uses": 3.972
+        },
+        {
+          "closed_form": false,
+          "cost": 0.2285,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.03808
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Alacrity, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "a fractured modifier is never removed",
+        "an omen whose condition cannot be met is assumed consumed"
+      ],
+      "expected": 358.1,
+      "give_up_rate": 0.0,
+      "median": 295.1,
+      "not_worth_crafting": false,
+      "p90": 724.6,
+      "per_finished": 358.1,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.08,
+          "p_success": null,
+          "step": "Orb of Augmentation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 1.996,
+          "p_success": null,
+          "step": "Greater Regal Orb",
+          "uses": 0.998
+        },
+        {
+          "closed_form": false,
+          "cost": 24.56,
+          "p_success": null,
+          "step": "Greater Exalted Orb",
+          "uses": 7.016
+        },
+        {
+          "closed_form": false,
+          "cost": 75.22,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 5.786
+        },
+        {
+          "closed_form": false,
+          "cost": 82.82,
+          "p_success": null,
+          "step": "Greater Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 5.712
+        },
+        {
+          "closed_form": false,
+          "cost": 119.2,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 8.514
+        },
+        {
+          "closed_form": false,
+          "cost": 54.15,
+          "p_success": null,
+          "step": "Greater Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 4.332
+        }
+      ],
+      "strategy": "orb-chain (Greater Regal and Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "a fractured modifier is never removed",
+        "an omen whose condition cannot be met is assumed consumed"
+      ],
+      "expected": 368.8,
+      "give_up_rate": 0.0,
+      "median": 316.1,
+      "not_worth_crafting": false,
+      "p90": 747.1,
+      "per_finished": 368.8,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.08,
+          "p_success": null,
+          "step": "Orb of Augmentation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 9.0,
+          "p_success": null,
+          "step": "Perfect Regal Orb",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 74.46,
+          "p_success": null,
+          "step": "Perfect Exalted Orb",
+          "uses": 4.654
+        },
+        {
+          "closed_form": false,
+          "cost": 41.68,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 3.206
+        },
+        {
+          "closed_form": false,
+          "cost": 103.2,
+          "p_success": null,
+          "step": "Perfect Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 3.822
+        },
+        {
+          "closed_form": false,
+          "cost": 74.31,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 5.308
+        },
+        {
+          "closed_form": false,
+          "cost": 66.0,
+          "p_success": null,
+          "step": "Perfect Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 2.64
+        }
+      ],
+      "strategy": "orb-chain (Perfect Regal and Exalted, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "an essence is assumed usable at any item level",
+        "an omen whose condition cannot be met is assumed consumed",
+        "a fractured modifier is never removed"
+      ],
+      "expected": 533.9,
+      "give_up_rate": 0.002,
+      "median": 394.1,
+      "not_worth_crafting": true,
+      "p90": 1219.0,
+      "per_finished": 541.7,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 3.0,
+          "p_success": null,
+          "step": "Greater Essence of Sorcery",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 240.1,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 20.01
+        },
+        {
+          "closed_form": false,
+          "cost": 287.0,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 20.5
+        },
+        {
+          "closed_form": false,
+          "cost": 3.495,
+          "p_success": null,
+          "step": "Exalted Orb",
+          "uses": 3.495
+        },
+        {
+          "closed_form": false,
+          "cost": 0.1683,
+          "p_success": null,
+          "step": "Orb of Annulment",
+          "uses": 0.02806
+        }
+      ],
+      "strategy": "essence-start (Greater Essence of Sorcery, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "the Min-Modifier-Level fallback keeps a family's highest tier rollable",
+        "a fractured modifier is never removed",
+        "an omen whose condition cannot be met is assumed consumed"
+      ],
+      "expected": 728.4,
+      "give_up_rate": 0.0,
+      "median": 597.7,
+      "not_worth_crafting": true,
+      "p90": 1638.0,
+      "per_finished": 728.4,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.6,
+          "p_success": null,
+          "step": "Greater Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.7,
+          "p_success": null,
+          "step": "Greater Orb of Augmentation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.3976,
+          "p_success": null,
+          "step": "Regal Orb",
+          "uses": 0.994
+        },
+        {
+          "closed_form": false,
+          "cost": 11.34,
+          "p_success": null,
+          "step": "Exalted Orb",
+          "uses": 11.34
+        },
+        {
+          "closed_form": false,
+          "cost": 192.2,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 14.79
+        },
+        {
+          "closed_form": false,
+          "cost": 163.5,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 13.63
+        },
+        {
+          "closed_form": false,
+          "cost": 253.2,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 18.08
+        },
+        {
+          "closed_form": false,
+          "cost": 106.4,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 10.64
+        }
+      ],
+      "strategy": "orb-chain (Greater Transmutation and Augmentation, clearing blockers first)",
+      "unknowns": []
+    },
+    {
+      "assumptions": [
+        "Transmute picks prefix or suffix 50/50",
+        "a fractured modifier is never removed",
+        "an omen whose condition cannot be met is assumed consumed"
+      ],
+      "expected": 790.2,
+      "give_up_rate": 0.0,
+      "median": 647.5,
+      "not_worth_crafting": true,
+      "p90": 1696.0,
+      "per_finished": 790.2,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 0.05,
+          "p_success": null,
+          "step": "Orb of Transmutation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.08,
+          "p_success": null,
+          "step": "Orb of Augmentation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 0.4,
+          "p_success": null,
+          "step": "Regal Orb",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 11.86,
+          "p_success": null,
+          "step": "Exalted Orb",
+          "uses": 11.86
+        },
+        {
+          "closed_form": false,
+          "cost": 207.5,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Sinistral Annulment",
+          "uses": 15.96
+        },
+        {
+          "closed_form": false,
+          "cost": 182.3,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 15.19
+        },
+        {
+          "closed_form": false,
+          "cost": 274.2,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 19.58
+        },
+        {
+          "closed_form": false,
+          "cost": 113.8,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Sinistral Exaltation",
+          "uses": 11.38
+        }
+      ],
+      "strategy": "orb-chain (clearing blockers first)",
+      "unknowns": []
+    }
+  ],
+  "target": [
+    {
+      "family": "WeaponSpellDamage",
+      "kind": "Prefix",
+      "min_tier": 3
+    },
+    {
+      "family": "IncreasedCastSpeed",
+      "kind": "Suffix",
+      "min_tier": 3
+    }
+  ]
+}

@@ -372,3 +372,150 @@ fn a_short_name_inside_a_long_garbled_line_is_not_a_substring_hit() {
     let hits = match_rows(&vocab, &[String::new()], &["kf exalted orb pw qq zr a bnm ty".to_string()]);
     assert_eq!(hits.len(), 1);
 }
+
+/// Plain, Greater and Perfect tiers of two currencies: every plain name is
+/// a verbatim substring of its two variants.
+fn orb_variants() -> Vocab {
+    Vocab::new(
+        [
+            "Exalted Orb",
+            "Greater Exalted Orb",
+            "Perfect Exalted Orb",
+            "Chaos Orb",
+            "Greater Chaos Orb",
+            "Perfect Chaos Orb",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect(),
+    )
+}
+
+fn one(vocab: &Vocab, filtered: &str, unfiltered: &str) -> Vec<(String, Option<u32>, MatchTier)> {
+    match_rows(vocab, &[filtered.to_string()], &[unfiltered.to_string()])
+        .into_iter()
+        .map(|h| (vocab.entry(h.entry_index).to_string(), h.count, h.tier))
+        .collect()
+}
+
+#[test]
+fn a_garbled_variant_prefix_never_prices_as_the_plain_orb() {
+    let vocab = orb_variants();
+    for (line, want) in [
+        ("1x pertect exalted orb", "Perfect Exalted Orb"),
+        ("2x greatar chaos orb", "Greater Chaos Orb"),
+        ("1x perfecl chaos orb", "Perfect Chaos Orb"),
+    ] {
+        let hits = one(&vocab, line, line);
+        assert!(!hits.is_empty(), "{line}: no hit");
+        for (name, _, tier) in &hits {
+            assert!(
+                name == want || *tier == MatchTier::Ambiguous,
+                "{line}: matched {name} ({tier:?}), a different item than {want}"
+            );
+        }
+        assert_eq!(hits[0].0, want, "{line}");
+        assert_ne!(hits[0].2, MatchTier::Ambiguous, "{line}");
+    }
+}
+
+#[test]
+fn the_confidence_filter_dropping_the_garbled_prefix_does_not_rescue_the_plain_orb() {
+    let vocab = orb_variants();
+    // Tesseract gave "pertect" under 40% confidence, so the filtered line is
+    // letter for letter the plain orb.
+    let hits = one(&vocab, "1x exalted orb", "1x pertect exalted orb");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0].0, "Perfect Exalted Orb");
+    assert_eq!(hits[0].1, Some(1));
+}
+
+#[test]
+fn a_prefix_too_garbled_to_name_a_variant_is_ambiguous() {
+    let vocab = orb_variants();
+    let hits = one(&vocab, "1x exalted orb", "1x perater exalted orb");
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!(hits[0].2, MatchTier::Ambiguous);
+}
+
+#[test]
+fn junk_beside_a_plain_orb_still_matches_the_plain_orb() {
+    let vocab = orb_variants();
+    for line in ["e 3x exalted orb", "3x exalted orb et", "a lx chaos orb f"] {
+        let hits = one(&vocab, line, line);
+        assert_eq!(hits.len(), 1, "{line}: {hits:?}");
+        assert!(hits[0].0 == "Exalted Orb" || hits[0].0 == "Chaos Orb", "{line}: {hits:?}");
+        assert_eq!(hits[0].2, MatchTier::Substring, "{line}");
+    }
+}
+
+#[test]
+fn the_count_survives_the_filtered_line_losing_its_count_word() {
+    let vocab = orb_variants();
+    let hits = one(&vocab, "chaos orb", "3x chaos orb");
+    assert_eq!(hits, vec![("Chaos Orb".to_string(), Some(3), MatchTier::Exact)]);
+}
+
+#[test]
+fn letters_standing_in_for_digits_are_read_inside_count_tokens_only() {
+    let vocab = orb_variants();
+    for (token, want) in [("l0x", 10), ("lox", 10), ("1ox", 10), ("lx", 1), ("ix", 1), ("2ox", 20)] {
+        let line = format!("{token} chaos orb");
+        let hits = one(&vocab, &line, &line);
+        assert_eq!(hits.len(), 1, "{line}: {hits:?}");
+        assert_eq!(hits[0].1, Some(want), "{line}");
+    }
+    // The fold must not reach into names: "0rb" is handled by the exact
+    // tier's own look-alike retry, "oil" stays "oil".
+    let v = Vocab::new(vec!["Distilled Oil".to_string()]);
+    let hits = one(&v, "2x distilled oil", "2x distilled oil");
+    assert_eq!(hits[0].1, Some(2));
+}
+
+#[test]
+fn a_zero_or_oversized_count_is_no_count() {
+    let vocab = orb_variants();
+    for (line, unreadable) in [("0x chaos orb", true), ("00x chaos orb", true), ("4294967296x chaos orb", false)] {
+        let hits = match_rows(&vocab, &[line.to_string()], &[line.to_string()]);
+        assert_eq!(hits.len(), 1, "{line}: {hits:?}");
+        assert_eq!(vocab.entry(hits[0].entry_index), "Chaos Orb");
+        assert_eq!(hits[0].count, None, "{line}");
+        assert_eq!(hits[0].count_unreadable, unreadable, "{line}");
+    }
+    // The other read of the row made the digit out: the stack has a size.
+    let hits = match_rows(&vocab, &["8x chaos orb".to_string()], &["0x chaos orb".to_string()]);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert_eq!((hits[0].count, hits[0].count_unreadable), (Some(8), false));
+}
+
+#[test]
+fn a_name_made_of_a_count_shaped_word_is_still_a_name() {
+    let vocab = Vocab::new(vec!["Ox Idol".to_string(), "Lix".to_string()]);
+    assert_eq!(one(&vocab, "ox idol", "ox idol")[0].0, "Ox Idol");
+    assert_eq!(one(&vocab, "2x ox idol", "2x ox idol")[0], ("Ox Idol".to_string(), Some(2), MatchTier::Exact));
+    assert_eq!(one(&vocab, "lix", "lix")[0].0, "Lix");
+}
+
+#[test]
+fn the_first_hit_does_not_depend_on_vocabulary_order() {
+    let names = ["Exalted Orb", "Greater Exalted Orb", "Perfect Exalted Orb", "Chaos Orb"];
+    let forward = Vocab::new(names.iter().map(|s| s.to_string()).collect());
+    let backward = Vocab::new(names.iter().rev().map(|s| s.to_string()).collect());
+    for (f, u) in [
+        ("chaos orb", "3x chaos orb"),
+        ("1x gxalted orb", "1x gxalted orb"),
+        // The two reads of one row disagree at the same tier.
+        ("2x chaos orb", "2x exalted orb"),
+    ] {
+        let a = one(&forward, f, u);
+        let b = one(&backward, f, u);
+        assert_eq!(a.first(), b.first(), "{u}");
+    }
+}
+
+#[test]
+fn the_read_that_kept_the_variant_word_retires_the_one_that_lost_it() {
+    let vocab = orb_variants();
+    let hits = one(&vocab, "1x exalted orb", "1x perfect exalted orb");
+    assert_eq!(hits, vec![("Perfect Exalted Orb".to_string(), Some(1), MatchTier::Exact)]);
+}

@@ -1,0 +1,29 @@
+Item Class: Gloves
+Rarity: Rare
+Carrion Clutches
+Blacksteel Gauntlets
+--------
+Quality: +20% (augmented)
+Armour: 293 (augmented)
+Evasion Rating: 262 (augmented)
+--------
+Requires: Level 80, 59 Str, 59 Dex
+--------
+Sockets: S 
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Duelist's" (Tier: 3) — Defences }
+44(39-47)% increased Armour and Evasion
++52(42-63) to Stun Threshold
+{ Prefix Modifier "Supple" (Tier: 4) — Defences }
++41(35-49) to Armour
++36(32-44) to Evasion Rating
+{ Desecrated Prefix Modifier "Tempered" (Tier: 3) — Damage, Physical, Attack }
+Adds 9(7-11) to 17(13-20) Physical Damage to Attacks
+{ Suffix Modifier "of Mastery" (Tier: 3) — Attack, Speed }
+11(11-13)% increased Attack Speed
+{ Desecrated Suffix Modifier "of Kurgal" (Tier: 2) — Attack, Critical }
+24(21-27)% increased Critical Damage Bonus (desecrated)
+{ Suffix Modifier "of the Seal" (Tier: 7) — Elemental, Cold, Resistance }
++14(11-15)% to Cold Resistance

@@ -1,0 +1,27 @@
+Item Class: Quarterstaves
+Rarity: Rare
+Blood Pole
+Striking Quarterstaff
+--------
+Quality: +20% (augmented)
+Physical Damage: 341-702 (augmented)
+Critical Hit Chance: 10.00%
+Attacks per Second: 1.40
+--------
+Requires: Level 78, 117 Dex, 45 Int
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Merciless" (Tier: 1) — Damage, Physical, Attack }
+174(170-179)% increased Physical Damage
+{ Prefix Modifier "Flaring" (Tier: 1) — Damage, Physical, Attack }
+Adds 43(37-55) to 78(63-94) Physical Damage
+{ Prefix Modifier "Emperor's" (Tier: 2) — Damage, Physical, Attack }
+68(65-74)% increased Physical Damage
++158(150-174) to Accuracy Rating
+{ Suffix Modifier "of the Wind" (Tier: 1) — Attribute }
++32(31-33) to Dexterity
+{ Suffix Modifier "of the Essence" — Attack }
++4 to Level of all Melee Skills

@@ -1,0 +1,26 @@
+Item Class: Body Armours
+Rarity: Unique
+Loreweave
+Ornate Ringmail
+--------
+Quality: +20% (augmented)
+Armour: 600 (augmented)
+Evasion Rating: 400 (augmented)
+--------
+Requires: Level 45, 60 Str, 60 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 70
+--------
++14% to Fire Resistance (rune)
++14% to Cold Resistance (rune)
+--------
+{ Unique Modifier — Attribute }
++22(15-25) to all Attributes
+{ Unique Modifier — Life }
++70(40-80) to maximum Life
+{ Unique Modifier — Elemental, Resistance }
++12(10-15)% to all Elemental Resistances
+--------
+Twice Corrupted

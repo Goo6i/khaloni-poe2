@@ -1,0 +1,94 @@
+{
+  "base": "Soldier Cuirass",
+  "buy": {
+    "listings": 2,
+    "price": 400.0
+  },
+  "case": "soldier-cuirass-rare-perfect-essence",
+  "cheapest": "buy",
+  "item_level": 82,
+  "model_line": "uniform model: PoE2 does not publish weights (optimistic floor: assumes every tier equally likely)",
+  "mods": [
+    "IncreasedLife (Prefix T1)",
+    "LocalPhysicalDamageReductionRating (Prefix T2)",
+    "FireResistance (Suffix T2)",
+    "ColdResistance (Suffix T2)",
+    "Strength (Suffix T7)"
+  ],
+  "patch": "0.5.5",
+  "rarity": "Rare",
+  "strategies": [
+    {
+      "assumptions": [
+        "an essence is assumed usable at any item level",
+        "a fractured modifier is never removed",
+        "an omen whose condition cannot be met is assumed consumed"
+      ],
+      "expected": 2625.0,
+      "give_up_rate": 0.056,
+      "median": 1054.0,
+      "not_worth_crafting": true,
+      "p90": 7644.0,
+      "per_finished": 2942.0,
+      "steps": [
+        {
+          "closed_form": false,
+          "cost": 50.0,
+          "p_success": null,
+          "step": "Perfect Essence of the Body + Omen of Dextral Crystallisation",
+          "uses": 1.0
+        },
+        {
+          "closed_form": false,
+          "cost": 1181.0,
+          "p_success": null,
+          "step": "Exalted Orb + Omen of Dextral Exaltation",
+          "uses": 98.38
+        },
+        {
+          "closed_form": false,
+          "cost": 1393.0,
+          "p_success": null,
+          "step": "Orb of Annulment + Omen of Dextral Annulment",
+          "uses": 99.5
+        },
+        {
+          "closed_form": false,
+          "cost": 1.769,
+          "p_success": null,
+          "step": "Exalted Orb",
+          "uses": 1.769
+        }
+      ],
+      "strategy": "perfect-essence-fix (Perfect Essence of the Body + Omen of Dextral Crystallisation)",
+      "unknowns": []
+    }
+  ],
+  "target": [
+    {
+      "family": "IncreasedLife",
+      "kind": "Prefix",
+      "min_tier": 1
+    },
+    {
+      "family": "LocalPhysicalDamageReductionRating",
+      "kind": "Prefix",
+      "min_tier": 2
+    },
+    {
+      "family": "FireResistance",
+      "kind": "Suffix",
+      "min_tier": 3
+    },
+    {
+      "family": "ColdResistance",
+      "kind": "Suffix",
+      "min_tier": 3
+    },
+    {
+      "family": "MaximumLifeIncreasePercent",
+      "kind": "Prefix",
+      "min_tier": 1
+    }
+  ]
+}

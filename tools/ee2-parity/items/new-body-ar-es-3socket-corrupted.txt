@@ -1,0 +1,30 @@
+Item Class: Body Armours
+Rarity: Rare
+Blight Shell
+Wolfskin Mantle
+--------
+Quality: +20% (augmented)
+Armour: 1104 (augmented)
+Energy Shield: 298 (augmented)
+--------
+Requires: Level 80, 95 Str, 95 Int
+--------
+Sockets: S S S
+--------
+Item Level: 83
+--------
+{ Prefix Modifier "Templar's" (Tier: 2) — Defences }
+88(80-91)% increased Armour and Energy Shield
+{ Prefix Modifier "Blessed" (Tier: 3) — Defences }
++63(53-78) to Armour
++21(19-25) to maximum Energy Shield
+{ Prefix Modifier "Vigorous" (Tier: 3) — Life }
++158(150-174) to maximum Life
+{ Suffix Modifier "of the Prism" (Tier: 5) — Elemental, Fire, Cold, Lightning, Resistance }
++8(6-8)% to all Elemental Resistances
+{ Suffix Modifier "of the Troll" (Tier: 4) — Life }
+18.4(15.1-19) Life Regeneration per second
+{ Suffix Modifier "of the Apt" (Tier: 4) }
+20% reduced Attribute Requirements
+--------
+Corrupted

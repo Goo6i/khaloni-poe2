@@ -1,19 +1,17 @@
-//! Tails the game's `Client.txt` on a background thread and streams parsed
-//! `LogEvent`s over an mpsc channel. The first open seeks to the END of the
-//! file — the log holds hours of history and replaying it would re-fire every
-//! old zone/whisper event on each app start. After that it polls (~500ms:
-//! inotify/ReadDirectoryChanges would be per-OS machinery for a file that
-//! only needs sub-second latency) and handles the two ways the file goes
-//! sideways: truncation/rotation (size shrank → reopen from the start) and
-//! the file not existing yet (the game may launch after us → retry forever).
+//! Tails the game's `Client.txt` on a background thread for the run
+//! tracker. The first open reads the end of the existing log into the
+//! tracker (`myruns::cold_read`: the maps played before the overlay started
+//! count too), and every line read afterwards goes to the hub. It polls
+//! (~500ms: inotify/ReadDirectoryChanges would be per-OS machinery for a
+//! file that only needs sub-second latency) and handles the two ways the
+//! file goes sideways: truncation/rotation (size shrank → reopen from the
+//! start) and the file not existing yet (the game may launch after us →
+//! retry forever).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
 use std::time::Duration;
-
-use khaloni_poe2_core::gamelog::{self, LogEvent};
 
 const POLL: Duration = Duration::from_millis(500);
 /// Missing-file retry is much slower than the read poll: stat-ing a path that
@@ -39,36 +37,53 @@ pub fn default_log_path() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
-/// Spawns the tail thread. Events flow out through `tx`; the thread exits
-/// when the receiver is dropped (its next send fails). The handle is
-/// returned for tests — the app can just detach it.
-pub fn spawn(path: PathBuf, tx: Sender<LogEvent>) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || tail_loop(&path, &tx))
+/// The tail feeding the run tracker. It runs for the life of the process;
+/// the handle is returned for tests.
+pub fn spawn_with_runs(path: PathBuf, hub: std::sync::Arc<crate::myruns::Hub>) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || tail_loop(&path, &hub))
 }
 
-fn tail_loop(path: &Path, tx: &Sender<LogEvent>) {
-    // Seek-to-end applies only to the FIRST successful open (skip history);
-    // a reopen after truncation/rotation must read the new content from the
-    // start or the first lines of the fresh file would be lost.
+fn epoch(t: std::time::SystemTime) -> Option<i64> {
+    t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+}
+
+fn tail_loop(path: &Path, hub: &crate::myruns::Hub) {
+    // The cold read applies only to the FIRST successful open; a reopen
+    // after truncation/rotation must read the new content from the start or
+    // the first lines of the fresh file would be lost.
     let mut first_open = true;
     loop {
         let mut file = match File::open(path) {
             Ok(f) => f,
             Err(_) => {
+                hub.set_log_missing();
                 std::thread::sleep(RETRY_OPEN);
                 continue;
             }
         };
-        let mut pos: u64 = if first_open {
-            file.seek(SeekFrom::End(0)).unwrap_or(0)
-        } else {
-            0
-        };
-        first_open = false;
         // Bytes read but not yet terminated by '\n': the writer can flush
         // mid-line, so only complete lines are parsed and the partial tail
         // carries over to the next poll.
         let mut carry = String::new();
+        let mut pos: u64 = match first_open {
+            // The tail picks up exactly where the cold read stopped, its
+            // unfinished last line included, so no line is lost or read
+            // twice between the two.
+            true => match crate::myruns::cold_read(path) {
+                Ok((tracker, end, rest)) => {
+                    let mtime = file.metadata().ok().and_then(|m| m.modified().ok()).and_then(epoch);
+                    hub.set_cold(tracker, mtime);
+                    carry = rest;
+                    end
+                }
+                Err(_) => {
+                    std::thread::sleep(RETRY_OPEN);
+                    continue;
+                }
+            },
+            false => 0,
+        };
+        first_open = false;
 
         #[allow(clippy::while_let_loop)] // retry structure reads clearer explicit
         loop {
@@ -91,15 +106,13 @@ fn tail_loop(path: &Path, tx: &Sender<LogEvent>) {
                 // Lossy decode: one bad byte in a chat line must not stall
                 // the tail.
                 carry.push_str(&String::from_utf8_lossy(&chunk));
+                let mut lines = Vec::new();
                 while let Some(nl) = carry.find('\n') {
-                    let line = carry[..nl].trim_end_matches('\r').to_string();
+                    lines.push(carry[..nl].trim_end_matches('\r').to_string());
                     carry.drain(..=nl);
-                    if let Some(ev) = gamelog::parse_line(&line) {
-                        if tx.send(ev).is_err() {
-                            return; // receiver gone: the app is done with us
-                        }
-                    }
                 }
+                let now = epoch(std::time::SystemTime::now()).unwrap_or(0);
+                hub.feed_live(lines.iter().map(String::as_str), now);
             }
             std::thread::sleep(POLL);
         }

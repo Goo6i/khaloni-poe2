@@ -1,0 +1,17 @@
+Item Class: Jewels
+Rarity: Rare
+Gale Stone
+Ruby
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Shattering" (Tier: 1) }
+Break 9(5-15)% increased Armour
+{ Prefix Modifier "Beating" (Tier: 1) — Damage, Attack }
+13(6-16)% increased Damage with Maces
+{ Suffix Modifier "of Lengthening" (Tier: 1) }
+7(5-10)% increased Skill Effect Duration
+{ Suffix Modifier "of Lungs" (Tier: 1) — Speed }
+16(10-20)% increased Warcry Speed
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.

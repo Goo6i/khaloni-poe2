@@ -165,8 +165,6 @@ impl ApplicationHandler for App {
                     WinitKey::Named(NamedKey::Backspace) => self.keys.push(Key::Backspace),
                     WinitKey::Named(NamedKey::Enter) => self.keys.push(Key::Enter),
                     WinitKey::Named(NamedKey::Escape) => self.keys.push(Key::Escape),
-                    WinitKey::Named(NamedKey::ArrowUp) => self.keys.push(Key::Up),
-                    WinitKey::Named(NamedKey::ArrowDown) => self.keys.push(Key::Down),
                     ref other => {
                         if let Some(c) = other.to_text().and_then(|s| s.chars().next()) {
                             if c.is_ascii_digit() {
@@ -247,6 +245,29 @@ impl Overlay {
             keyboard_flag: None,
             event_loop,
         })
+    }
+
+    /// Twin of the Linux `open`, which rebuilds an overlay whose surface
+    /// the compositor closed. A Windows overlay window is never closed from
+    /// outside, so this is `new` with the shared error type.
+    pub fn open(target_center: (i32, i32)) -> Result<Overlay, crate::platform::OverlayError> {
+        Self::new(target_center).map_err(|e| crate::platform::OverlayError::Startup(e.to_string()))
+    }
+
+    /// Always false here; see `open`.
+    pub fn is_closed(&self) -> bool {
+        false
+    }
+
+    /// Device pixels per pixmap pixel. `size()` is the window's physical
+    /// inner size already, so there is nothing to scale by.
+    pub fn scale(&self) -> f64 {
+        1.0
+    }
+
+    /// Same as `size()`; see `scale`.
+    pub fn device_size(&self) -> (u32, u32) {
+        self.size()
     }
 
     /// Shares the keyboard-focus state with the game-window feed (same

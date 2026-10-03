@@ -46,3 +46,24 @@ fn single_item_above_threshold_shows_divine() {
 fn unknown_constant_is_question_mark() {
     assert_eq!(UNKNOWN, "?");
 }
+
+fn price3(divine: f64, exalted: f64, chaos: f64) -> Price {
+    Price { divine, exalted, chaos }
+}
+
+#[test]
+fn from_one_chaos_up_a_price_reads_in_chaos() {
+    // 459 ex and 8.44 chaos to the divine: 0.4 div is 3.4 chaos, 184 ex.
+    assert_eq!(display_price(&price3(0.4, 183.6, 3.376), 1, 1.0), "3.4 chaos");
+    assert_eq!(display_price(&price3(0.1, 45.9, 0.844), 3, 1.0), "2.5 chaos (0.8 each)");
+}
+
+#[test]
+fn small_change_stays_in_exalted() {
+    assert_eq!(display_price(&price3(0.05, 23.0, 0.42), 1, 1.0), "23 ex");
+}
+
+#[test]
+fn a_table_without_a_chaos_rate_falls_back_to_exalted() {
+    assert_eq!(display_price(&price3(0.4, 183.6, 0.0), 1, 1.0), "184 ex");
+}

@@ -110,6 +110,29 @@ fn anchor_score(line: &str, phrase: &str) -> f64 {
         .fold(0.0, f64::max)
 }
 
+/// Phrases printed on every rumour tooltip, whatever rumours it lists.
+const TOOLTIP_CHROME: [&str; 5] = [
+    "LOGBOOK TO CHART THE",
+    "UNCHARTED WATERS",
+    "ISLAND RUMOURS",
+    "REQUIRES",
+    "CONSUMES",
+];
+/// Similarity at which a line counts as tooltip chrome. On the five real
+/// fixtures every OCR pass reads at least one chrome line at 0.87 or
+/// better ("REUIRES:" is the worst); unrelated text scores far lower
+/// against phrases this long.
+const CHROME_MIN: f64 = 0.75;
+
+/// Whether any OCR line is tooltip chrome: evidence that the bright panel
+/// the lines came from is a rumour tooltip and not scenery of the same
+/// size and brightness.
+pub fn has_tooltip_chrome(lines: &[RumourLine]) -> bool {
+    lines
+        .iter()
+        .any(|l| TOOLTIP_CHROME.iter().any(|c| anchor_score(&l.text, c) >= CHROME_MIN))
+}
+
 /// Anchor phrases that bracket the rumour list inside the tooltip.
 pub const ANCHOR_TOP: &str = "UNCHARTED WATERS";
 pub const ANCHOR_BOTTOM: [&str; 2] = ["CONSUMES", "REQUIRES"];
@@ -209,6 +232,19 @@ mod tests {
 
     fn line(text: &str, y0: u32) -> RumourLine {
         RumourLine { text: text.to_string(), x0: 100, y0, x1: 300, y1: y0 + 20 }
+    }
+
+    #[test]
+    fn tooltip_chrome_is_recognised_as_tesseract_really_reads_it() {
+        // The worst chrome reads of any pass over the five real fixtures.
+        for text in ["gSE A LOGBOOK TO CHART THE AREA", ",‘SE A LOGBOOK TO CHART THE 'ARE", "REUIRES: —", "REQUIRES"] {
+            assert!(has_tooltip_chrome(&[line(text, 10)]), "{text}");
+        }
+        // Rumour names and noise are not chrome.
+        for text in ["3 Endless clif fs... |", "Warw but visky...", "———", "5_utphite!", ") ;"] {
+            assert!(!has_tooltip_chrome(&[line(text, 10)]), "{text}");
+        }
+        assert!(!has_tooltip_chrome(&[]));
     }
 
     #[test]

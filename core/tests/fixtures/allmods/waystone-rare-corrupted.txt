@@ -1,0 +1,35 @@
+Item Class: Waystones
+Rarity: Rare
+Haunted Trajectory
+Waystone (Tier 15)
+--------
+Revives Available: 0 (augmented)
+Item Rarity: +27% (augmented)
+Pack Size: +32% (augmented)
+Monster Rarity: +19% (augmented)
+Monster Effectiveness: +15% (augmented)
+Waystone Drop Chance: +125% (augmented)
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Fleeting" (Tier: 1) }
+Monsters have 10(10-15)% increased Attack, Cast and Movement Speed
+{ Prefix Modifier "Destructive" (Tier: 1) }
+Monsters have 231(200-240)% increased Critical Hit Chance
+Monsters have +22(21-25)% Critical Damage Bonus
+{ Prefix Modifier "Shattering" (Tier: 1) }
+Monsters Break Armour equal to 30(25-30)% of Physical Damage dealt
+{ Prefix Modifier "Precise" (Tier: 1) }
+Monsters have 32(30-40)% increased Accuracy Rating
+{ Suffix Modifier "of Drought" (Tier: 1) }
+Players gain 35(35-30)% reduced Flask Charges
+{ Suffix Modifier "of Fatigue" (Tier: 1) }
+Players have 28(30-25)% less Cooldown Recovery Rate
+{ Suffix Modifier "of Smothering" (Tier: 1) }
+Players have 40(40-36)% less Recovery Rate of Life and Energy Shield
+{ Suffix Modifier "Flaming" (Tier: 1) }
+Area has patches of Ignited Ground
+--------
+Can be used in a Map Device, allowing you to enter a Map. Waystones can only be used once.
+--------
+Corrupted

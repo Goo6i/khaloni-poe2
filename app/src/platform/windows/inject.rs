@@ -1,5 +1,7 @@
-//! Ctrl+C injection and clipboard read for the hover price check —
-//! Windows twin of platform/linux/inject.rs, same public API.
+//! Item-copy injection and clipboard read for the hover price check —
+//! Windows twin of platform/linux/inject.rs, same public API. The chord is
+//! Ctrl+Alt+C, or plain Ctrl+C by setting (`platform::chord`); "Ctrl+C"
+//! below stands for whichever is sent.
 //!
 //! Injection goes through SendInput: unlike Wayland, Windows lets any
 //! process synthesize keyboard input into the foreground window, so no
@@ -28,7 +30,7 @@ use std::{thread::sleep, time::Duration};
 use windows::Win32::System::DataExchange::GetClipboardSequenceNumber;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_RETURN, VK_SHIFT,
+    KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_RETURN, VK_SHIFT,
 };
 
 /// A request to the injector thread: copy the hovered item, or type a chat
@@ -39,7 +41,8 @@ enum InjectReq {
     /// that hold Ctrl (chat-style CTRL+N actions), we wait for the user to
     /// release the modifier before injecting Ctrl+C, or the held Ctrl
     /// collides with the injected Ctrl+C and the game does not copy.
-    Copy(std::sync::mpsc::Sender<anyhow::Result<String>>, u64),
+    /// The bool picks the advanced chord (Ctrl+Alt+C) over plain Ctrl+C.
+    Copy(std::sync::mpsc::Sender<anyhow::Result<String>>, u64, bool),
     Type(String, u64),
 }
 
@@ -69,8 +72,8 @@ impl Injector {
             };
             for req in req_rx {
                 match req {
-                    InjectReq::Copy(reply, pre_delay) => {
-                        let _ = reply.send(copy_hovered(&mut cb, pre_delay));
+                    InjectReq::Copy(reply, pre_delay, advanced) => {
+                        let _ = reply.send(copy_hovered(&mut cb, pre_delay, advanced));
                     }
                     InjectReq::Type(msg, delay) => type_text(&msg, delay),
                 }
@@ -86,8 +89,10 @@ impl Injector {
     /// Queues a copy of the hovered item; the text (or an error) is delivered
     /// on `reply`. `pre_delay_ms` waits before injecting Ctrl+C so a held
     /// hotkey modifier (Ctrl) can clear first; pass 0 for a plain-key hotkey.
-    pub fn submit(&self, reply: std::sync::mpsc::Sender<anyhow::Result<String>>, pre_delay_ms: u64) {
-        let _ = self.req_tx.send(InjectReq::Copy(reply, pre_delay_ms));
+    /// `advanced` is the config's `advanced_copy`: Ctrl+Alt+C, or plain
+    /// Ctrl+C when false.
+    pub fn submit(&self, reply: std::sync::mpsc::Sender<anyhow::Result<String>>, pre_delay_ms: u64, advanced: bool) {
+        let _ = self.req_tx.send(InjectReq::Copy(reply, pre_delay_ms, advanced));
     }
 
     /// Queues a chat macro: opens chat, waits `open_delay_ms` for the chat
@@ -112,7 +117,7 @@ fn is_poe_item(text: &str) -> bool {
 /// byte-identical, so the clipboard *sequence number* decides: the game's
 /// copy bumps it even when the bytes match, a no-op hover does not. Runs
 /// only on the injector thread.
-fn copy_hovered(cb: &mut arboard::Clipboard, pre_delay_ms: u64) -> anyhow::Result<String> {
+fn copy_hovered(cb: &mut arboard::Clipboard, pre_delay_ms: u64, advanced: bool) -> anyhow::Result<String> {
     // Let a held hotkey modifier (Ctrl for CTRL+N actions) release before we
     // inject Ctrl+C; otherwise the held Ctrl collides with the injection and
     // the game copies nothing (F7 passes 0: no modifier to clear).
@@ -124,10 +129,18 @@ fn copy_hovered(cb: &mut arboard::Clipboard, pre_delay_ms: u64) -> anyhow::Resul
     // observed later is attributable to it (the drain() analogue).
     let seq_before = unsafe { GetClipboardSequenceNumber() };
     let before = clipboard_read(cb);
-    emit(VK_CONTROL, true);
-    emit(VIRTUAL_KEY(b'C' as u16), true);
-    emit(VIRTUAL_KEY(b'C' as u16), false);
-    emit(VK_CONTROL, false);
+    // SendInput reports nothing to act on, so the chord cannot fail here;
+    // it still goes through the shared sequence, which owns the key order.
+    let _ = crate::platform::chord::press_copy_chord(advanced, &mut |key, down| {
+        use crate::platform::chord::ChordKey;
+        let vk = match key {
+            ChordKey::Ctrl => VK_CONTROL,
+            ChordKey::Alt => VK_MENU,
+            ChordKey::C => VIRTUAL_KEY(b'C' as u16),
+        };
+        emit(vk, down);
+        Ok::<(), std::convert::Infallible>(())
+    });
 
     // Primary, fast signal: new item -> content change, break out early.
     let deadline = std::time::Instant::now() + Duration::from_millis(500);

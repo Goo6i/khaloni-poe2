@@ -1,0 +1,71 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "area_level": {
+       "max": 79,
+       "min": 75
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Djinn Barya"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "area_level": {
+       "max": 79,
+       "min": 75
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Djinn Barya"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_exact"
+}

@@ -24,6 +24,11 @@
      "type": "pseudo"
     },
     {
+     "id": "pseudo.pseudo_total_life",
+     "text": "+# total maximum Life",
+     "type": "pseudo"
+    },
+    {
      "id": "pseudo.pseudo_total_chaos_resistance",
      "text": "+#% total to Chaos Resistance",
      "type": "pseudo"

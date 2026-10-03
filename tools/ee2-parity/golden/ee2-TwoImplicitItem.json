@@ -1,0 +1,247 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "accessory.belt"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_fire_resistance",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_strength",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 212
+       }
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_1570770415",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_1416292992",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1389754388",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 84
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "accessory.belt"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_fire_resistance",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_strength",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 212
+       }
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_1570770415",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_1416292992",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1389754388",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_915769802",
+       "value": {
+        "min": 84
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 1
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

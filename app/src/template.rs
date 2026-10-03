@@ -5,12 +5,23 @@
 //! game's own rendering, so matching is exact-by-construction across
 //! sessions (same font, size, and antialiasing), and NCC's normalization
 //! absorbs brightness differences between areas.
+//!
+//! Correlation over a whole strip is an identity test for the NAME only.
+//! A stack count is one or two glyphs in a strip of twenty: "3x Exalted
+//! Orb" against the same strip with the digit changed scores 0.99, with
+//! the digit erased 0.985, against "13x" 0.987 - all far over any usable
+//! whole-strip threshold, so a whole-strip hit would price a row at the
+//! count it was learned with for as long as the template lives. A hit
+//! therefore also has to hold glyph by glyph (`blocks_agree`), and every
+//! distinct crop a template claims is checked against OCR once before it
+//! is trusted unattended (`VerifyTicket`).
 
 use image::{imageops, GrayImage};
 
-/// Minimum correlation for a template hit. Same-content strips across
-/// frames measure > 0.97 (see the corpus test); unrelated rewards measure
-/// < 0.6. The gap is wide; 0.90 sits safely inside it.
+/// Minimum whole-strip correlation for a template hit. Same-content strips
+/// across frames measure > 0.97 (see the corpus test); unrelated rewards
+/// measure < 0.6. The gap is wide; 0.90 sits safely inside it. This tells
+/// names apart, not counts: see `BLOCK_NCC_MIN`.
 pub const NCC_THRESHOLD: f64 = 0.90;
 
 /// Coarse pass downscale factor (both axes); candidates within
@@ -22,8 +33,43 @@ const COARSE_KEEP: f64 = 0.08;
 /// height is within this fraction of its own.
 const HEIGHT_TOL: f64 = 0.12;
 
+/// A matched strip is re-scored in windows this wide, as a fraction of
+/// the strip height (about two glyphs), every half window.
+const BLOCK_WIDTH_FRAC: f64 = 0.35;
+/// The windows leave out this fraction of the strip's rows at the top and
+/// at the bottom: the crop's padding and the bar's border lines, which are
+/// identical on every row of the panel and would prop up the correlation
+/// of a window whose glyphs differ.
+const BLOCK_ROW_MARGIN_FRAC: f64 = 0.125;
+/// Minimum correlation of every inked window. Measured on panel_choice
+/// (tests/template_counts.rs): the same strip under a brightness or gain
+/// change stays above 0.99 in every window; a changed digit leaves one at
+/// 0.64 ("3x" to "1x") or 0.78 (the 3 closed into an 8, the nearest
+/// look-alike), an erased or an added digit at 0 - against whole-strip
+/// scores of 0.986 to 0.991 for all four.
+pub const BLOCK_NCC_MIN: f64 = 0.93;
+/// Pixel variance at which a window holds ink, and the variance under
+/// which it is blank bar. Measured on the same crops: bar texture alone
+/// stays under 250, a window that a glyph merely touches reaches 440, and
+/// one holding a whole glyph starts at 1800. Between the two values a
+/// window is scored by correlation like any inked one.
+const BLOCK_INK_VAR: f64 = 600.0;
+const BLOCK_BLANK_VAR: f64 = 300.0;
+
+/// How long one OCR confirmation of a crop stands before the next hit on
+/// it asks again. An unchanged panel's OCR is memoised by the scan cache,
+/// so asking again costs a lookup; it matters when the vocabulary or the
+/// price table changed what the same text resolves to.
+const VERIFY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+/// Confirmed crops remembered per template (the same reward under a few
+/// backgrounds or brightness levels).
+const VERIFIED_CAP: usize = 8;
+
 const STORE_CAP: usize = 512;
-const STORE_MAGIC: &[u8; 8] = b"P2LTPL01";
+/// Bumped from 01: stores written before the per-glyph check can hold
+/// strips learned at one count and matched at another, and nothing in the
+/// file tells those apart, so an older file loads as empty.
+const STORE_MAGIC: &[u8; 8] = b"P2LTPL02";
 
 #[derive(Clone)]
 pub struct Learned {
@@ -35,11 +81,53 @@ pub struct Learned {
     coarse: GrayImage,
     mean: f64,
     var: f64,
+    /// Identity within this process, for `VerifyTicket`.
+    id: u64,
+    /// Content keys of crops OCR has confirmed this template for, and
+    /// when. Never persisted: a store loaded from disk earns its trust
+    /// again, which is also what retires a bad strip from an old session.
+    verified: Vec<(u64, std::time::Instant)>,
+}
+
+/// A band identified from a template.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TemplateHit {
+    pub item_key: String,
+    pub count: u32,
+    pub count_explicit: bool,
+    pub score: f64,
+    /// Present when OCR has not yet confirmed this template for this exact
+    /// crop (or did so too long ago). The hit may be shown, but the caller
+    /// must get an OCR read of the band and hand it to
+    /// `TemplateStore::confirm` with this ticket.
+    pub verify: Option<VerifyTicket>,
+}
+
+/// Names the template and crop content a pending OCR check is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VerifyTicket {
+    template: u64,
+    content: u64,
 }
 
 pub struct TemplateStore {
     entries: Vec<Learned>,
+    next_id: u64,
     pub dirty: bool,
+}
+
+/// FNV-1a over a crop's size and pixels.
+fn content_key(img: &GrayImage) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut step = |b: u8| {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    };
+    for v in [img.width(), img.height()] {
+        v.to_le_bytes().into_iter().for_each(&mut step);
+    }
+    img.as_raw().iter().copied().for_each(&mut step);
+    h
 }
 
 fn stats(img: &GrayImage) -> (f64, f64) {
@@ -89,24 +177,82 @@ fn ncc_at(tpl: &GrayImage, tpl_mean: f64, tpl_var: f64, hay: &GrayImage, x0: u32
     (cross / n - tpl_mean * hmean) / denom
 }
 
-/// Best NCC of `tpl` slid horizontally across `hay` (same height).
-fn best_ncc(tpl: &GrayImage, tpl_mean: f64, tpl_var: f64, hay: &GrayImage) -> f64 {
+/// Best NCC of `tpl` slid horizontally across `hay` (same height), and
+/// the offset it was found at.
+fn best_ncc(tpl: &GrayImage, tpl_mean: f64, tpl_var: f64, hay: &GrayImage) -> (f64, u32) {
     if hay.width() < tpl.width() || hay.height() != tpl.height() {
-        return -1.0;
+        return (-1.0, 0);
     }
-    let mut best = -1.0f64;
+    let mut best = (-1.0f64, 0u32);
     for x0 in 0..=(hay.width() - tpl.width()) {
         let s = ncc_at(tpl, tpl_mean, tpl_var, hay, x0);
-        if s > best {
-            best = s;
+        if s > best.0 {
+            best = (s, x0);
         }
     }
     best
 }
 
+/// Mean and variance of the `w`-wide window of `img` starting at `x`.
+fn window_stats(img: &GrayImage, x: u32, w: u32) -> (f64, f64) {
+    let (iw, h) = (img.width() as usize, img.height() as usize);
+    let raw = img.as_raw();
+    let n = (w as usize * h) as f64;
+    let (mut sum, mut sum2) = (0f64, 0f64);
+    for y in 0..h {
+        for &p in &raw[y * iw + x as usize..y * iw + (x + w) as usize] {
+            let v = f64::from(p);
+            sum += v;
+            sum2 += v * v;
+        }
+    }
+    let mean = sum / n;
+    (mean, sum2 / n - mean * mean)
+}
+
+/// Lowest per-window correlation between `tpl` and `hay` aligned at `x0`,
+/// over windows about two glyphs wide. A window that is blank on both
+/// sides agrees; one that holds ink on one side and blank bar on the other
+/// scores zero (an erased or an added digit); the rest score their own
+/// NCC. Whole-strip correlation averages a changed digit away; its own
+/// window cannot.
+fn blocks_agree(tpl: &GrayImage, hay: &GrayImage, x0: u32) -> f64 {
+    let (tw, th) = (tpl.width(), tpl.height());
+    let margin = (f64::from(th) * BLOCK_ROW_MARGIN_FRAC).round() as u32;
+    let rows = th.saturating_sub(2 * margin);
+    if rows == 0 || tw == 0 {
+        return 0.0;
+    }
+    let tpl = imageops::crop_imm(tpl, 0, margin, tw, rows).to_image();
+    let hay = imageops::crop_imm(hay, x0, margin, tw, rows).to_image();
+    let bw = ((f64::from(th) * BLOCK_WIDTH_FRAC).round() as u32).clamp(4.min(tw), tw);
+    let stride = (bw / 2).max(1);
+    let mut worst = 1.0f64;
+    let mut x = 0u32;
+    loop {
+        let bx = x.min(tw - bw);
+        let (tm, tv) = window_stats(&tpl, bx, bw);
+        let (_, hv) = window_stats(&hay, bx, bw);
+        let score = if tv.max(hv) < BLOCK_INK_VAR {
+            1.0
+        } else if tv.min(hv) < BLOCK_BLANK_VAR {
+            0.0
+        } else {
+            let block = imageops::crop_imm(&tpl, bx, 0, bw, rows).to_image();
+            ncc_at(&block, tm, tv, &hay, bx)
+        };
+        worst = worst.min(score);
+        if bx == tw - bw {
+            break;
+        }
+        x += stride;
+    }
+    worst
+}
+
 impl TemplateStore {
     pub fn new() -> TemplateStore {
-        TemplateStore { entries: Vec::new(), dirty: false }
+        TemplateStore { entries: Vec::new(), next_id: 0, dirty: false }
     }
 
     pub fn len(&self) -> usize {
@@ -141,7 +287,7 @@ impl TemplateStore {
                 )
             };
             let (cm, cv) = stats(&e.coarse);
-            let s = best_ncc(&e.coarse, cm, cv, &hay);
+            let (s, _) = best_ncc(&e.coarse, cm, cv, &hay);
             coarse.push((i, s));
         }
         let best_coarse = coarse.iter().cloned().fold(f64::MIN, |a, (_, s)| a.max(s));
@@ -164,12 +310,78 @@ impl TemplateStore {
                     imageops::FilterType::Triangle,
                 )
             };
-            let s = best_ncc(&e.strip, e.mean, e.var, &hay);
-            if s >= NCC_THRESHOLD && best.is_none_or(|(_, b)| s > b) {
+            let (s, x0) = best_ncc(&e.strip, e.mean, e.var, &hay);
+            if s >= NCC_THRESHOLD
+                && best.is_none_or(|(_, b)| s > b)
+                && blocks_agree(&e.strip, &hay, x0) >= BLOCK_NCC_MIN
+            {
                 best = Some((i, s));
             }
         }
         best.map(|(i, s)| (&self.entries[i], s))
+    }
+
+    /// The best whole-strip correlation any same-height template reaches
+    /// on `crop`, with that alignment's worst per-glyph window score,
+    /// thresholds not applied. For diagnostics and for the tests that pin
+    /// the two thresholds to measurements.
+    pub fn scores(&self, crop: &GrayImage) -> Option<(f64, f64)> {
+        self.entries
+            .iter()
+            .filter(|e| e.strip.height() == crop.height())
+            .map(|e| {
+                let (s, x0) = best_ncc(&e.strip, e.mean, e.var, crop);
+                (s, e, x0)
+            })
+            .filter(|(s, ..)| *s > -1.0)
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(s, e, x0)| (s, blocks_agree(&e.strip, crop, x0)))
+    }
+
+    /// `match_band` for the scan loop: the identified row, plus a ticket
+    /// when the hit still owes an OCR confirmation for this crop.
+    pub fn lookup(&self, crop: &GrayImage) -> Option<TemplateHit> {
+        let (hit, score) = self.match_band(crop)?;
+        let content = content_key(crop);
+        let confirmed = hit
+            .verified
+            .iter()
+            .any(|&(key, when)| key == content && when.elapsed() < VERIFY_TTL);
+        Some(TemplateHit {
+            item_key: hit.item_key.clone(),
+            count: hit.count,
+            count_explicit: hit.count_explicit,
+            score,
+            verify: (!confirmed).then_some(VerifyTicket { template: hit.id, content }),
+        })
+    }
+
+    /// Settles a ticket with what OCR read off the same band: the row's
+    /// item key and count, or None when OCR produced no row for it (the
+    /// check stays owed). Agreement marks the crop confirmed and returns
+    /// true. Disagreement removes the template, so the caller's usual
+    /// `learn` of the OCR row replaces it, and returns false: the OCR row
+    /// is the one to show.
+    pub fn confirm(&mut self, ticket: VerifyTicket, ocr: Option<(&str, u32)>) -> bool {
+        let Some(pos) = self.entries.iter().position(|e| e.id == ticket.template) else {
+            return false;
+        };
+        let Some((item_key, count)) = ocr else {
+            return true;
+        };
+        let e = &mut self.entries[pos];
+        if e.item_key == item_key && e.count == count {
+            e.verified.retain(|&(key, _)| key != ticket.content);
+            e.verified.push((ticket.content, std::time::Instant::now()));
+            if e.verified.len() > VERIFIED_CAP {
+                e.verified.remove(0);
+            }
+            true
+        } else {
+            self.entries.remove(pos);
+            self.dirty = true;
+            false
+        }
     }
 
     /// Stores a band crop as the template for `item_key`+`count`,
@@ -188,6 +400,11 @@ impl TemplateStore {
             return; // near-flat crop carries no identity
         }
         let coarse = downscale(crop);
+        // The strip was just read by OCR as exactly this row: that is the
+        // confirmation for this content.
+        let verified = vec![(content_key(crop), std::time::Instant::now())];
+        let id = self.next_id;
+        self.next_id += 1;
         self.entries.push(Learned {
             item_key: item_key.to_string(),
             count,
@@ -196,6 +413,8 @@ impl TemplateStore {
             coarse,
             mean,
             var,
+            id,
+            verified,
         });
         if self.entries.len() > STORE_CAP {
             self.entries.remove(0);
@@ -262,6 +481,8 @@ impl TemplateStore {
             let Some(strip) = GrayImage::from_raw(w, h, px.to_vec()) else { return store };
             let (mean, var) = stats(&strip);
             let coarse = downscale(&strip);
+            let id = store.next_id;
+            store.next_id += 1;
             store.entries.push(Learned {
                 item_key,
                 count,
@@ -270,6 +491,8 @@ impl TemplateStore {
                 coarse,
                 mean,
                 var,
+                id,
+                verified: Vec::new(),
             });
         }
         store

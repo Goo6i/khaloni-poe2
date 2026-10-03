@@ -1,0 +1,219 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.wand"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "skill.chaosbolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_736967255",
+       "value": {
+        "min": 65
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2505884597",
+       "value": {
+        "min": 28
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 19
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1263695895",
+       "value": {
+        "min": 15
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3639275092",
+       "value": {
+        "max": -20
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_affix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.wand"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "skill.chaosbolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_736967255",
+       "value": {
+        "min": 65
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2505884597",
+       "value": {
+        "min": 28
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 19
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1263695895",
+       "value": {
+        "min": 15
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3639275092",
+       "value": {
+        "max": -20
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_affix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

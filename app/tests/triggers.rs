@@ -89,16 +89,16 @@ fn dedupe_keeps_the_first_claim_and_reports_conflicts() {
     let b = |id: &str, k: &str| (id.to_string(), k.to_string());
     let (kept, conflicts) = dedupe(vec![
         b("price-check", "F7"),
-        b("overlay-toggle", "f7"),
+        b("market", "f7"),
         b("url-0", "F10"),
-        b("leveling", "F10"),
+        b("craft", "F10"),
         b("settings", "F12"),
     ]);
     let ids: Vec<&str> = kept.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(ids, vec!["price-check", "url-0", "settings"]);
     assert_eq!(conflicts.len(), 2);
-    assert!(conflicts[0].contains("overlay-toggle") && conflicts[0].contains("price-check"));
-    assert!(conflicts[1].contains("leveling") && conflicts[1].contains("url-0"));
+    assert!(conflicts[0].contains("market") && conflicts[0].contains("price-check"));
+    assert!(conflicts[1].contains("craft") && conflicts[1].contains("url-0"));
     // Unbound actions never conflict with each other.
     let (kept, conflicts) = dedupe(vec![b("a", ""), b("b", "")]);
     assert_eq!(kept.len(), 2);

@@ -1,0 +1,29 @@
+Item Class: Body Armours
+Rarity: Rare
+Soul Shroud
+Vile Robe
+--------
+Quality: +20% (augmented)
+Energy Shield: 684 (augmented)
+--------
+Requires: Level 80, 157 Int
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Incandescent" (Tier: 2) — Defences }
++83(74-90) to maximum Energy Shield
+{ Prefix Modifier "Unassailable" (Tier: 2) — Defences }
+97(92-100)% increased Energy Shield
+{ Prefix Modifier "Seraphim's" (Tier: 2) — Defences }
++31(26-32) to maximum Energy Shield
+37(33-38)% increased Energy Shield
+{ Suffix Modifier "of the Genius" (Tier: 2) — Attribute }
++29(28-30) to Intelligence
+{ Suffix Modifier "of Bameth" (Tier: 1) — Chaos, Resistance }
++25(24-27)% to Chaos Resistance
+{ Suffix Modifier "of the Ice" (Tier: 2) — Elemental, Cold, Resistance }
++38(36-40)% to Cold Resistance
+--------
+Sanctified

@@ -92,6 +92,8 @@ struct ConsumeState {
     tx: SyncSender<RegionFrame>,
     panel_open: Arc<AtomicBool>,
     full_tx: Option<SyncSender<GrayImage>>,
+    /// See `CaptureControl::paused`.
+    paused: Arc<AtomicBool>,
     last_sent: Option<Instant>,
     last_full: Option<Instant>,
 }
@@ -124,6 +126,9 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for Handler {
         let st = &mut self.st;
         while let Ok(r) = st.region_rx.try_recv() {
             st.region = r;
+        }
+        if st.paused.load(Ordering::Relaxed) {
+            return Ok(());
         }
         // Throttle before touching the frame: frame.buffer() is a GPU
         // staging copy + map, so skipped ticks must not pay for it. Same
@@ -212,6 +217,46 @@ pub fn consume(
     panel_open: Arc<AtomicBool>,
     full_tx: Option<SyncSender<GrayImage>>,
 ) -> anyhow::Result<()> {
+    consume_paused(start, region_rx, region, tx, panel_open, full_tx, Arc::default())
+}
+
+/// Signature twin of the Linux `consume_supervised`. `control.paused` is
+/// honored and the end of the session is reported through
+/// `control.events`; the session is not re-opened here (`reopen` is never
+/// called): WGC ends a window capture only when that window closes, which
+/// on Windows is the game exiting.
+#[allow(clippy::too_many_arguments)]
+pub fn consume_supervised(
+    start: CaptureStart,
+    region_rx: Receiver<Rect>,
+    region: Rect,
+    tx: SyncSender<RegionFrame>,
+    panel_open: Arc<AtomicBool>,
+    full_tx: Option<SyncSender<GrayImage>>,
+    control: crate::platform::CaptureControl,
+    _reopen: impl FnMut() -> anyhow::Result<CaptureStart>,
+) -> anyhow::Result<()> {
+    use crate::platform::CaptureEvent;
+    control.report(CaptureEvent::Streaming);
+    let paused = control.paused.clone();
+    let result = consume_paused(start, region_rx, region, tx, panel_open, full_tx, paused);
+    let why = match &result {
+        Ok(()) => "the capture session ended".to_string(),
+        Err(e) => e.to_string(),
+    };
+    control.report(CaptureEvent::GaveUp(why));
+    result
+}
+
+fn consume_paused(
+    start: CaptureStart,
+    region_rx: Receiver<Rect>,
+    region: Rect,
+    tx: SyncSender<RegionFrame>,
+    panel_open: Arc<AtomicBool>,
+    full_tx: Option<SyncSender<GrayImage>>,
+    paused: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
     use windows_capture::capture::GraphicsCaptureApiHandler;
     use windows_capture::settings::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
@@ -224,6 +269,7 @@ pub fn consume(
         tx,
         panel_open,
         full_tx,
+        paused,
         last_sent: None,
         last_full: None,
     };

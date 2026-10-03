@@ -1,0 +1,142 @@
+{
+ "core": {
+  "items": [
+   {
+    "id": "divine",
+    "name": "Divine Orb"
+   },
+   {
+    "id": "exalted",
+    "name": "Exalted Orb"
+   },
+   {
+    "id": "chaos",
+    "name": "Chaos Orb"
+   }
+  ],
+  "rates": {
+   "exalted": 474.2,
+   "chaos": 8.32
+  },
+  "primary": "divine"
+ },
+ "items": [
+  {
+   "id": "refined-sibilant-catalyst",
+   "name": "Refined Sibilant Catalyst"
+  },
+  {
+   "id": "refined-reaver-catalyst",
+   "name": "Refined Reaver Catalyst"
+  },
+  {
+   "id": "sibilant-catalyst",
+   "name": "Sibilant Catalyst"
+  },
+  {
+   "id": "reaver-catalyst",
+   "name": "Reaver Catalyst"
+  },
+  {
+   "id": "breachstone",
+   "name": "Breachstone"
+  }
+ ],
+ "lines": [
+  {
+   "id": "refined-sibilant-catalyst",
+   "primaryValue": 4.85,
+   "volumePrimaryValue": 3902,
+   "maxVolumeCurrency": "divine",
+   "maxVolumeRate": 0.2062,
+   "sparkline": {
+    "totalChange": 280.6,
+    "data": [
+     51.96,
+     88.51,
+     156.8,
+     181.6,
+     268.0,
+     272.2,
+     280.6
+    ]
+   }
+  },
+  {
+   "id": "refined-reaver-catalyst",
+   "primaryValue": 3.58,
+   "volumePrimaryValue": 2281,
+   "maxVolumeCurrency": "divine",
+   "maxVolumeRate": 0.2797,
+   "sparkline": {
+    "totalChange": 239.9,
+    "data": [
+     84.53,
+     113.0,
+     125.9,
+     159.9,
+     180.7,
+     261.4,
+     239.9
+    ]
+   }
+  },
+  {
+   "id": "sibilant-catalyst",
+   "primaryValue": 0.8344,
+   "volumePrimaryValue": 2157,
+   "maxVolumeCurrency": "divine",
+   "maxVolumeRate": 1.2,
+   "sparkline": {
+    "totalChange": 11.0,
+    "data": [
+     -10.51,
+     9.25,
+     24.26,
+     17.58,
+     7.98,
+     16.41,
+     11.0
+    ]
+   }
+  },
+  {
+   "id": "reaver-catalyst",
+   "primaryValue": 0.3274,
+   "volumePrimaryValue": 911.8,
+   "maxVolumeCurrency": "divine",
+   "maxVolumeRate": 3.05,
+   "sparkline": {
+    "totalChange": 52.95,
+    "data": [
+     0.07,
+     26.03,
+     45.08,
+     40.39,
+     44.67,
+     55.7,
+     52.95
+    ]
+   }
+  },
+  {
+   "id": "breachstone",
+   "primaryValue": 2.48,
+   "volumePrimaryValue": 751.5,
+   "maxVolumeCurrency": "chaos",
+   "maxVolumeRate": 0.04841,
+   "sparkline": {
+    "totalChange": 31.24,
+    "data": [
+     -12.75,
+     -7.18,
+     10.09,
+     13.9,
+     8.58,
+     20.05,
+     31.24
+    ]
+   }
+  }
+ ]
+}

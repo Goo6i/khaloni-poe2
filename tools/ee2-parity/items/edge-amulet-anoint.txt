@@ -1,0 +1,22 @@
+Item Class: Amulets
+Rarity: Rare
+Kraken Charm
+Gold Amulet
+--------
+Requires: Level 35
+--------
+Item Level: 71
+--------
+Allocates Void (enchant)
+--------
+{ Implicit Modifier }
+15(12-20)% increased Rarity of Items found (implicit)
+--------
+{ Prefix Modifier "Virile" (Tier: 4) — Life }
++95(85-99) to maximum Life
+{ Suffix Modifier "of the Kaleidoscope" (Tier: 3) — Elemental, Resistance }
++11(10-12)% to all Elemental Resistances
+{ Suffix Modifier "of the Volcano" (Tier: 3) — Elemental, Fire, Resistance }
++33(31-35)% to Fire Resistance
+{ Suffix Modifier "of the Lightning" (Tier: 5) — Elemental, Lightning, Resistance }
++22(21-25)% to Lightning Resistance

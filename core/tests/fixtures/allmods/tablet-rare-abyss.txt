@@ -1,0 +1,21 @@
+Item Class: Tablet
+Rarity: Rare
+Eerie Emblem
+Abyss Tablet
+--------
+Item Level: 79
+--------
+{ Implicit Modifier }
+Adds Abysses to a Map
+10 uses remaining
+--------
+{ Prefix Modifier "Challenger's" (Tier: 1) }
+Monsters have 13(10-15)% increased Effectiveness
+{ Prefix Modifier "Abounding" (Tier: 1) }
+Map has 19(15-20)% increased Monster Rarity
+{ Suffix Modifier "of Treasures" (Tier: 1) }
+Abyss Pits in Map are twice as likely to have Rewards — Unscalable Value
+{ Suffix Modifier "of Shrines" (Tier: 1) }
+Map has 79(70-100)% increased chance to contain Shrines
+--------
+Can be used in a personal Map Device to add modifiers to a Map.

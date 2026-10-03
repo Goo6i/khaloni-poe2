@@ -1,0 +1,14 @@
+Item Class: Support Gems
+Rarity: Gem
+Rapid Attacks I
+--------
+Support, Attack
+Tier: 1
+--------
+Requires: +5 Dex
+--------
+Supports Attacks, causing them to be faster.
+--------
+Supported Skills have 15% more Attack Speed
+--------
+This is a Support Gem. It does not grant a bonus to your character, but to skills in sockets connected to it. Place into a Support Gem socket connected to the Skill Gem you wish to augment.

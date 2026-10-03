@@ -1,0 +1,27 @@
+Item Class: Spears
+Rarity: Rare
+Vengeance Thorn
+Spiked Spear
+--------
+Quality: +20% (augmented)
+Physical Damage: 214-398 (augmented)
+Critical Hit Chance: 8.12% (augmented)
+Attacks per Second: 1.60
+--------
+Requires: Level 77, 84 Str, 177 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Cruel" (Tier: 3) — Damage, Physical, Attack }
+148(135-154)% increased Physical Damage
+{ Prefix Modifier "Razor-sharp" (Tier: 3) — Damage, Physical, Attack }
+Adds 19(16-24) to 35(28-42) Physical Damage
+{ Prefix Modifier "Champion's" (Tier: 4) — Damage, Physical, Attack }
+49(45-54)% increased Physical Damage
++109(98-123) to Accuracy Rating
+{ Suffix Modifier "of the Vampire" (Tier: 1) — Life, Physical, Attack }
+Leeches 9.3(9-9.9)% of Physical Damage as Life
+{ Crafted Suffix Modifier "of Calamity" (Tier: 3) — Attack, Critical }
++3.12(3.11-3.8)% to Critical Hit Chance (crafted)

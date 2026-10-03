@@ -1,0 +1,28 @@
+Item Class: Rings
+Rarity: Unique
+Snakepit
+Pearl Ring
+--------
+Requires: Level 32
+--------
+Item Level: 79
+--------
+{ Implicit Modifier — Caster, Speed }
+9(7-10)% increased Cast Speed
+--------
+{ Unique Modifier — Damage, Caster }
+29(20-30)% increased Spell Damage
+{ Unique Modifier — Caster, Speed }
+10(10-15)% increased Cast Speed
+{ Unique Modifier }
+Left ring slot: Projectiles from Spells Fork — Unscalable Value
+{ Unique Modifier }
+Left ring slot: Projectiles from Spells cannot Chain — Unscalable Value
+{ Unique Modifier }
+Right ring slot: Projectiles from Spells Chain +1 times
+{ Unique Modifier }
+Right ring slot: Projectiles from Spells cannot Fork — Unscalable Value
+{ Unique Modifier }
+Projectiles from Spells cannot Pierce — Unscalable Value
+--------
+They wrap around you until your blood turns as cold as theirs.

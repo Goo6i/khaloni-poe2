@@ -1,0 +1,32 @@
+Item Class: Body Armours
+Rarity: Unique
+Loreweave
+Ornate Ringmail
+--------
+Quality: +20% (augmented)
+Armour: 898 (augmented)
+Energy Shield: 264 (augmented)
+--------
+Requires: Level 65, 67 Str, 67 Int
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Unique Modifier — Damage, Physical, Attack }
+Adds 7(4-10) to 22(14-36) Physical Damage to Attacks
+{ Unique Modifier — Attack }
++143(100-200) to Accuracy Rating
+{ Unique Modifier — Mana }
++52(40-60) to maximum Mana
+{ Unique Modifier }
+17(10-20)% increased Rarity of Items found
+{ Unique Modifier — Gem }
++11(8-15)% to Quality of all Skills
+{ Unique Modifier — Caster, Speed }
+9(6-12)% increased Cast Speed
+{ Unique Modifier — Resistance }
+Your Maximum Resistances are 78(76-80)%
+--------
+Rigwald wove the threads of a thousand tales
+into a single, unbreakable truth.

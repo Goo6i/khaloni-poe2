@@ -1,0 +1,144 @@
+{
+  "source_note": "Each Alloy's item text and the modifier it adds per item class, copied from its poe2db item page on 2026-09-26 (patch 0.5.5); em dashes in ranges written as hyphens, and a modifier of two lines written with a line break between them. Every Alloy poe.ninja prices in the Verisium category is here. The planner joins each line to the mod database's Alloy entries by its text.",
+  "alloys": [
+    {
+      "name": "Adaptive Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Adaptive_Alloy",
+      "lines": [
+        { "classes": "Staves", "text": "Gain (42-52)% of Damage as Extra Fire Damage while you are missing Runic Ward" },
+        { "classes": "Wands", "text": "Gain (21-26)% of Damage as Extra Fire Damage while you are missing Runic Ward" },
+        { "classes": "Sceptres", "text": "(30-50)% Surpassing Chance to gain a Puppet Master stack whenever you use a Command Skill" },
+        { "classes": "Gloves", "text": "(10-15)% increased Attack Speed while missing Runic Ward" }
+      ]
+    },
+    {
+      "name": "Celestial Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Celestial_Alloy",
+      "lines": [
+        { "classes": "Staves, Wands", "text": "+(142-188) to maximum Mana\n+1 to Level of all Spell Skills" },
+        { "classes": "One Hand Swords, One Hand Axes, One Hand Maces, Two Hand Swords, Two Hand Axes, Two Hand Maces, Spears, Bows, Quarterstaves, Daggers, Crossbows, Flails, Talismans", "text": "+(327-427) to Accuracy Rating\n(5-8)% increased Attack Speed" }
+      ]
+    },
+    {
+      "name": "Expansive Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Expansive_Alloy",
+      "lines": [
+        { "classes": "Gloves", "text": "Remnants can be collected from (35-50)% further away" },
+        { "classes": "Body Armours", "text": "(35-50)% increased Presence Area of Effect" },
+        { "classes": "Helmets", "text": "(18-29)% increased Mana Cost Efficiency" },
+        { "classes": "Boots", "text": "Temporary Minion Skills have +(1-2) to Limit of Minions summoned" }
+      ]
+    },
+    {
+      "name": "Protective Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Protective_Alloy",
+      "lines": [
+        { "classes": "Belts", "text": "Recover (32-45) Runic Ward when a Charm is used" },
+        { "classes": "One Hand Swords, One Hand Axes, One Hand Maces, Two Hand Swords, Two Hand Axes, Two Hand Maces, Spears, Bows, Quarterstaves, Daggers, Crossbows, Flails, Talismans, Sceptres, Staves, Wands", "text": "+(51-74) to maximum Runic Ward" },
+        { "classes": "Shields, Bucklers", "text": "Recover (10-15) Runic Ward when you Block" }
+      ]
+    },
+    {
+      "name": "Runic Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Runic_Alloy",
+      "lines": [
+        { "classes": "Rings", "text": "+(37-49) to maximum Runic Ward" },
+        { "classes": "Amulets", "text": "(6-10)% increased maximum Runic Ward" },
+        { "classes": "Belts", "text": "(15-20)% increased Runic Ward Regeneration Rate" }
+      ]
+    },
+    {
+      "name": "Sovereign Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Sovereign_Alloy",
+      "lines": [
+        { "classes": "One Hand Swords, One Hand Axes, One Hand Maces, Two Hand Swords, Two Hand Axes, Two Hand Maces, Spears, Bows, Quarterstaves, Daggers, Crossbows, Flails, Talismans, Sceptres, Staves, Wands", "text": "(20-30)% increased effect of Socketed Augment Items" },
+        { "classes": "Helmets, Body Armours, Gloves, Boots, Shields, Bucklers, Foci", "text": "(24-30)% increased Runic Ward" },
+        { "classes": "Rings, Amulets, Belts", "text": "(20-30)% increased Explicit Resistance Modifier magnitudes" }
+      ]
+    },
+    {
+      "name": "Swift Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Swift_Alloy",
+      "lines": [
+        { "classes": "Gloves", "text": "(9-12)% increased Cast Speed" },
+        { "classes": "Rings", "text": "(7-9)% increased Attack Speed" },
+        { "classes": "Belts", "text": "Flasks gain (0.75-1) charges per Second" },
+        { "classes": "Shields, Bucklers, Foci", "text": "(30-49)% increased Totem Placement speed" }
+      ]
+    },
+    {
+      "name": "The Runefather's Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/The_Runefathers_Alloy",
+      "lines": [
+        { "classes": "One Hand Maces, Two Hand Maces", "text": "(60-75)% chance for Skills to retain 40% of Glory on use" },
+        { "classes": "Quarterstaves", "text": "Tempest Bells are destroyed after an additional (4-5) Hits" },
+        { "classes": "Spears", "text": "+(8-10) to Weapon Range" },
+        { "classes": "Talismans", "text": "Lightning Damage from Hits also Contributes to Flammability and Ignite Magnitudes" }
+      ]
+    },
+    {
+      "name": "Transcendent Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Transcendent_Alloy",
+      "lines": [
+        { "classes": "Staves", "text": "(39-47)% increased Cast Speed\nGain (11-16)% of Elemental Damage as Extra Cold Damage" },
+        { "classes": "Foci, Wands", "text": "(26-31)% increased Cast Speed\nGain (7-11)% of Elemental Damage as Extra Cold Damage" },
+        { "classes": "One Hand Swords, One Hand Axes, One Hand Maces, Two Hand Swords, Two Hand Axes, Two Hand Maces, Spears, Bows, Quarterstaves, Daggers, Crossbows, Flails, Talismans", "text": "(15-20)% increased Physical Damage\n+(7-10) to all Attributes" }
+      ]
+    },
+    {
+      "name": "Cyclonic Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Cyclonic_Alloy",
+      "lines": [
+        { "classes": "Body Armours", "text": "(15-30)% reduced Slowing Potency of Debuffs on You" },
+        { "classes": "Boots", "text": "(15-19)% increased Skill Effect Duration" },
+        { "classes": "Gloves", "text": "(20-25)% increased Duration of Damaging Ailments on Enemies" },
+        { "classes": "Helmets", "text": "(35-42)% increased Archon Buff duration" }
+      ]
+    },
+    {
+      "name": "Mystic Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Mystic_Alloy",
+      "lines": [
+        { "classes": "Helmets", "text": "Spell Skills have (10-15)% increased Area of Effect" },
+        { "classes": "Gloves", "text": "(10-15)% increased Area of Effect for Attacks" },
+        { "classes": "Boots", "text": "+(10-15) to Spirit" },
+        { "classes": "Quivers", "text": "(25-35)% chance to Chain an additional time" },
+        { "classes": "Staves, Wands, Sceptres", "text": "+1 to maximum number of Elemental Infusions" }
+      ]
+    },
+    {
+      "name": "Prismatic Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/Prismatic_Alloy",
+      "lines": [
+        { "classes": "Gloves", "text": "Damage Penetrates (9-15)% Elemental Resistances" },
+        { "classes": "One Hand Swords, One Hand Axes, One Hand Maces, Two Hand Swords, Two Hand Axes, Two Hand Maces, Spears, Bows, Quarterstaves, Daggers, Crossbows, Flails, Talismans", "text": "(20-30)% increased Magnitude of Ailments you inflict" },
+        { "classes": "Staves, Wands, Foci", "text": "(40-50)% increased Exposure Effect" },
+        { "classes": "Sceptres", "text": "Minions have (40-49)% increased Magnitude of Damaging Ailments" }
+      ]
+    },
+    {
+      "name": "The Runebinder's Alloy",
+      "effect": "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+      "source": "https://poe2db.tw/us/The_Runebinders_Alloy",
+      "lines": [
+        { "classes": "Staves", "text": "(25-50)% chance to gain Nature's Archon when your Plants Overgrow" },
+        { "classes": "Wands", "text": "+1 to Limit for Elemental Skills" },
+        { "classes": "Sceptres", "text": "+(4-5) maximum stacks of Puppet Master" },
+        { "classes": "Crossbows", "text": "+2 to maximum number of Summoned Ballista Totems" },
+        { "classes": "Bows", "text": "(40-50)% increased Effect of your Mark Skills" }
+      ]
+    }
+  ]
+}

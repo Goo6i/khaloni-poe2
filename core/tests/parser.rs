@@ -169,3 +169,16 @@ fn simple_format_keeps_mods_that_start_with_a_verb() {
         ]
     );
 }
+
+#[test]
+fn a_meta_gem_without_an_item_class_line_is_still_an_item() {
+    // Meta skill gems copy with "Rarity: Gem" as their first line; EE2
+    // accepts that header shape, so the price check must not reject it.
+    let text = "Rarity: Gem\nMirage Archer\n--------\nBuff, Persistent, Trigger, Duration, Meta\nLevel: 14\n";
+    let item = khaloni_poe2_core::item::parse_item(text).expect("class-less gem header");
+    assert_eq!(item.rarity, khaloni_poe2_core::item::Rarity::Gem);
+    assert_eq!(item.name, "Mirage Archer");
+    assert_eq!(item.raw, text);
+    // Any other text without the class line is still not an item.
+    assert!(khaloni_poe2_core::item::parse_item("hello\nworld\nfoo\nbar\n").is_err());
+}

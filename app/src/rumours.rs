@@ -17,11 +17,12 @@ use khaloni_poe2_core::rumour::RumourEntry;
 #[cfg(ocr)]
 use khaloni_poe2_core::rumour::RumourIndex;
 #[cfg(ocr)]
-use khaloni_poe2_core::rumour_scan::{parse_rumour_tsv, RumourLine};
+use khaloni_poe2_core::rumour_scan::{has_tooltip_chrome, parse_rumour_tsv, RumourLine};
 use khaloni_poe2_core::rumour_scan::Rect;
 
 #[cfg(ocr)]
 use crate::ocr::OcrEngine;
+use crate::ocr::UiScale;
 
 /// OCR passes unioned per scan, as (upscale, page-segmentation mode).
 /// Multiple scales because tesseract groups/drops lines differently per
@@ -35,6 +36,7 @@ pub const OCR_PASSES: [(f32, u32); 5] = [(1.0, 6), (1.5, 6), (2.0, 6), (1.0, 11)
 /// hugs the parchment and can clip a rumour line at the top/bottom edge;
 /// the Y padding recovers those. X padding stays tight so cross-screen text
 /// never enters the crop (measured on the 5 real fixtures).
+/// All three are 4K measurements and scale with the frame (`UiScale`).
 pub const CROP_PAD_X: u32 = 16;
 pub const CROP_PAD_Y_UP: u32 = 40;
 pub const CROP_PAD_Y_DN: u32 = 80;
@@ -63,42 +65,236 @@ pub struct RumourHit {
 /// it is also far cheaper than a full-frame anchor pre-scan every poll.
 #[cfg(ocr)]
 pub fn recognize(engine: &mut OcrEngine, gray: &GrayImage, index: &RumourIndex) -> Vec<RumourHit> {
-    let Some(panel) = find_panel(gray) else {
-        return Vec::new();
-    };
-    let cx0 = panel.x0.saturating_sub(CROP_PAD_X);
-    let cy0 = panel.y0.saturating_sub(CROP_PAD_Y_UP);
-    let cx1 = (panel.x1 + CROP_PAD_X).min(gray.width());
-    let cy1 = (panel.y1 + CROP_PAD_Y_DN).min(gray.height());
-    if cx1 <= cx0 || cy1 <= cy0 {
-        return Vec::new();
-    }
-    let crop = imageops::crop_imm(gray, cx0, cy0, cx1 - cx0, cy1 - cy0).to_image();
+    RumourScanner::default().recognize(engine, gray, index)
+}
 
-    let mut hits: Vec<RumourHit> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for (scale, psm) in OCR_PASSES {
-        let mut lines = ocr_scaled(engine, &crop, scale, psm);
-        lines.sort_by_key(RumourLine::yc);
-        for ln in lines {
-            if let Some(entry) = index.match_line(&ln.text) {
-                if seen.insert(entry.rumour.clone()) {
-                    hits.push(RumourHit {
-                        entry: entry.clone(),
-                        line: Rect {
-                            x0: cx0 + ln.x0,
-                            y0: cy0 + ln.y0,
-                            x1: cx0 + ln.x1,
-                            y1: cy0 + ln.y1,
-                        },
-                        raw: ln.text,
-                        panel,
-                    });
+/// The padded tooltip crop `recognize` reads, as (crop, x offset, y
+/// offset, panel box), or None when no tooltip-shaped panel is on screen.
+#[cfg(ocr)]
+fn panel_crop(gray: &GrayImage) -> Option<(GrayImage, u32, u32, Rect)> {
+    let panel = find_panel(gray)?;
+    let scale = UiScale::from_frame_height(gray.height());
+    let cx0 = panel.x0.saturating_sub(scale.px(CROP_PAD_X));
+    let cy0 = panel.y0.saturating_sub(scale.px(CROP_PAD_Y_UP));
+    let cx1 = (panel.x1 + scale.px(CROP_PAD_X)).min(gray.width());
+    let cy1 = (panel.y1 + scale.px(CROP_PAD_Y_DN)).min(gray.height());
+    if cx1 <= cx0 || cy1 <= cy0 {
+        return None;
+    }
+    Some((imageops::crop_imm(gray, cx0, cy0, cx1 - cx0, cy1 - cy0).to_image(), cx0, cy0, panel))
+}
+
+/// The parchment a recognition read, kept to tell whether a later frame
+/// still shows the same tooltip. Only the panel interior is kept: the crop
+/// padding around it shows the game world, which animates on every frame
+/// (water, particles, the day cycle) while the tooltip stays put.
+#[cfg(ocr)]
+struct SeenPanel {
+    /// Where the interior sits in the frame.
+    at: Rect,
+    pixels: GrayImage,
+    hits: Vec<RumourHit>,
+}
+
+/// How far inside the detected panel box its interior starts, in 4K pixels.
+/// The box snaps to the panel search's subsample grid and can take in up
+/// to one grid step of the world past the parchment's true edge; two steps
+/// keep that out.
+#[cfg(ocr)]
+const INTERIOR_INSET: u32 = 2 * PANEL_STEP;
+/// A pixel counts as changed when it moved by more than this many grey
+/// levels: well above the compositor's rounding noise, well below the
+/// contrast of ink on parchment.
+#[cfg(ocr)]
+const PIXEL_NOISE: u8 = 32;
+/// Changed pixels tolerated per million before the tooltip counts as
+/// changed. One rumour name is thousands of ink pixels (about 1% of the
+/// interior at 4K), so 0.1% cannot hide a changed or missing rumour.
+#[cfg(ocr)]
+const CHANGED_PER_MILLION: u64 = 1_000;
+
+#[cfg(ocr)]
+fn panel_interior(gray: &GrayImage, panel: Rect) -> Option<Rect> {
+    let inset = UiScale::from_frame_height(gray.height()).px(INTERIOR_INSET);
+    let at = Rect {
+        x0: panel.x0 + inset,
+        y0: panel.y0 + inset,
+        x1: panel.x1.min(gray.width()).saturating_sub(inset),
+        y1: panel.y1.min(gray.height()).saturating_sub(inset),
+    };
+    (at.x1 > at.x0 && at.y1 > at.y0).then_some(at)
+}
+
+#[cfg(ocr)]
+impl SeenPanel {
+    /// Whether `gray` shows the same interior at the same place. The
+    /// comparison is at fixed frame coordinates, so a tooltip that moved
+    /// by even a few pixels reads as changed; the new panel box only has
+    /// to cover the old interior, since bright world pixels touching the
+    /// parchment can shift the box's edges by a grid step.
+    fn unchanged_in(&self, gray: &GrayImage, panel: Rect) -> bool {
+        let at = self.at;
+        if at.x0 < panel.x0 || at.y0 < panel.y0 || at.x1 > panel.x1 || at.y1 > panel.y1 {
+            return false;
+        }
+        if at.x1 > gray.width() || at.y1 > gray.height() {
+            return false;
+        }
+        let area = u64::from(at.width()) * u64::from(at.height());
+        let allowed = area * CHANGED_PER_MILLION / 1_000_000;
+        let mut changed = 0u64;
+        for (dy, row) in self.pixels.rows().enumerate() {
+            let y = at.y0 + dy as u32;
+            for (dx, old) in row.enumerate() {
+                let new = gray.get_pixel(at.x0 + dx as u32, y).0[0];
+                if new.abs_diff(old.0[0]) > PIXEL_NOISE {
+                    changed += 1;
+                    if changed > allowed {
+                        return false;
+                    }
                 }
             }
         }
+        true
     }
-    hits
+}
+
+/// The tooltip's three rumour rows, as (top, bottom) offsets from the
+/// panel's top edge in 4K pixels, below the "Island Rumours" banner and
+/// clear of the separators between rows. Measured on the five fixtures,
+/// where the names' ink spans 164-208, 240-290 and 324-372.
+#[cfg(ocr)]
+const ROW_SLOTS: [(u32, u32); MAX_RUMOURS] = [(152, 228), (232, 312), (316, 384)];
+/// Pixels darker than this are ink on the parchment.
+#[cfg(ocr)]
+const INK_MAX: u8 = 80;
+/// Ink pixels (4K) that make a row slot filled. On the five fixtures a
+/// filled slot holds 1,472 to 2,750 ink pixels and an empty one at most 6,
+/// so the line sits far from both.
+#[cfg(ocr)]
+const FILLED_SLOT_INK: u32 = 500;
+/// Columns left out of the slot scan at either side, clear of the
+/// parchment's darker border (4K pixels).
+#[cfg(ocr)]
+const SLOT_SIDE: u32 = 40;
+
+/// How many of the tooltip's row slots carry a name, from the ink in each.
+/// An empty slot is plain parchment, so a tooltip showing one or two
+/// rumours can stop reading once those resolve instead of running every
+/// pass hunting for rows that are not there.
+#[cfg(ocr)]
+fn filled_slots(gray: &GrayImage, panel: Rect) -> usize {
+    let scale = UiScale::from_frame_height(gray.height());
+    let x0 = panel.x0 + scale.px(SLOT_SIDE);
+    let x1 = panel.x1.min(gray.width()).saturating_sub(scale.px(SLOT_SIDE));
+    let floor = (FILLED_SLOT_INK as f32 * scale.factor() * scale.factor()) as u32;
+    ROW_SLOTS
+        .iter()
+        .filter(|(top, bottom)| {
+            let y0 = panel.y0 + scale.px(*top);
+            let y1 = (panel.y0 + scale.px(*bottom)).min(gray.height());
+            let mut ink = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    ink += u32::from(gray.get_pixel(x, y).0[0] < INK_MAX);
+                }
+            }
+            ink > floor.max(1)
+        })
+        .count()
+}
+
+/// A tooltip lists at most this many rumours: its three row slots sit at
+/// fixed heights between the header and the "REQUIRES" line on every
+/// fixture, whether one, two or all three are filled.
+#[cfg(ocr)]
+const MAX_RUMOURS: usize = 3;
+
+/// `recognize` with memory, for the worker that polls full frames. Any
+/// parchment-bright blob of tooltip size sends a frame to OCR - the
+/// tooltip itself for as long as it is held open, but also sunlit ground
+/// and spell effects - and the full recipe is five tesseract passes.
+/// Three savings, none of which can change what a tooltip resolves to:
+/// a tooltip whose parchment is unchanged in place returns the previous
+/// hits without OCR, however the world around it moves; a pass that
+/// leaves the scan with no rumour and read no tooltip chrome ends it (every
+/// pass reads chrome on every real tooltip, see `has_tooltip_chrome`); and
+/// the passes stop once every filled row slot has resolved. A pass whose own
+/// lines all resolved is NOT a stopping point: measured on rumour-2, the
+/// first pass reads two rumours cleanly and drops the third line
+/// altogether, which only the sparse-text passes recover.
+#[cfg(ocr)]
+#[derive(Default)]
+pub struct RumourScanner {
+    last: Option<SeenPanel>,
+    /// Tesseract passes run so far: the observable the tests and the
+    /// worker's trace line read.
+    pub ocr_passes: usize,
+}
+
+#[cfg(ocr)]
+impl RumourScanner {
+    pub fn recognize(
+        &mut self,
+        engine: &mut OcrEngine,
+        gray: &GrayImage,
+        index: &RumourIndex,
+    ) -> Vec<RumourHit> {
+        let Some((crop, cx0, cy0, panel)) = panel_crop(gray) else {
+            self.last = None;
+            return Vec::new();
+        };
+        if let Some(seen) = &self.last {
+            if seen.unchanged_in(gray, panel) {
+                return seen.hits.clone();
+            }
+        }
+        // A tooltip names one to three rumours. When the ink shows no
+        // filled slot at all the geometry did not fit this panel, so the
+        // count is not trusted and every slot is assumed filled.
+        let wanted = match filled_slots(gray, panel) {
+            0 => MAX_RUMOURS,
+            n => n,
+        };
+        // Tesseract reads text at the size it has at 4K; smaller frames
+        // are enlarged to match before the per-pass scales apply.
+        let base = 1.0 / UiScale::from_frame_height(gray.height()).factor().min(1.0);
+
+        let mut hits: Vec<RumourHit> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for (scale, psm) in OCR_PASSES {
+            self.ocr_passes += 1;
+            let mut lines = ocr_scaled(engine, &crop, scale * base, psm);
+            lines.sort_by_key(RumourLine::yc);
+            let chrome = has_tooltip_chrome(&lines);
+            for ln in lines {
+                if let Some(entry) = index.match_line(&ln.text) {
+                    if seen.insert(entry.rumour.clone()) {
+                        hits.push(RumourHit {
+                            entry: entry.clone(),
+                            line: Rect {
+                                x0: cx0 + ln.x0,
+                                y0: cy0 + ln.y0,
+                                x1: cx0 + ln.x1,
+                                y1: cy0 + ln.y1,
+                            },
+                            raw: ln.text,
+                            panel,
+                        });
+                    }
+                }
+            }
+            if hits.len() >= wanted || (hits.is_empty() && !chrome) {
+                break;
+            }
+        }
+        self.last = panel_interior(gray, panel).map(|at| SeenPanel {
+            at,
+            pixels: imageops::crop_imm(gray, at.x0, at.y0, at.width(), at.height()).to_image(),
+            hits: hits.clone(),
+        });
+        hits
+    }
 }
 
 /// OCR `img` at `scale` and `psm`, returning line boxes mapped back to
@@ -131,8 +327,13 @@ fn ocr_scaled(engine: &mut OcrEngine, img: &GrayImage, scale: f32, psm: u32) -> 
     lines
 }
 
-/// Downscale factor for the panel search: morphology and labeling run on a
-/// 1/N subsample so the poll loop stays cheap (Python spike: 4).
+/// Downscale factor for the panel search at 4K: morphology and labeling
+/// run on a 1/N subsample so the poll loop stays cheap (Python spike: 4).
+/// Scaled with the frame, so the mask has the same grid relative to the
+/// interface at every resolution and CLOSE_ITERS - which counts mask
+/// pixels - bridges the same text holes: a fixed step of 4 on a 1080p
+/// frame doubles the closing reach relative to the tooltip and welds it
+/// to whatever bright scenery sits beside it.
 const PANEL_STEP: u32 = 4;
 /// Brightness a subsampled pixel must exceed to count as parchment.
 const PANEL_THRESH: u8 = 150;
@@ -140,7 +341,9 @@ const PANEL_THRESH: u8 = 150;
 /// the parchment so it labels as one solid blob (Python spike: 2).
 const CLOSE_ITERS: u32 = 2;
 /// Accept only blobs whose full-resolution bounds and fill ratio match a
-/// tooltip panel (Python spike ranges; panel is ~620x390 at 4K).
+/// tooltip panel (Python spike ranges; panel is ~620x390 at 4K). 4K
+/// pixels, scaled with the frame: at 1080p the tooltip is ~310x195, under
+/// the unscaled floor.
 const MIN_W: u32 = 350;
 const MAX_W: u32 = 900;
 const MIN_H: u32 = 250;
@@ -155,8 +358,8 @@ const MIN_FILL: f64 = 0.6;
 #[derive(Debug, Clone, Copy)]
 pub struct PanelCandidate {
     /// Blob bounding box in full-resolution pixels (subsample-grid
-    /// aligned; x1/y1 can overshoot the frame edge by up to
-    /// PANEL_STEP - 1, callers cropping must clamp).
+    /// aligned; x1/y1 can overshoot the frame edge by up to one grid
+    /// step, callers cropping must clamp).
     pub rect: Rect,
     /// Blob pixel count in the subsampled mask — `find_panel`'s selection
     /// key (heaviest gate-passing blob wins).
@@ -171,7 +374,7 @@ pub struct PanelCandidate {
 /// `autoregion::detect_reward_region` (reward panel) apply their own
 /// size/fill gates on top.
 pub fn panel_candidates(gray: &GrayImage) -> Vec<PanelCandidate> {
-    let step = PANEL_STEP;
+    let step = UiScale::from_frame_height(gray.height()).px(PANEL_STEP);
     let (gw, gh) = (gray.width(), gray.height());
     // Subsample to a small mask (Python `gray[::step, ::step] > thresh`).
     let sw = gw.div_ceil(step);
@@ -210,14 +413,17 @@ pub fn panel_candidates(gray: &GrayImage) -> Vec<PanelCandidate> {
 /// frame: the largest panel-shaped bright blob from the candidate sweep,
 /// in full-resolution pixels, or `None` if none qualifies.
 pub fn find_panel(gray: &GrayImage) -> Option<Rect> {
+    let scale = UiScale::from_frame_height(gray.height());
+    let (min_w, max_w) = (scale.px(MIN_W), scale.px(MAX_W));
+    let (min_h, max_h) = (scale.px(MIN_H), scale.px(MAX_H));
     let mut best: Option<(u32, Rect)> = None; // (pixel count, full-res box)
     for cand in panel_candidates(gray) {
         // rect is subsample-grid aligned, so width/height here equal the
         // (maxx - minx + 1) * step the gates were originally tuned on.
         let bw = cand.rect.width();
         let bh = cand.rect.height();
-        if (MIN_W..MAX_W).contains(&bw)
-            && (MIN_H..MAX_H).contains(&bh)
+        if (min_w..max_w).contains(&bw)
+            && (min_h..max_h).contains(&bh)
             && cand.fill > MIN_FILL
             && best.is_none_or(|(c, _)| cand.count > c)
         {
@@ -342,23 +548,36 @@ mod tests {
 
     #[test]
     fn find_panel_locates_a_panel_sized_bright_box() {
-        // 600x400 bright box: within the panel size gates.
-        let img = frame_with_rect(1000, 800, 200, 100, 800, 500);
+        // A 4K frame with a 620x392 bright box: the real tooltip's size.
+        let img = frame_with_rect(3840, 2160, 2000, 400, 2620, 792);
         let r = find_panel(&img).expect("panel found");
         // Bounds snap to the 4px subsample grid; the box is grid-aligned here.
-        assert_eq!(r, Rect { x0: 200, y0: 100, x1: 800, y1: 500 });
+        assert_eq!(r, Rect { x0: 2000, y0: 400, x1: 2620, y1: 792 });
+    }
+
+    #[test]
+    fn find_panel_locates_the_same_panel_on_smaller_frames() {
+        // The interface scales with frame height: the tooltip is 2/3 the
+        // size at 1440p and half at 1080p, under the 4K size floor.
+        let r = find_panel(&frame_with_rect(2560, 1440, 1332, 267, 1746, 528)).expect("1440p");
+        assert_eq!(r, Rect { x0: 1332, y0: 267, x1: 1746, y1: 528 });
+        let r = find_panel(&frame_with_rect(1920, 1080, 1000, 200, 1310, 396)).expect("1080p");
+        assert_eq!(r, Rect { x0: 1000, y0: 200, x1: 1310, y1: 396 });
     }
 
     #[test]
     fn find_panel_rejects_a_too_small_bright_blob() {
-        // 100x100 bright box: below MIN_W/MIN_H, not a panel.
-        let img = frame_with_rect(1000, 800, 200, 100, 300, 200);
+        // 100x100 bright box on a 4K frame: below the size floor.
+        let img = frame_with_rect(3840, 2160, 200, 100, 300, 200);
         assert!(find_panel(&img).is_none(), "small blob is not a panel");
+        // A box that would be a tooltip at 4K is scenery-sized at 1080p.
+        let img = frame_with_rect(1920, 1080, 200, 100, 820, 492);
+        assert!(find_panel(&img).is_none(), "4K-sized box on a 1080p frame is not a tooltip");
     }
 
     #[test]
     fn find_panel_returns_none_on_a_dark_frame() {
-        let img = GrayImage::new(1000, 800);
+        let img = GrayImage::new(1920, 1080);
         assert!(find_panel(&img).is_none(), "nothing bright to find");
     }
 }

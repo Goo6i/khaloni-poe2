@@ -1,0 +1,209 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "pdps": {
+       "min": 562
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1881230714",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3035140377",
+       "value": {
+        "min": 3
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 101
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 101
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 1.15
+      },
+      "crit": {
+       "min": 8.8
+      },
+      "pdps": {
+       "min": 562
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1881230714",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3035140377",
+       "value": {
+        "min": 3
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 101
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 101
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

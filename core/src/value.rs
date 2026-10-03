@@ -15,30 +15,51 @@ pub fn format_amount(x: f64) -> String {
     s.strip_suffix(".0").map(|t| t.to_string()).unwrap_or(s)
 }
 
-/// Total value of `count` items, in divine above the threshold, else exalted.
-/// Stacks show the per-item value in parentheses.
-pub fn display_price(unit: &Price, count: u32, divine_threshold: f64) -> String {
-    let count = count.max(1);
-    let total_divine = unit.divine * count as f64;
-    let total_exalted = unit.exalted * count as f64;
+/// The currency a value is shown in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    Divine,
+    Chaos,
+    Exalted,
+}
 
-    if total_divine >= divine_threshold {
-        if count == 1 {
-            format!("{} div", format_amount(total_divine))
-        } else {
-            format!(
-                "{} div ({} div each)",
-                format_amount(total_divine),
-                format_amount(unit.divine)
-            )
+impl Unit {
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Unit::Divine => "div",
+            Unit::Chaos => "chaos",
+            Unit::Exalted => "ex",
         }
-    } else if count == 1 {
-        format!("{} ex", format_amount(total_exalted))
+    }
+}
+
+/// Picks the currency for `count` items and returns the total and the
+/// per-item value in it: divine at or above the threshold, chaos from one
+/// chaos up, exalted for what is left. An exalted is worth about a fiftieth
+/// of a chaos (459 to the divine against 8.4, 2026-09-19), so exalted
+/// figures for anything but small change ran to three digits and said
+/// little; below one chaos it is still the unit that reads ("12 ex", not
+/// "0.22 chaos").
+pub fn pick_unit(unit: &Price, count: u32, divine_threshold: f64) -> (Unit, f64, f64) {
+    let n = f64::from(count.max(1));
+    if unit.divine * n >= divine_threshold {
+        (Unit::Divine, unit.divine * n, unit.divine)
+    } else if unit.chaos * n >= 1.0 {
+        (Unit::Chaos, unit.chaos * n, unit.chaos)
     } else {
-        format!(
-            "{} ex ({} each)",
-            format_amount(total_exalted),
-            format_amount(unit.exalted)
-        )
+        (Unit::Exalted, unit.exalted * n, unit.exalted)
+    }
+}
+
+/// Total value of `count` items in the currency `pick_unit` chooses. Stacks
+/// show the per-item value in parentheses.
+pub fn display_price(unit: &Price, count: u32, divine_threshold: f64) -> String {
+    let (u, total, each) = pick_unit(unit, count, divine_threshold);
+    if count.max(1) == 1 {
+        format!("{} {}", format_amount(total), u.suffix())
+    } else if u == Unit::Divine {
+        format!("{} div ({} div each)", format_amount(total), format_amount(each))
+    } else {
+        format!("{} {} ({} each)", format_amount(total), u.suffix(), format_amount(each))
     }
 }

@@ -1,0 +1,231 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.staff"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 168
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 153
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2231156303",
+       "value": {
+        "min": 150
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1545858329",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 38
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_274716455",
+       "value": {
+        "min": 42
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "skill.lightning_bolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": false,
+       "id": "skill.unique_breach_lightning_bolt",
+       "value": {
+        "min": 20
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.staff"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_mana",
+       "value": {
+        "min": 168
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 153
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2231156303",
+       "value": {
+        "min": 150
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1545858329",
+       "value": {
+        "min": 7
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 38
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_274716455",
+       "value": {
+        "min": 42
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "skill.lightning_bolt",
+       "value": {
+        "min": 20
+       }
+      },
+      {
+       "disabled": false,
+       "id": "skill.unique_breach_lightning_bolt",
+       "value": {
+        "min": 20
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

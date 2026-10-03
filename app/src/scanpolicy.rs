@@ -14,13 +14,15 @@ use crate::platform::Focus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Inputs {
-    /// The F8 master switch.
-    pub scanning: bool,
     pub game_present: bool,
     /// From the window feed: not minimized and not covered.
     pub game_visible: bool,
     pub focus: Focus,
     pub pause_when_hidden: bool,
+    /// The tray's "Pause Pricing". It is an input here, not a write to the
+    /// pause flag, because this decision is recomputed every tick and
+    /// overwrote such a write within 16ms.
+    pub user_paused: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +39,11 @@ pub struct Decision {
 pub fn decide(i: Inputs) -> Decision {
     let attended = i.focus != Focus::Other;
     let on_screen = i.game_present && (i.game_visible || !i.pause_when_hidden);
-    let paused = !i.scanning || !i.game_present || !attended || (!i.game_visible && i.pause_when_hidden);
-    Decision { paused, show_rows: i.scanning && on_screen && attended, on_screen }
+    let paused = i.user_paused
+        || !i.game_present
+        || !attended
+        || (!i.game_visible && i.pause_when_hidden);
+    // Rows read while pricing ran would sit there unrefreshed for as long
+    // as the pause lasts, so they leave with it.
+    Decision { paused, show_rows: !i.user_paused && on_screen && attended, on_screen }
 }

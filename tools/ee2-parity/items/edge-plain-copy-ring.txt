@@ -1,0 +1,14 @@
+Item Class: Rings
+Rarity: Rare
+Grim Turn
+Ruby Ring
+--------
+Requires: Level 40
+--------
+Item Level: 55
+--------
++24% to Fire Resistance (implicit)
+--------
++65 to maximum Life
++18% to Cold Resistance
++12 to Strength

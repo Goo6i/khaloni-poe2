@@ -1,0 +1,20 @@
+Item Class: Charms
+Rarity: Magic
+Thawing Charm of the Lasting
+--------
+Lasts 3.80 (augmented) Seconds
+Consumes 80 of 80 Charges on use
+Currently has 80 Charges
+Grants Immunity to Freeze
+--------
+Requires: Level 12
+--------
+Item Level: 67
+--------
+{ Implicit Modifier }
+Used when you become Frozen — Unscalable Value
+--------
+{ Suffix Modifier "of the Lasting" (Tier: 3) }
+27(26-30)% increased Duration
+--------
+Used automatically when condition is met. Can only hold charges while in belt. Refill at Wells or by killing monsters.

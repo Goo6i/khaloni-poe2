@@ -11,7 +11,7 @@
 //!
 //! - Geometry on first appearance and on every rect change.
 //! - Active(Focus) on every focus change (and once for the initial state, like
-//!   the script's `lastActiveKey = " "` sentinel forcing a first report).
+//!   the script's empty `lastFocusKind` sentinel forcing a first report).
 //! - GameGone exactly once when the window disappears after being seen.
 //! - Cursor only when the pointer moved more than 4px on either axis (the
 //!   script's `> 4` guard); the 100ms half of the throttle contract is the

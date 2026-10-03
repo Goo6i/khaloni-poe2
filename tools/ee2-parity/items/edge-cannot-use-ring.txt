@@ -1,0 +1,22 @@
+Item Class: Rings
+Rarity: Rare
+You cannot use this item. Its stats will be ignored
+--------
+Pain Eye
+Amethyst Ring
+--------
+Requires: Level 70
+--------
+Item Level: 78
+--------
+{ Implicit Modifier — Chaos, Resistance }
++10(7-13)% to Chaos Resistance (implicit)
+--------
+{ Prefix Modifier "Dragon's" (Tier: 2) — Mana }
++140(125-149) to maximum Mana
+{ Suffix Modifier "of the Apt" (Tier: 1) }
+30(32-28)% reduced Attribute Requirements
+{ Suffix Modifier "of Exile" (Tier: 2) — Chaos, Resistance }
++20(16-23)% to Chaos Resistance
+{ Suffix Modifier "of the Rainbow" (Tier: 4) — Attribute }
++8(7-9) to all Attributes

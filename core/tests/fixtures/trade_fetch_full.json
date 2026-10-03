@@ -1,0 +1,7737 @@
+{
+ "result": [
+  {
+   "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-15T22:45:25Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 3,
+     "currency": "divine"
+    },
+    "fee": 57832,
+    "account": {
+     "name": "seller0",
+     "online": null,
+     "lastCharacterName": "Char0",
+     "language": "ru_RU",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Plague Curtain",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 81,
+    "identified": true,
+    "note": "~b/o 3 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2948",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "136% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       },
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+33 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "41"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "11.9 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of the Troll",
+        "tier": "S6",
+        "level": 35,
+        "magnitudes": [
+         {
+          "min": "9.1",
+          "max": "13"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "60% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Antidote",
+        "tier": "S1",
+        "level": 76,
+        "magnitudes": [
+         {
+          "min": "-60",
+          "max": "-56"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Cold Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Polar Bear",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+277 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "90686e2daa6760c9332444d12eeaad9b78c0f7c5ac29cebf0c17e7b0fd1e8321",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "5fdb3b30dff7a86fa3f39f442aac8c2cefc54f35b9034f048d1b3fac5124f818",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "cff2896b6cfcbf292a5b2698d6a723a8270fce14474e6ef97225bb59bcee5974",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2948,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_1062208444",
+        [
+         0,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         1
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_4220027924",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "bb0610fccb322039fe0cf33a56a3fedd8bfc9054399076a49857175117519657",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-16T01:38:33Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 3,
+     "currency": "divine"
+    },
+    "fee": 60411,
+    "account": {
+     "name": "seller1",
+     "online": null,
+     "lastCharacterName": "Char1",
+     "language": "ru_RU",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "bb0610fccb322039fe0cf33a56a3fedd8bfc9054399076a49857175117519657",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Phoenix Salvation",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 82,
+    "identified": true,
+    "note": "~b/o 3 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3061",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+178 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Encased",
+        "tier": "P5",
+        "level": 54,
+        "magnitudes": [
+         {
+          "min": "160",
+          "max": "190"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "108% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+303 to [StunThreshold|Stun Threshold]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_915769802",
+      "mods": [
+       {
+        "name": "of Obsidian Skin",
+        "tier": "S1",
+        "level": 72,
+        "magnitudes": [
+         {
+          "min": "254",
+          "max": "304"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "53% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Panacea",
+        "tier": "S2",
+        "level": 64,
+        "magnitudes": [
+         {
+          "min": "-55",
+          "max": "-51"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Fire Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_3372524247",
+      "mods": [
+       {
+        "name": "of the Volcano",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+91 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "76",
+          "max": "95"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "42% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "42"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "dc4be93b9f20a6f8efe29bdcb16360c4a08b2b5d1bb05930590a0788c055c340",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "d5b19dd73da7b4d1d24032ee38dc594b7150aaa1d35cec27a4bf21f1d7f3a195",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "763ac31556202db6967ee2f7e01e469ddd25d75687a4c9d53dcc0bdb3985e209",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3061,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_915769802",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         2
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_3372524247",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  null,
+  {
+   "id": "bb2b2db51581b11437323a65f87c7ade09f7e076237217d15d3eb42a6693189e",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-19T06:09:51Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 5,
+     "currency": "divine"
+    },
+    "fee": 74092,
+    "account": {
+     "name": "seller2",
+     "online": null,
+     "lastCharacterName": "Char2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "bb2b2db51581b11437323a65f87c7ade09f7e076237217d15d3eb42a6693189e",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Skull Jack",
+    "typeLine": "Warlord Cuirass",
+    "baseType": "Warlord Cuirass",
+    "rarity": "Rare",
+    "ilvl": 82,
+    "identified": true,
+    "note": "~b/o 5 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2968",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "80",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "78",
+        1
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "implicitMods": [
+     {
+      "description": "+25% of [Armour|Armour] also applies to [ElementalDamage|Elemental Damage]",
+      "domain": "implicit",
+      "hash": "stat.implicit.stat_3362812763",
+      "mods": [
+       {
+        "magnitudes": [
+         {
+          "min": "15",
+          "max": "25"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+348 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "76",
+          "max": "95"
+         }
+        ]
+       },
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "41% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "42"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "35% reduced [Attributes|Attribute] Requirements",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3639275092",
+      "mods": [
+       {
+        "name": "of the Proficient",
+        "tier": "S1",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "-35",
+          "max": "-35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+45% to [Resistances|Lightning Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1671376347",
+      "mods": [
+       {
+        "name": "of Ephij",
+        "tier": "S1",
+        "level": 82,
+        "magnitudes": [
+         {
+          "min": "41",
+          "max": "45"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+31% to [Resistances|Fire Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_3372524247",
+      "mods": [
+       {
+        "name": "of the Volcano",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "98% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impregnable",
+        "tier": "P2",
+        "level": 65,
+        "magnitudes": [
+         {
+          "min": "92",
+          "max": "100"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "93cae327ab9b1825a558c3b36e61f07959daf7007b7ba2686ed7d6205df3b5b4",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "75c149dfbadb98f76c03fb22ca4e7e0d96ca592903651ee837fa8eaa0ca83352",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "296000c355d1020a91d24eb6f09c2effa62291c7f5809094029056b5159f4c7b",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2968,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         1,
+         3
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3639275092",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1671376347",
+        [
+         0
+        ]
+       ]
+      ],
+      "implicit": [
+       [
+        "implicit.stat_3362812763",
+        [
+         0
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_3372524247",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "bd6012a39b3c772afce26a91a67a3c70fbf3f6c479c030db61de26aeeb185515",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-19T08:35:28Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 5,
+     "currency": "divine"
+    },
+    "fee": 64225,
+    "account": {
+     "name": "seller3",
+     "online": {
+      "status": "afk"
+     },
+     "lastCharacterName": "Char3",
+     "language": "ru_RU",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "bd6012a39b3c772afce26a91a67a3c70fbf3f6c479c030db61de26aeeb185515",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Sol Wrap",
+    "typeLine": "Warlord Cuirass",
+    "baseType": "Warlord Cuirass",
+    "rarity": "Rare",
+    "ilvl": 81,
+    "identified": true,
+    "note": "~b/o 5 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2972",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "80",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "implicitMods": [
+     {
+      "description": "+22% of [Armour|Armour] also applies to [ElementalDamage|Elemental Damage]",
+      "domain": "implicit",
+      "hash": "stat.implicit.stat_3362812763",
+      "mods": [
+       {
+        "magnitudes": [
+         {
+          "min": "15",
+          "max": "25"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+373 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Impervious",
+        "tier": "P1",
+        "level": 79,
+        "magnitudes": [
+         {
+          "min": "278",
+          "max": "310"
+         }
+        ]
+       },
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "58",
+          "max": "75"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "36% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Cold Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Polar Bear",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "33.4 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of the Phoenix",
+        "tier": "S1",
+        "level": 81,
+        "magnitudes": [
+         {
+          "min": "33.1",
+          "max": "36"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+19% to [Resistances|Chaos Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_2923486259",
+      "mods": [
+       {
+        "name": "of Expulsion",
+        "tier": "S3",
+        "level": 56,
+        "magnitudes": [
+         {
+          "min": "16",
+          "max": "19"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "95% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impregnable",
+        "tier": "P2",
+        "level": 65,
+        "magnitudes": [
+         {
+          "min": "92",
+          "max": "100"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "0f31bf91adb385919b39b18c97cadb61ffb29bfae34fbe96bc0a08ff1590f186",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "cad7a7c7be24f8d64b95a0d441c43396293e15862fa938263a22fd291893356b",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "04f1c3af703d9430f02a168adc7a5f0f67aa31c54dbcf2339928850b4db1b9e3",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2972,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         0,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_4220027924",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         1
+        ]
+       ]
+      ],
+      "implicit": [
+       [
+        "implicit.stat_3362812763",
+        [
+         0
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_2923486259",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "1ce8f8688ac155b3ebad8b5cb3ac28037e202afaf08774c29820e1fa1557a962",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-12T08:54:02Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 6,
+     "currency": "divine"
+    },
+    "fee": 53965,
+    "account": {
+     "name": "seller4",
+     "online": {
+      "status": "online"
+     },
+     "lastCharacterName": "Char4"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "1ce8f8688ac155b3ebad8b5cb3ac28037e202afaf08774c29820e1fa1557a962",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Corpse Suit",
+    "typeLine": "Stone Cuirass",
+    "baseType": "Stone Cuirass",
+    "rarity": "Rare",
+    "ilvl": 80,
+    "identified": true,
+    "note": "~b/o 6 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2988",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "63",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "98",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+301 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Impervious",
+        "tier": "P1",
+        "level": 79,
+        "magnitudes": [
+         {
+          "min": "278",
+          "max": "310"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "108% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+33 to [Strength|Strength]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4080418644",
+      "mods": [
+       {
+        "name": "of the Titan",
+        "tier": "S1",
+        "level": 74,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "33"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+40% to [Resistances|Lightning Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1671376347",
+      "mods": [
+       {
+        "name": "of the Lightning",
+        "tier": "S2",
+        "level": 71,
+        "magnitudes": [
+         {
+          "min": "36",
+          "max": "40"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "22.2 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of Recuperation",
+        "tier": "S4",
+        "level": 58,
+        "magnitudes": [
+         {
+          "min": "18.1",
+          "max": "23"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+69 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "58",
+          "max": "75"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "33% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "d5fb05f992c9ab3b2134e55be3758d35655d5ee9db0eb69ce493b495d13fabdd",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "8cbbda2b152e95394530496f37007139275448aa9fefad71486412428c0d570a",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "1223233416718dfc661b10f72c11d5b845d920f5274e0447ac5087bfc2c7430e",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2988,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_4080418644",
+        [
+         4
+        ]
+       ],
+       [
+        "explicit.stat_1671376347",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         3
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "c89299225082b11de5c7a379166d18ba376c40dcf930155b6c3cc17aece8e933",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-18T19:47:37Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 7,
+     "currency": "divine"
+    },
+    "fee": 60852,
+    "account": {
+     "name": "seller5",
+     "online": null,
+     "lastCharacterName": "Char5"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "c89299225082b11de5c7a379166d18ba376c40dcf930155b6c3cc17aece8e933",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Golem Hide",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 82,
+    "identified": true,
+    "note": "~b/o 7 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3308",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+271 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "107% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+39% to [Resistances|Fire Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3372524247",
+      "mods": [
+       {
+        "name": "of Magma",
+        "tier": "S2",
+        "level": 71,
+        "magnitudes": [
+         {
+          "min": "36",
+          "max": "40"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "34.7 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of the Phoenix",
+        "tier": "S1",
+        "level": 81,
+        "magnitudes": [
+         {
+          "min": "33.1",
+          "max": "36"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+19% to [Resistances|Chaos Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_2923486259",
+      "mods": [
+       {
+        "name": "of Expulsion",
+        "tier": "S3",
+        "level": 56,
+        "magnitudes": [
+         {
+          "min": "16",
+          "max": "19"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+78 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "76",
+          "max": "95"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "39% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "42"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "58e21e734e483cf5787245b9013bfb042a891354dfae1e4ead73a64859ce51c8",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "fe611aadf4798b8f6050466fd96ee74ec97dd3fbba32f1b96fa50be5f29bef83",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "301c53fe5a57c7b43d27c1dbe8f143ce33640f6c5c60a1d93fe81d670661cac8",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3308,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_3372524247",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         2
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_2923486259",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "cbbb131ffb05e88fe6c93f7f0cb972660d155c8ee1f457ad9bd933021e91fc22",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-18T23:18:21Z",
+    "price": null,
+    "fee": 58241,
+    "account": {
+     "name": "seller6",
+     "online": null,
+     "lastCharacterName": "Char6"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "cbbb131ffb05e88fe6c93f7f0cb972660d155c8ee1f457ad9bd933021e91fc22",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Soul Skin",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 81,
+    "identified": true,
+    "note": "~b/o 7 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3144",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+359 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       },
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "76",
+          "max": "95"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "42% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Hardened",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "42"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+32 to [Strength|Strength]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4080418644",
+      "mods": [
+       {
+        "name": "of the Titan",
+        "tier": "S1",
+        "level": 74,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "33"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+121 to [StunThreshold|Stun Threshold]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_915769802",
+      "mods": [
+       {
+        "name": "of Granite Skin",
+        "tier": "S5",
+        "level": 36,
+        "magnitudes": [
+         {
+          "min": "98",
+          "max": "124"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "57% reduced Duration of [Bleeding] on You",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1692879867",
+      "mods": [
+       {
+        "name": "of Staunching",
+        "tier": "S1",
+        "level": 76,
+        "magnitudes": [
+         {
+          "min": "-60",
+          "max": "-56"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "86% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Girded",
+        "tier": "P3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "80",
+          "max": "91"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "4cabb1f906bb0ba95504351e377d8156d73a35e699f9da047d82c0549d2ebeb6",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "c2fb290df869112d1cd79ac2bcc787d35d0055e9e5d2cf011f2562f57acb45aa",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "3b6c56c406825697e6682ce26618312424e81b576ea19eb8967ca8da16a3edda",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3144,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         0,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_4080418644",
+        [
+         4
+        ]
+       ],
+       [
+        "explicit.stat_915769802",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_1692879867",
+        [
+         1
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "e331fd6e139961824d3d953c0d74a59fb6ef876b43ea26fd1f0911344746e56a",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-18T16:28:04Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 10,
+     "currency": "divine"
+    },
+    "fee": 72061,
+    "account": {
+     "name": "seller0",
+     "online": null,
+     "lastCharacterName": "Char7"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "e331fd6e139961824d3d953c0d74a59fb6ef876b43ea26fd1f0911344746e56a",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Apocalypse Veil",
+    "typeLine": "Warlord Cuirass",
+    "baseType": "Warlord Cuirass",
+    "rarity": "Rare",
+    "ilvl": 82,
+    "identified": true,
+    "note": "~b/o 10 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3090",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "80",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "implicitMods": [
+     {
+      "description": "+16% of [Armour|Armour] also applies to [ElementalDamage|Elemental Damage]",
+      "domain": "implicit",
+      "hash": "stat.implicit.stat_3362812763",
+      "mods": [
+       {
+        "magnitudes": [
+         {
+          "min": "15",
+          "max": "25"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+307 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Impervious",
+        "tier": "P1",
+        "level": 79,
+        "magnitudes": [
+         {
+          "min": "278",
+          "max": "310"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "104% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Fire Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3372524247",
+      "mods": [
+       {
+        "name": "of the Volcano",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+43% to [Resistances|Cold Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4220027924",
+      "mods": [
+       {
+        "name": "of Haast",
+        "tier": "S1",
+        "level": 82,
+        "magnitudes": [
+         {
+          "min": "41",
+          "max": "45"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "54% reduced Duration of [Bleeding] on You",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1692879867",
+      "mods": [
+       {
+        "name": "of Assuaging",
+        "tier": "S2",
+        "level": 64,
+        "magnitudes": [
+         {
+          "min": "-55",
+          "max": "-51"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+70 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "58",
+          "max": "75"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "37% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "2e4aeb52796962ce892bb05b339879b5249e2ebbf658fef3e75cfa1096aba320",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "6de6a50e5e53ced3be7ae906b4f1efbadec001c68877ceb7eb413a8f61b9626c",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "0cf5390a828795f85876e32b3453008af5e13e08d98dc7cafcfe83e50198ad2a",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3090,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         4
+        ]
+       ],
+       [
+        "explicit.stat_3372524247",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_4220027924",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_1692879867",
+        [
+         3
+        ]
+       ]
+      ],
+      "implicit": [
+       [
+        "implicit.stat_3362812763",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "4d6e6f9cbe6207e479ff50252fe09aba98594f47f9c44d06369072e966c8dea2",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-18T08:31:02Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 10,
+     "currency": "divine"
+    },
+    "fee": 81551,
+    "account": {
+     "name": "seller1",
+     "online": null,
+     "lastCharacterName": "Char8",
+     "language": "en_US",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "4d6e6f9cbe6207e479ff50252fe09aba98594f47f9c44d06369072e966c8dea2",
+    "fractured": true,
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Spirit Sanctuary",
+    "typeLine": "Warlord Cuirass",
+    "baseType": "Warlord Cuirass",
+    "rarity": "Rare",
+    "ilvl": 83,
+    "identified": true,
+    "note": "~b/o 10 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+25%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3015",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "80",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "84",
+        1
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "implicitMods": [
+     {
+      "description": "+25% of [Armour|Armour] also applies to [ElementalDamage|Elemental Damage]",
+      "domain": "implicit",
+      "hash": "stat.implicit.stat_3362812763",
+      "mods": [
+       {
+        "magnitudes": [
+         {
+          "min": "15",
+          "max": "25"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "30% reduced [Attributes|Attribute] Requirements",
+      "flags": {
+       "fractured": true
+      },
+      "domain": "fractured",
+      "hash": "stat.fractured.stat_3639275092",
+      "mods": [
+       {
+        "name": "of the Skilled",
+        "tier": "S2",
+        "level": 52,
+        "magnitudes": [
+         {
+          "min": "-30",
+          "max": "-30"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+308 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Impervious",
+        "tier": "P1",
+        "level": 79,
+        "magnitudes": [
+         {
+          "min": "278",
+          "max": "310"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "146% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       },
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+36 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "41"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+45% to [Resistances|Fire Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3372524247",
+      "mods": [
+       {
+        "name": "of Tzteosh",
+        "tier": "S1",
+        "level": 82,
+        "magnitudes": [
+         {
+          "min": "41",
+          "max": "45"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "9% increased [Spirit] [Reservation] [Efficiency] of Skills",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_53386210",
+      "mods": [
+       {
+        "name": "of Amanamu",
+        "tier": "S1",
+        "level": 65,
+        "magnitudes": [
+         {
+          "min": "6",
+          "max": "12"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "cdc99309bbf5fdb4bc3ba274bb006a78958cc7680890fe773eee03a9995aa765",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "3dd8595f92ffa510a033f73b09b135f51129871dfcd8a0c98d8eb5d412228666",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "20e99984d61025e009343a1c7075f69d4f00d3bd9d040d44a40e568d0ef7da2c",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3015,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         2,
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3372524247",
+        [
+         1
+        ]
+       ]
+      ],
+      "implicit": [
+       [
+        "implicit.stat_3362812763",
+        [
+         0
+        ]
+       ]
+      ],
+      "fractured": [
+       [
+        "fractured.stat_3639275092",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_53386210",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "29998ca8cd875d4a2063b058e736d335248320c57b8586ff2c4ad6d2834ba242",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-16T15:11:26Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 12,
+     "currency": "divine"
+    },
+    "fee": 57604,
+    "account": {
+     "name": "seller2",
+     "online": null,
+     "lastCharacterName": "Char9"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "29998ca8cd875d4a2063b058e736d335248320c57b8586ff2c4ad6d2834ba242",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Woe Pelt",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 82,
+    "identified": true,
+    "note": "~b/o 12 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "3031",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+301 to [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3484657501",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "58",
+          "max": "75"
+         }
+        ]
+       },
+       {
+        "name": "Abating",
+        "tier": "P3",
+        "level": 65,
+        "magnitudes": [
+         {
+          "min": "222",
+          "max": "248"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "33% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Shelled",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Fire Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3372524247",
+      "mods": [
+       {
+        "name": "of the Volcano",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+24% to [Resistances|Chaos Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_2923486259",
+      "mods": [
+       {
+        "name": "of Bameth",
+        "tier": "S1",
+        "level": 81,
+        "magnitudes": [
+         {
+          "min": "24",
+          "max": "27"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+169 to [StunThreshold|Stun Threshold]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_915769802",
+      "mods": [
+       {
+        "name": "of Adamantite Skin",
+        "tier": "S3",
+        "level": 54,
+        "magnitudes": [
+         {
+          "min": "164",
+          "max": "206"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "103% increased [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "0c5ca56af567d82f477e584753b98c611872f1e858ee123d186961b101844fe1",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "3a485db877fba1338cbc6da3635580cc42d64aefaf72642d9e7cd308531fbaf4",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "e90e016ece01b4b6e7fb7a7bb5fafd5a53e0e8ccbd5da6b83fbe7c6c0a73eba4",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 3031,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_3484657501",
+        [
+         1,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1062208444",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3372524247",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_2923486259",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_915769802",
+        [
+         4
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_1062208444",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "cfd514dc3e23b19542734fe9de07cd0c5376b1d755c797bc2a75d64b01054fd0",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-07T08:12:14Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 1,
+     "currency": "divine"
+    },
+    "fee": 66795,
+    "account": {
+     "name": "seller3",
+     "online": null,
+     "lastCharacterName": "Char10"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "cfd514dc3e23b19542734fe9de07cd0c5376b1d755c797bc2a75d64b01054fd0",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     }
+    ],
+    "name": "Vengeance Mantle",
+    "typeLine": "Falconer's Jacket",
+    "baseType": "Falconer's Jacket",
+    "rarity": "Rare",
+    "ilvl": 80,
+    "identified": true,
+    "note": "~b/o 1 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Evasion|Evasion Rating]",
+      "values": [
+       [
+        "1097",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 17
+     },
+     {
+      "name": "[EnergyShield|Energy Shield]",
+      "values": [
+       [
+        "332",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 18
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "75",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Dexterity|Dex]",
+      "values": [
+       [
+        "67",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 64
+     },
+     {
+      "name": "[Intelligence|Int]",
+      "values": [
+       [
+        "67",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 65
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "36% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +40 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +40 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "implicitMods": [
+     {
+      "description": "5% increased Movement Speed",
+      "domain": "implicit",
+      "hash": "stat.implicit.stat_2250533757",
+      "mods": [
+       {
+        "magnitudes": [
+         {
+          "min": "5",
+          "max": "5"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "135% increased [Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1999113824",
+      "mods": [
+       {
+        "name": "Incorporeal",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       },
+       {
+        "name": "Bard's",
+        "tier": "P3",
+        "level": 46,
+        "magnitudes": [
+         {
+          "min": "27",
+          "max": "32"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+31 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Bard's",
+        "tier": "P3",
+        "level": 46,
+        "magnitudes": [
+         {
+          "min": "26",
+          "max": "32"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+26% to [Resistances|Cold Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Walrus",
+        "tier": "S4",
+        "level": 50,
+        "magnitudes": [
+         {
+          "min": "26",
+          "max": "30"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+32% to [Resistances|Lightning Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1671376347",
+      "mods": [
+       {
+        "name": "of the Maelstrom",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "57% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Antidote",
+        "tier": "S1",
+        "level": 76,
+        "magnitudes": [
+         {
+          "min": "-60",
+          "max": "-56"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+46 to [Evasion] Rating",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_53045048",
+      "mods": [
+       {
+        "name": "Stalker's",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "40",
+          "max": "50"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+13 to maximum [EnergyShield|Energy Shield]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_4052037485",
+      "mods": [
+       {
+        "name": "Stalker's",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "13",
+          "max": "15"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "40% increased [Evasion] and [EnergyShield|Energy Shield]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_1999113824",
+      "mods": [
+       {
+        "name": "Stalker's",
+        "tier": "P1",
+        "level": 78,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "42"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "26e62eab440fead6b019492e7c1dc9bc9b00b73f6e680cc3f95f38f1ad082a92",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "d1747eec99eadc8a5abb33a5cd089867e79f93da7ac5f863f28f14495367fbb5",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ev": 1097,
+     "es": 332,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_1999113824",
+        [
+         1,
+         4
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         4
+        ]
+       ],
+       [
+        "explicit.stat_4220027924",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_1671376347",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         0
+        ]
+       ]
+      ],
+      "implicit": [
+       [
+        "implicit.stat_2250533757",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_53045048",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_4052037485",
+        [
+         0
+        ]
+       ],
+       [
+        "desecrated.stat_1999113824",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "4ccba53261eeea5ada165456c88c9733c3a1d436120fdf533f1b49ad3e8d16fb",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-12T08:48:36Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 1,
+     "currency": "divine"
+    },
+    "fee": 3193,
+    "account": {
+     "name": "seller4",
+     "online": null,
+     "lastCharacterName": "Char11"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "4ccba53261eeea5ada165456c88c9733c3a1d436120fdf533f1b49ad3e8d16fb",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "",
+    "typeLine": "Exceptional Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Normal",
+    "ilvl": 84,
+    "identified": true,
+    "note": "~b/o 1 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "570",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "frameType": 0,
+    "frameTypeId": "Normal",
+    "socketedItems": [],
+    "extended": {
+     "ar": 684,
+     "ar_aug": true,
+     "hashes": {}
+    }
+   }
+  },
+  {
+   "id": "89b44e03c9616fab441e00bc9b633e63d332864d16466ec33a680794dd7b7432",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-11T22:29:02Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 1,
+     "currency": "divine"
+    },
+    "fee": 25506,
+    "account": {
+     "name": "seller5",
+     "online": null,
+     "lastCharacterName": "Char12"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "89b44e03c9616fab441e00bc9b633e63d332864d16466ec33a680794dd7b7432",
+    "name": "Mind Shell",
+    "typeLine": "Slipstrike Vest",
+    "baseType": "Slipstrike Vest",
+    "rarity": "Rare",
+    "ilvl": 71,
+    "identified": true,
+    "note": "~b/o 1 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Evasion|Evasion Rating]",
+      "values": [
+       [
+        "736",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 17
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "70",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Dexterity|Dex]",
+      "values": [
+       [
+        "90",
+        1
+       ]
+      ],
+      "displayMode": 1,
+      "type": 64
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+47 to [Evasion] Rating",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_53045048",
+      "mods": [
+       {
+        "name": "Deer's",
+        "tier": "P3",
+        "level": 46,
+        "magnitudes": [
+         {
+          "min": "39",
+          "max": "53"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "30% increased [Evasion|Evasion] Rating",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_124859000",
+      "mods": [
+       {
+        "name": "Deer's",
+        "tier": "P3",
+        "level": 46,
+        "magnitudes": [
+         {
+          "min": "27",
+          "max": "32"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+45 to [Spirit|Spirit]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3981240776",
+      "mods": [
+       {
+        "name": "Marchioness'",
+        "tier": "P5",
+        "level": 46,
+        "magnitudes": [
+         {
+          "min": "43",
+          "max": "46"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "25% reduced [Attributes|Attribute] Requirements",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3639275092",
+      "mods": [
+       {
+        "name": "of the Talented",
+        "tier": "S3",
+        "level": 40,
+        "magnitudes": [
+         {
+          "min": "-25",
+          "max": "-25"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "52% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Panacea",
+        "tier": "S2",
+        "level": 64,
+        "magnitudes": [
+         {
+          "min": "-55",
+          "max": "-51"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "extended": {
+     "ev": 883,
+     "ev_aug": true,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_53045048",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_124859000",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3981240776",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3639275092",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "21a6522fe494b664f5a26a10c39a168581638876204269f68a377da0211458c4",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-08T02:35:43Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 1,
+     "currency": "divine"
+    },
+    "fee": 27339,
+    "account": {
+     "name": "seller6",
+     "online": null,
+     "lastCharacterName": "Char13"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "21a6522fe494b664f5a26a10c39a168581638876204269f68a377da0211458c4",
+    "name": "Brimstone Veil",
+    "typeLine": "Lizardscale Coat",
+    "baseType": "Lizardscale Coat",
+    "rarity": "Rare",
+    "ilvl": 77,
+    "identified": true,
+    "note": "~b/o 1 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Evasion|Evasion Rating]",
+      "values": [
+       [
+        "808",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 17
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "62",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Dexterity|Dex]",
+      "values": [
+       [
+        "98",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 64
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "87% increased [Evasion|Evasion] Rating",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_124859000",
+      "mods": [
+       {
+        "name": "Nightmare's",
+        "tier": "P3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "80",
+          "max": "91"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+163 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Fecund",
+        "tier": "P4",
+        "level": 65,
+        "magnitudes": [
+         {
+          "min": "150",
+          "max": "174"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+23 to [Dexterity|Dexterity]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3261801346",
+      "mods": [
+       {
+        "name": "of the Panther",
+        "tier": "S4",
+        "level": 44,
+        "magnitudes": [
+         {
+          "min": "21",
+          "max": "24"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "60 to 88 [Physical|Physical] [Thorns|Thorns] damage",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_2881298780",
+      "mods": [
+       {
+        "name": "Spiked",
+        "tier": "P3",
+        "level": 48,
+        "magnitudes": [
+         {
+          "min": "40",
+          "max": "60"
+         },
+         {
+          "min": "61",
+          "max": "92"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "extended": {
+     "ev": 969,
+     "ev_aug": true,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_124859000",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3261801346",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_2881298780",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "6ca614621dd29611d83506ce12c6651b47372f4083d33aeed6b05200cf780383",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-08T16:15:53Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 1,
+     "currency": "divine"
+    },
+    "fee": 40886,
+    "account": {
+     "name": "seller0",
+     "online": null,
+     "lastCharacterName": "Char14"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "6ca614621dd29611d83506ce12c6651b47372f4083d33aeed6b05200cf780383",
+    "name": "Fate Curtain",
+    "typeLine": "Slipstrike Vest",
+    "baseType": "Slipstrike Vest",
+    "rarity": "Rare",
+    "ilvl": 80,
+    "identified": true,
+    "note": "~b/o 1 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Evasion|Evasion Rating]",
+      "values": [
+       [
+        "1412",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 17
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "70",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Dexterity|Dex]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 64
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "+163 to [Evasion] Rating",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_53045048",
+      "mods": [
+       {
+        "name": "Vaporous",
+        "tier": "P5",
+        "level": 54,
+        "magnitudes": [
+         {
+          "min": "147",
+          "max": "176"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+47 to [Spirit|Spirit]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3981240776",
+      "mods": [
+       {
+        "name": "Countess'",
+        "tier": "P4",
+        "level": 54,
+        "magnitudes": [
+         {
+          "min": "47",
+          "max": "50"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+29% to [Resistances|Fire Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3372524247",
+      "mods": [
+       {
+        "name": "of the Furnace",
+        "tier": "S4",
+        "level": 48,
+        "magnitudes": [
+         {
+          "min": "26",
+          "max": "30"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+36% to [Resistances|Cold Resistance]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Ice",
+        "tier": "S2",
+        "level": 71,
+        "magnitudes": [
+         {
+          "min": "36",
+          "max": "40"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+84 to [StunThreshold|Stun Threshold]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_915769802",
+      "mods": [
+       {
+        "name": "of Steel Skin",
+        "tier": "S6",
+        "level": 29,
+        "magnitudes": [
+         {
+          "min": "73",
+          "max": "97"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "107% increased [Evasion|Evasion] Rating",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_124859000",
+      "mods": [
+       {
+        "name": "Illusion's",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "extended": {
+     "ev": 1694,
+     "ev_aug": true,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_53045048",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3981240776",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3372524247",
+        [
+         1
+        ]
+       ],
+       [
+        "explicit.stat_4220027924",
+        [
+         0
+        ]
+       ],
+       [
+        "explicit.stat_915769802",
+        [
+         4
+        ]
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_124859000",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-22T08:23:35Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 23.0,
+     "currency": "divine"
+    },
+    "fee": 57832,
+    "account": {
+     "name": "seller1",
+     "online": null,
+     "lastCharacterName": "Char0",
+     "language": "ru_RU",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Plague Curtain",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 81,
+    "identified": true,
+    "note": "~b/o 3 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2948",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "136% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       },
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+33 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "41"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "11.9 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of the Troll",
+        "tier": "S6",
+        "level": 35,
+        "magnitudes": [
+         {
+          "min": "9.1",
+          "max": "13"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "60% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Antidote",
+        "tier": "S1",
+        "level": 76,
+        "magnitudes": [
+         {
+          "min": "-60",
+          "max": "-56"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Cold Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Polar Bear",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+277 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "90686e2daa6760c9332444d12eeaad9b78c0f7c5ac29cebf0c17e7b0fd1e8321",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "5fdb3b30dff7a86fa3f39f442aac8c2cefc54f35b9034f048d1b3fac5124f818",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "cff2896b6cfcbf292a5b2698d6a723a8270fce14474e6ef97225bb59bcee5974",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2948,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_1062208444",
+        [
+         0,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         1
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_4220027924",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+   "listing": {
+    "method": "psapi",
+    "indexed": "2026-09-22T03:35:35Z",
+    "price": {
+     "type": "~b/o",
+     "amount": 24.0,
+     "currency": "divine"
+    },
+    "fee": 57832,
+    "account": {
+     "name": "seller2",
+     "online": null,
+     "lastCharacterName": "Char0",
+     "language": "ru_RU",
+     "realm": "poe2"
+    }
+   },
+   "item": {
+    "realm": "poe2",
+    "verified": true,
+    "w": 2,
+    "h": 3,
+    "league": "Forbidden Rites",
+    "id": "7e41d18eb53e91a2a3434bbf4400515928d81445fbc32ce9abb59d01bc32cc84",
+    "sockets": [
+     {
+      "group": 0,
+      "type": "rune"
+     },
+     {
+      "group": 1,
+      "type": "rune"
+     },
+     {
+      "group": 2,
+      "type": "rune"
+     }
+    ],
+    "name": "Plague Curtain",
+    "typeLine": "Soldier Cuirass",
+    "baseType": "Soldier Cuirass",
+    "rarity": "Rare",
+    "ilvl": 81,
+    "identified": true,
+    "note": "~b/o 3 divine",
+    "properties": [
+     {
+      "name": "Body Armour",
+      "values": [],
+      "displayMode": 0,
+      "type": 109
+     },
+     {
+      "name": "[Quality]",
+      "values": [
+       [
+        "+20%",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 6
+     },
+     {
+      "name": "[Armour]",
+      "values": [
+       [
+        "2948",
+        1
+       ]
+      ],
+      "displayMode": 0,
+      "type": 16
+     }
+    ],
+    "requirements": [
+     {
+      "name": "Level",
+      "values": [
+       [
+        "65",
+        0
+       ]
+      ],
+      "displayMode": 0,
+      "type": 62
+     },
+     {
+      "name": "[Strength|Str]",
+      "values": [
+       [
+        "121",
+        0
+       ]
+      ],
+      "displayMode": 1,
+      "type": 63
+     }
+    ],
+    "runeMods": [
+     {
+      "description": "54% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+      "domain": "rune",
+      "hash": "stat.rune.stat_3523867985"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Life",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2280525771"
+     },
+     {
+      "description": "[ShamanOnlyMods|Bonded]: +60 to maximum Mana",
+      "domain": "rune",
+      "hash": "stat.rune.stat_2926029365"
+     }
+    ],
+    "explicitMods": [
+     {
+      "description": "136% increased [Armour|Armour]",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_1062208444",
+      "mods": [
+       {
+        "name": "Impenetrable",
+        "tier": "P1",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "101",
+          "max": "110"
+         }
+        ]
+       },
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "38"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+33 to maximum Life",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3299347043",
+      "mods": [
+       {
+        "name": "Octopus'",
+        "tier": "P2",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "33",
+          "max": "41"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "11.9 Life Regeneration per second",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3325883026",
+      "mods": [
+       {
+        "name": "of the Troll",
+        "tier": "S6",
+        "level": 35,
+        "magnitudes": [
+         {
+          "min": "9.1",
+          "max": "13"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "60% reduced [Poison|Poison] Duration on you",
+      "domain": "explicit",
+      "hash": "stat.explicit.stat_3301100256",
+      "mods": [
+       {
+        "name": "of the Antidote",
+        "tier": "S1",
+        "level": 76,
+        "magnitudes": [
+         {
+          "min": "-60",
+          "max": "-56"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+35% to [Resistances|Cold Resistance]",
+      "flags": {
+       "crafted": true
+      },
+      "domain": "crafted",
+      "hash": "stat.crafted.stat_4220027924",
+      "mods": [
+       {
+        "name": "of the Polar Bear",
+        "tier": "S3",
+        "level": 60,
+        "magnitudes": [
+         {
+          "min": "31",
+          "max": "35"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "description": "+277 to [Armour|Armour]",
+      "flags": {
+       "desecrated": true
+      },
+      "domain": "desecrated",
+      "hash": "stat.desecrated.stat_3484657501",
+      "mods": [
+       {
+        "name": "Unmoving",
+        "tier": "P2",
+        "level": 75,
+        "magnitudes": [
+         {
+          "min": "249",
+          "max": "277"
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "desecrated": true,
+    "frameType": 2,
+    "frameTypeId": "Rare",
+    "socketedItems": [
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "90686e2daa6760c9332444d12eeaad9b78c0f7c5ac29cebf0c17e7b0fd1e8321",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 0,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "5fdb3b30dff7a86fa3f39f442aac8c2cefc54f35b9034f048d1b3fac5124f818",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 1,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     },
+     {
+      "realm": "poe2",
+      "verified": true,
+      "w": 1,
+      "h": 1,
+      "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUnVuZXMvRW5oYW5jZVJ1bmVUaWVyMiIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6b729ab5a0/EnhanceRuneTier2.png",
+      "stackSize": 1,
+      "maxStackSize": 10,
+      "league": "Forbidden Rites",
+      "id": "cff2896b6cfcbf292a5b2698d6a723a8270fce14474e6ef97225bb59bcee5974",
+      "name": "",
+      "typeLine": "Greater Iron Rune",
+      "baseType": "Greater Iron Rune",
+      "ilvl": 0,
+      "identified": true,
+      "properties": [
+       {
+        "name": "Stack Size",
+        "values": [
+         [
+          "1/10",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 32
+       },
+       {
+        "name": "[Rune|Rune]",
+        "values": [],
+        "displayMode": 0
+       }
+      ],
+      "requirements": [
+       {
+        "name": "Level",
+        "values": [
+         [
+          "30",
+          0
+         ]
+        ],
+        "displayMode": 0,
+        "type": 62
+       }
+      ],
+      "explicitMods": [
+       {
+        "description": "[MartialWeapon|Martial Weapon]: 18% increased [Physical] Damage"
+       },
+       {
+        "description": "Wand or Staff: 30% increased [Spell] Damage"
+       },
+       {
+        "description": "Armour: 18% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]"
+       }
+      ],
+      "bondedMods": [
+       "[ShamanOnlyMods|Bonded]:",
+       "[MartialWeapon|Martial Weapon]: 20% increased effect of [ArmourBreak|Fully Broken Armour]",
+       "Wand or Staff: [ArmourBreak|Break] [Armour] on [Critical|Critical Hit] with [Spell|Spells] equal to 12% of [Physical|Physical] Damage dealt",
+       "Armour:",
+       "+20 to maximum Life",
+       "+20 to maximum Mana"
+      ],
+      "descrText": "Place into an empty [Augment] Socket in a Weapon or Armour to apply its effect to that item. Once socketed it cannot be retrieved but can be replaced by other [Augment] items.",
+      "frameType": 5,
+      "frameTypeId": "Currency",
+      "socket": 2,
+      "socketedIcon": "https://web.poecdn.com/gen/image/WzIxLDE0LHsiayI6IjJEQXJ0L1VJSW1hZ2VzL0luR2FtZS9SdW5lU29ja2V0RmlsbGVkIiwicmVhbG0iOiJwb2UyIn1d/d02d26cbf0/RuneSocketFilled.png"
+     }
+    ],
+    "extended": {
+     "ar": 2948,
+     "hashes": {
+      "explicit": [
+       [
+        "explicit.stat_1062208444",
+        [
+         0,
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3299347043",
+        [
+         2
+        ]
+       ],
+       [
+        "explicit.stat_3325883026",
+        [
+         3
+        ]
+       ],
+       [
+        "explicit.stat_3301100256",
+        [
+         1
+        ]
+       ]
+      ],
+      "crafted": [
+       [
+        "crafted.stat_4220027924",
+        [
+         0
+        ]
+       ]
+      ],
+      "rune": [
+       [
+        "rune.stat_3523867985",
+        null
+       ],
+       [
+        "rune.stat_2280525771",
+        null
+       ],
+       [
+        "rune.stat_2926029365",
+        null
+       ]
+      ],
+      "desecrated": [
+       [
+        "desecrated.stat_3484657501",
+        [
+         0
+        ]
+       ]
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

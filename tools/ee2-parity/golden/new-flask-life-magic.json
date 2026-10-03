@@ -1,0 +1,131 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "fractured_item": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "rarity": {
+       "option": "magic"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_700317374",
+       "value": {
+        "min": 56
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3196823591",
+       "value": {
+        "min": 32
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ultimate Life Flask"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "fractured_item": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "rarity": {
+       "option": "magic"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_700317374",
+       "value": {
+        "min": 56
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3196823591",
+       "value": {
+        "min": 32
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ultimate Life Flask"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_exact"
+}

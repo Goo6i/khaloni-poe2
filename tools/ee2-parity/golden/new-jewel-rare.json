@@ -1,0 +1,157 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "jewel"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_increased_energy_shield",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3291658075",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 8
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "jewel"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_increased_energy_shield",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3291658075",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_789117908",
+       "value": {
+        "min": 8
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

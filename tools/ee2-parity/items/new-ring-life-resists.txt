@@ -1,0 +1,22 @@
+Item Class: Rings
+Rarity: Rare
+Dread Spiral
+Prismatic Ring
+--------
+Requires: Level 45
+--------
+Item Level: 81
+--------
+{ Implicit Modifier — Elemental, Fire, Cold, Lightning, Resistance }
++9(7-10)% to all Elemental Resistances
+--------
+{ Prefix Modifier "Robust" (Tier: 3) — Life }
++78(70-84) to maximum Life
+{ Prefix Modifier "Dragon's" (Tier: 2) }
+17(15-18)% increased Rarity of Items found
+{ Suffix Modifier "of the Furnace" (Tier: 4) — Elemental, Fire, Resistance }
++28(26-30)% to Fire Resistance
+{ Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++33(31-35)% to Cold Resistance
+{ Suffix Modifier "of Exile" (Tier: 2) — Chaos, Resistance }
++21(20-23)% to Chaos Resistance

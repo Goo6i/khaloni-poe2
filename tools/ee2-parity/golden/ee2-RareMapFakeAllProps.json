@@ -1,0 +1,216 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "map_filters": {
+     "filters": {
+      "map_tier": {
+       "max": 16,
+       "min": 16
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "map"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_1890519597",
+       "value": {
+        "min": 27
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2539290279",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1629357380",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1994551050",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_4101943684",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2549889921",
+       "value": {
+        "min": -35
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1879340377",
+       "value": {
+        "min": 32
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "map_filters": {
+     "filters": {
+      "map_bonus": {
+       "min": 90
+      },
+      "map_iir": {
+       "min": 17
+      },
+      "map_magic_monsters": {
+       "min": 45
+      },
+      "map_packsize": {
+       "min": 20
+      },
+      "map_rare_monsters": {
+       "min": 32
+      },
+      "map_tier": {
+       "max": 16,
+       "min": 16
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "map"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_1890519597",
+       "value": {
+        "min": 27
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2539290279",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1629357380",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1994551050",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_4101943684",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2549889921",
+       "value": {
+        "min": -35
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1879340377",
+       "value": {
+        "min": 32
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

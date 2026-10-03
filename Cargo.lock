@@ -2583,6 +2583,7 @@ dependencies = [
  "serde_json",
  "strsim",
  "thiserror 2.0.19",
+ "toml 0.8.2",
 ]
 
 [[package]]

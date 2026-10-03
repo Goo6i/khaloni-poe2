@@ -31,7 +31,24 @@ pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
 /// Refuse anything larger than this; a release binary is ~40MB.
 const MAX_DOWNLOAD: u64 = 200 * 1024 * 1024;
+/// Whole-request budget for the small API and checksum requests.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// The binary download is bounded differently: by how long the connection
+/// may take to open and how long it may then go without delivering a byte.
+/// A whole-request timeout cannot fit both a fast link and a slow one - the
+/// 60s above cut off a 40 MB download on anything under ~5 Mbit/s, every
+/// time, while still letting a dead connection hang for a minute.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Backstop so an abandoned reader thread cannot outlive a trickling server
+/// forever.
+const DOWNLOAD_CEILING: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+const STAGED: &str = ".khaloni-poe2.new";
+const BACKUP: &str = ".khaloni-poe2.old";
+/// Left by `apply`, consumed by the first start after it: while it exists
+/// the backup is the only way back from an update nobody has run yet.
+const PENDING: &str = ".khaloni-poe2.pending";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Update {
@@ -228,6 +245,62 @@ pub fn spawn_check(tx: std::sync::mpsc::Sender<Update>) {
     });
 }
 
+/// GETs `url` into memory, refusing more than `max_bytes`, giving up when
+/// the connection takes longer than `connect` to open or stalls for longer
+/// than `idle` between chunks. The body is read on its own thread and
+/// handed over in chunks, because the blocking client offers no per-read
+/// timeout: the wait for each chunk is what `idle` bounds.
+pub fn download(
+    url: &str,
+    max_bytes: u64,
+    connect: std::time::Duration,
+    idle: std::time::Duration,
+) -> anyhow::Result<Vec<u8>> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(connect)
+        .timeout(DOWNLOAD_CEILING)
+        .user_agent(concat!("khaloni-poe2/", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<Vec<u8>>>();
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        let run = || -> anyhow::Result<()> {
+            let mut resp = client.get(&url).send()?.error_for_status()?;
+            if let Some(len) = resp.content_length() {
+                anyhow::ensure!(len <= max_bytes, "refusing an implausibly large download ({len} bytes)");
+            }
+            let mut buf = vec![0u8; 64 * 1024];
+            loop {
+                let n = resp.read(&mut buf)?;
+                // A closed receiver means the caller gave up: stop reading.
+                if n == 0 || tx.send(Ok(buf[..n].to_vec())).is_err() {
+                    return Ok(());
+                }
+            }
+        };
+        if let Err(e) = run() {
+            let _ = tx.send(Err(e));
+        }
+    });
+    let mut bytes = Vec::new();
+    loop {
+        // The first wait also covers connecting and the response headers.
+        let wait = if bytes.is_empty() { connect + idle } else { idle };
+        match rx.recv_timeout(wait) {
+            Ok(Ok(chunk)) => {
+                bytes.extend_from_slice(&chunk);
+                // Cap the read too: content-length is a claim, not a guarantee.
+                anyhow::ensure!(bytes.len() as u64 <= max_bytes, "download exceeds {max_bytes} bytes");
+            }
+            Ok(Err(e)) => return Err(e),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(bytes),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                anyhow::bail!("download stalled: no data for {}s", wait.as_secs())
+            }
+        }
+    }
+}
+
 /// Downloads, verifies, and swaps in the new executable. Returns the path
 /// that was replaced. The running process keeps executing the old image;
 /// the update takes effect on the next launch, which the caller must say.
@@ -240,14 +313,7 @@ pub fn apply(update: &Update) -> anyhow::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let dir = exe.parent().ok_or_else(|| anyhow::anyhow!("executable has no parent dir"))?;
 
-    let client = http()?;
-    let mut resp = client.get(&update.asset_url).send()?.error_for_status()?;
-    if let Some(len) = resp.content_length() {
-        anyhow::ensure!(len <= MAX_DOWNLOAD, "refusing an implausibly large download ({len} bytes)");
-    }
-    let mut bytes = Vec::new();
-    // Cap the read too: content-length is a claim, not a guarantee.
-    resp.by_ref().take(MAX_DOWNLOAD).read_to_end(&mut bytes)?;
+    let bytes = download(&update.asset_url, MAX_DOWNLOAD, CONNECT_TIMEOUT, IDLE_TIMEOUT)?;
 
     let got = hex(&Sha256::digest(&bytes));
     anyhow::ensure!(
@@ -257,32 +323,98 @@ pub fn apply(update: &Update) -> anyhow::Result<PathBuf> {
     );
 
     // Staged in the destination directory so the final rename is atomic on
-    // the same filesystem.
-    let staged = dir.join(".khaloni-poe2.new");
-    std::fs::write(&staged, &bytes)?;
+    // the same filesystem, and synced so that rename cannot install a file
+    // whose contents never reached the disk.
+    let staged = dir.join(STAGED);
+    write_synced(&staged, &bytes)?;
     set_executable(&staged)?;
 
-    // A running executable cannot be overwritten on either platform, but it
-    // CAN be renamed out of the way; the .old file is swept on next start.
-    let backup = dir.join(".khaloni-poe2.old");
-    let _ = std::fs::remove_file(&backup);
-    std::fs::rename(&exe, &backup)?;
-    if let Err(e) = std::fs::rename(&staged, &exe) {
-        // Put the working binary back rather than leaving nothing behind.
-        let _ = std::fs::rename(&backup, &exe);
+    if let Err(e) = install(&staged, &exe, &dir.join(BACKUP)) {
         let _ = std::fs::remove_file(&staged);
-        return Err(anyhow::anyhow!("install failed, original restored: {e}"));
+        return Err(anyhow::anyhow!("install failed, original left in place: {e}"));
     }
+    // Best-effort: without the marker the backup is merely swept one start
+    // earlier.
+    let _ = std::fs::write(dir.join(PENDING), &update.version);
+    sync_dir(dir);
     Ok(exe)
 }
 
-/// Removes the previous binary left behind by `apply`. Best-effort: on
-/// Windows the file may still be locked by an exiting process.
+fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+/// Makes the renames in `dir` durable. Unix only: Windows cannot open a
+/// directory this way and journals its renames itself.
+fn sync_dir(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
+/// Puts `staged` in place of `exe`, keeping the previous binary at
+/// `backup`. On Unix the backup is a second link to the old file and the
+/// new one is renamed straight over `exe`: one atomic step, with a runnable
+/// binary at `exe` before it, after it, and if the machine dies during it.
+/// The process already running keeps its old image either way. Moving the
+/// old binary aside first and the new one in second - the earlier order -
+/// left no executable at all between the two renames.
+#[cfg(unix)]
+pub fn install(staged: &Path, exe: &Path, backup: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(backup);
+    // A link costs nothing and cannot be half-written; a filesystem without
+    // hard links gets a copy instead.
+    if std::fs::hard_link(exe, backup).is_err() {
+        std::fs::copy(exe, backup)?;
+    }
+    std::fs::rename(staged, exe)?;
+    if let Some(dir) = exe.parent() {
+        sync_dir(dir);
+    }
+    Ok(())
+}
+
+/// Windows cannot rename over a running executable, only rename it away,
+/// so the swap takes two steps; a failed second step puts the original
+/// back rather than leaving nothing behind.
+#[cfg(not(unix))]
+pub fn install(staged: &Path, exe: &Path, backup: &Path) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(backup);
+    std::fs::rename(exe, backup)?;
+    if let Err(e) = std::fs::rename(staged, exe) {
+        let _ = std::fs::rename(backup, exe);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Sweeps the previous binary left behind by `apply`, called at startup.
+/// The first start after an update only consumes the pending marker: the
+/// backup stays until the new version has been started once and is started
+/// again, so a release that does not come up can still be undone by moving
+/// `.khaloni-poe2.old` back over the executable. Best-effort: on Windows
+/// the file may still be locked by an exiting process.
 pub fn cleanup_backup() {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let _ = std::fs::remove_file(dir.join(".khaloni-poe2.old"));
+            cleanup_backup_in(dir);
         }
+    }
+}
+
+/// [`cleanup_backup`] for the install directory `dir`.
+pub fn cleanup_backup_in(dir: &Path) {
+    let pending = dir.join(PENDING);
+    if pending.exists() {
+        let _ = std::fs::remove_file(pending);
+    } else {
+        let _ = std::fs::remove_file(dir.join(BACKUP));
     }
 }
 

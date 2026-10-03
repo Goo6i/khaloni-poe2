@@ -1,0 +1,11 @@
+Item Class: Body Armours
+Rarity: Rare
+Vile Robe
+--------
+Energy Shield: 184
+--------
+Requires: Level 65, 121 Int
+--------
+Item Level: 81
+--------
+Unidentified (Tier 5)

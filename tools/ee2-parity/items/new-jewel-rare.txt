@@ -1,0 +1,17 @@
+Item Class: Jewels
+Rarity: Rare
+Sol Spark
+Sapphire
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Shimmering" (Tier: 1) — Defences }
+14(10-20)% increased maximum Energy Shield
+{ Prefix Modifier "Chilling" (Tier: 1) — Damage, Elemental, Cold }
+12(5-15)% increased Cold Damage
+{ Suffix Modifier "of Enchanting" (Tier: 1) — Mana }
+9(5-15)% increased Mana Regeneration Rate
+{ Suffix Modifier "of Zapping" (Tier: 1) — Caster, Speed }
+3(2-4)% increased Cast Speed
+--------
+Place into an allocated Jewel Socket on the Passive Skill Tree. Right click to remove from the Socket.

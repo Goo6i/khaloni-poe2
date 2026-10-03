@@ -47,24 +47,30 @@ impl UpdateUi {
     fn check(&mut self) {
         self.state = State::Checking;
         let tx = self.tx.clone();
-        std::thread::spawn(move || {
+        let spawned = std::thread::Builder::new().name("update-check".into()).spawn(move || {
             let _ = tx.send(match update::check() {
                 Ok(Some(u)) => State::Found(u),
                 Ok(None) => State::UpToDate,
                 Err(e) => State::Failed(e.to_string()),
             });
         });
+        if let Err(e) = spawned {
+            self.state = State::Failed(format!("could not start the check: {e}"));
+        }
     }
 
     fn install(&mut self, u: Update) {
         self.state = State::Installing;
         let tx = self.tx.clone();
-        std::thread::spawn(move || {
+        let spawned = std::thread::Builder::new().name("update-install".into()).spawn(move || {
             let _ = tx.send(match update::apply(&u) {
                 Ok(_) => State::Installed(u.version),
                 Err(e) => State::Failed(e.to_string()),
             });
         });
+        if let Err(e) = spawned {
+            self.state = State::Failed(format!("could not start the install: {e}"));
+        }
     }
 }
 

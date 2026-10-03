@@ -19,13 +19,12 @@ use crate::config::{Config, Macro, ResourceShortcut};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CaptureTarget {
     PriceCheck,
-    Overlay,
     Settings,
-    Reference,
-    Leveling,
+    Market,
     Macro(usize),
     Shortcut(usize),
     Upgrade,
+    Craft,
 }
 
 /// The pure edit state behind the settings window: the config being edited,
@@ -52,11 +51,10 @@ impl EditModel {
     pub fn apply_key(&mut self, target: CaptureTarget, key: String) {
         let slot = match target {
             CaptureTarget::PriceCheck => Some(&mut self.cfg.hotkey_price_check),
-            CaptureTarget::Overlay => Some(&mut self.cfg.hotkey_overlay),
             CaptureTarget::Settings => Some(&mut self.cfg.hotkey_settings),
-            CaptureTarget::Reference => Some(&mut self.cfg.hotkey_reference),
-            CaptureTarget::Leveling => Some(&mut self.cfg.hotkey_leveling),
+            CaptureTarget::Market => Some(&mut self.cfg.hotkey_market),
             CaptureTarget::Upgrade => Some(&mut self.cfg.hotkey_upgrade),
+            CaptureTarget::Craft => Some(&mut self.cfg.hotkey_craft),
             CaptureTarget::Macro(i) => self.cfg.macros.get_mut(i).map(|m| &mut m.key),
             CaptureTarget::Shortcut(i) => {
                 self.cfg.resource_shortcuts.get_mut(i).map(|s| &mut s.key)
@@ -70,7 +68,7 @@ impl EditModel {
 
     /// Equal thresholds collapse the decent band to nothing, which is legal.
     pub fn tier_valid(&self) -> bool {
-        self.cfg.tier_decent_ex <= self.cfg.tier_good_ex
+        self.cfg.tier_decent_chaos <= self.cfg.tier_good_chaos
     }
 
     pub fn save(&mut self) -> anyhow::Result<()> {
@@ -107,6 +105,8 @@ enum Section {
     Hotkeys,
     Display,
     Pricing,
+    Market,
+    Crafting,
     CaptureOcr,
     MacrosShortcuts,
     RunWithGame,
@@ -115,10 +115,12 @@ enum Section {
     Updates,
 }
 
-const SECTIONS: [(Section, &str); 9] = [
+const SECTIONS: [(Section, &str); 11] = [
     (Section::Hotkeys, "Hotkeys"),
     (Section::Display, "Display"),
     (Section::Pricing, "Pricing"),
+    (Section::Market, "Market"),
+    (Section::Crafting, "Crafting"),
     (Section::CaptureOcr, "Capture & OCR"),
     (Section::MacrosShortcuts, "Macros & Shortcuts"),
     (Section::RunWithGame, "Run with the Game"),
@@ -137,7 +139,7 @@ struct SettingsApp {
     leagues: Arc<Mutex<Vec<String>>>,
     /// Canonical mod texts (lowercased, `#` for the rolled number) for the
     /// waystone-needle autocomplete, from the same cached reference data the
-    /// overlay's F9 panel uses. Empty while loading.
+    /// overlay's price card grades tiers with. Empty while loading.
     mods: Arc<Mutex<Vec<String>>>,
     /// The needle row currently showing suggestions: (list id, row index).
     /// Tracked explicitly instead of via widget focus so clicking a
@@ -154,6 +156,10 @@ struct SettingsApp {
     updates: crate::settings_update::UpdateUi,
     /// Wealth snapshots loaded once at window start (display only).
     wealth_history: Vec<crate::wealth::WealthSnapshot>,
+    /// The Market tab's tables, read from the overlay's price cache.
+    market: crate::settings_market::MarketUi,
+    /// The Crafting tab's profiles and scan requests.
+    craft: crate::settings_craft::CraftUi,
     last_serialized: String,
     last_edit: Instant,
     saved_at: Option<String>,
@@ -167,7 +173,7 @@ impl SettingsApp {
             // One fetch per window; NinjaClient is blocking, so keep it off
             // the frame thread. The Arc write flips the combo in on arrival.
             let leagues = leagues.clone();
-            std::thread::spawn(move || {
+            let spawned = std::thread::Builder::new().name("settings-leagues".into()).spawn(move || {
                 let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
                     .map(|d| d.cache_dir().to_path_buf())
                     .unwrap_or_else(std::env::temp_dir);
@@ -176,13 +182,16 @@ impl SettingsApp {
                     *leagues.lock().unwrap() = ls.into_iter().map(|l| l.name).collect();
                 }
             });
+            if let Err(e) = spawned {
+                eprintln!("settings: league list not loaded: {e}");
+            }
         }
         let mods: Arc<Mutex<Vec<String>>> = Arc::default();
         {
-            // Reference data is disk-cached by the overlay/F9 panel; a cold
-            // cache fetches once. Off the frame thread like the league fetch.
+            // Reference data is disk-cached by the overlay; a cold cache
+            // fetches once. Off the frame thread like the league fetch.
             let mods = mods.clone();
-            std::thread::spawn(move || {
+            let spawned = std::thread::Builder::new().name("settings-mods".into()).spawn(move || {
                 let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
                     .map(|d| d.cache_dir().to_path_buf())
                     .unwrap_or_else(std::env::temp_dir);
@@ -190,8 +199,12 @@ impl SettingsApp {
                 *mods.lock().unwrap() =
                     r.affixes.iter().map(|a| a.text.to_lowercase()).collect();
             });
+            if let Err(e) = spawned {
+                eprintln!("settings: mod suggestions not loaded: {e}");
+            }
         }
         let last_serialized = toml::to_string(&cfg).unwrap_or_default();
+        let wealth_history = crate::wealth::load_history(&cfg.league, 10);
         SettingsApp {
             model: EditModel::from_config(cfg),
             section: Section::Hotkeys,
@@ -200,7 +213,9 @@ impl SettingsApp {
             suggest: None,
             stash_selected: BTreeSet::new(),
             updates: crate::settings_update::UpdateUi::default(),
-            wealth_history: crate::wealth::load_history(10),
+            wealth_history,
+            market: crate::settings_market::MarketUi::default(),
+            craft: crate::settings_craft::CraftUi::default(),
             last_serialized,
             last_edit: Instant::now(),
             saved_at: None,
@@ -300,6 +315,8 @@ impl eframe::App for SettingsApp {
             stash_selected,
             wealth_history,
             updates,
+            market,
+            craft,
             ..
         } = self;
         updates.poll();
@@ -314,6 +331,8 @@ impl eframe::App for SettingsApp {
                     Section::Hotkeys => section_hotkeys(ui, cfg, capture),
                     Section::Display => section_display(ui, cfg, tier_ok),
                     Section::Pricing => section_pricing(ui, cfg, leagues),
+                    Section::Market => crate::settings_market::section_market(ui, cfg, market),
+                    Section::Crafting => crate::settings_craft::section_crafting(ui, cfg, craft),
                     Section::CaptureOcr => {
                         section_capture_ocr(ui)
                     }
@@ -421,17 +440,19 @@ fn capture_button(
 fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
     ui.heading("Hotkeys");
     ui.add_space(6.0);
+    // The same resolution the overlay binds from (`triggers::dedupe` under
+    // it), so what is marked here is exactly what will be left unbound.
+    let conflicts = crate::bindings::resolve(cfg).conflicts;
     egui::Grid::new("hotkeys")
         .num_columns(2)
         .spacing([16.0, 8.0])
         .show(ui, |ui| {
-            let rows: [(&str, &str, CaptureTarget); 6] = [
+            let rows: [(&str, &str, CaptureTarget); 5] = [
                 ("Price check", &cfg.hotkey_price_check, CaptureTarget::PriceCheck),
-                ("Overlay toggle", &cfg.hotkey_overlay, CaptureTarget::Overlay),
                 ("Settings panel", &cfg.hotkey_settings, CaptureTarget::Settings),
-                ("Reference search", &cfg.hotkey_reference, CaptureTarget::Reference),
-                ("Leveling guide", &cfg.hotkey_leveling, CaptureTarget::Leveling),
+                ("Market panel", &cfg.hotkey_market, CaptureTarget::Market),
                 ("Upgrade check", &cfg.hotkey_upgrade, CaptureTarget::Upgrade),
+                ("Craft planner", &cfg.hotkey_craft, CaptureTarget::Craft),
             ];
             // Bindings are cloned so capture_button can take &mut capture
             // while cfg stays borrowed by the row labels.
@@ -441,12 +462,44 @@ fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Cap
                 .collect();
             for (label, key, target) in rows {
                 ui.label(label);
-                capture_button(ui, &key, target, capture);
+                ui.horizontal(|ui| {
+                    capture_button(ui, &key, target, capture);
+                    conflict_label(ui, &conflicts, slot_of(target));
+                });
                 ui.end_row();
             }
         });
     ui.add_space(6.0);
-    ui.small("hotkey changes apply on next launch (KDE shows one approval dialog)");
+    ui.small("a running overlay picks hotkey changes up within a second (KDE shows one approval dialog)");
+    ui.add_space(10.0);
+    ui.checkbox(&mut cfg.advanced_copy, "Copy items with advanced descriptions (Ctrl+Alt+C)");
+    ui.small(
+        "Off sends plain Ctrl+C, which copies what the game's \"advanced mod descriptions\" option says: with that \
+         option off, the copy has no readable modifiers and the item is not priced.",
+    );
+}
+
+/// The binding row a capture target edits, in `bindings` terms.
+fn slot_of(target: CaptureTarget) -> crate::bindings::Slot {
+    use crate::bindings::Slot;
+    match target {
+        CaptureTarget::PriceCheck => Slot::PriceCheck,
+        CaptureTarget::Settings => Slot::Settings,
+        CaptureTarget::Market => Slot::Market,
+        CaptureTarget::Upgrade => Slot::Upgrade,
+        CaptureTarget::Craft => Slot::Craft,
+        CaptureTarget::Macro(i) => Slot::Macro(i),
+        CaptureTarget::Shortcut(i) => Slot::Shortcut(i),
+    }
+}
+
+/// Marks a row whose key another binding got first. The overlay leaves such
+/// a row unbound, and a settings window that accepted the duplicate without
+/// a word was where the "my F10 does nothing" report came from.
+fn conflict_label(ui: &mut egui::Ui, conflicts: &[crate::bindings::Conflict], slot: crate::bindings::Slot) {
+    if let Some(c) = crate::bindings::conflict_for(conflicts, slot) {
+        ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), format!("off: {}", c.message));
+    }
 }
 
 fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
@@ -465,31 +518,33 @@ fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
         }
     });
     ui.horizontal(|ui| {
-        ui.label("Show divine values above");
+        // The stored number has always been compared against the value
+        // in divines (`value::pick_unit`); only this label called it ex.
+        ui.label("Show a value in divines from");
         ui.add(
             egui::DragValue::new(&mut cfg.divine_threshold)
                 .speed(0.1)
                 .range(0.0..=10000.0)
-                .suffix(" ex"),
+                .suffix(" div"),
         );
     });
 
     ui.add_space(12.0);
-    ui.label("Value tiers");
+    ui.label("Value tiers (in chaos: the exalted orb's worth moves too much to set a bar by)");
     ui.horizontal(|ui| {
-        ui.label("decent above");
+        ui.label("decent from");
         ui.add(
-            egui::DragValue::new(&mut cfg.tier_decent_ex)
+            egui::DragValue::new(&mut cfg.tier_decent_chaos)
                 .speed(0.1)
                 .range(0.0..=10000.0)
-                .suffix(" ex"),
+                .suffix(" chaos"),
         );
-        ui.label("jackpot above");
+        ui.label("jackpot from");
         ui.add(
-            egui::DragValue::new(&mut cfg.tier_good_ex)
+            egui::DragValue::new(&mut cfg.tier_good_chaos)
                 .speed(0.1)
                 .range(0.0..=10000.0)
-                .suffix(" ex"),
+                .suffix(" chaos"),
         );
     });
     tier_bar(ui, cfg, tier_ok);
@@ -498,7 +553,7 @@ fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
     }
 }
 
-/// Three zones on a log10 scale over 0.1..1000 ex, so the junk/decent split
+/// Three zones on a log10 scale over 0.1..1000 chaos, so the junk/decent split
 /// stays visible even though jackpot thresholds run two orders higher.
 fn tier_bar(ui: &mut egui::Ui, cfg: &Config, tier_ok: bool) {
     let width = ui.available_width().min(420.0);
@@ -509,8 +564,8 @@ fn tier_bar(ui: &mut egui::Ui, cfg: &Config, tier_ok: bool) {
         return;
     }
     let frac = |v: f64| ((v.clamp(0.1, 1000.0).log10() + 1.0) / 4.0) as f32;
-    let x1 = rect.left() + rect.width() * frac(cfg.tier_decent_ex);
-    let x2 = rect.left() + rect.width() * frac(cfg.tier_good_ex);
+    let x1 = rect.left() + rect.width() * frac(cfg.tier_decent_chaos);
+    let x2 = rect.left() + rect.width() * frac(cfg.tier_good_chaos);
     let zone = |a: f32, b: f32| {
         egui::Rect::from_min_max(egui::pos2(a, rect.top()), egui::pos2(b, rect.bottom()))
     };
@@ -539,6 +594,9 @@ fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<
                 });
         }
     });
+    // The running overlay follows a league change as a whole (see
+    // `league`); the refresh interval is read once, at startup.
+    ui.small("A league change takes effect in the running overlay. The refresh interval applies from the next start.");
     ui.horizontal(|ui| {
         ui.label("Refresh prices every");
         egui::ComboBox::from_id_salt("refresh")
@@ -549,6 +607,12 @@ fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<
                 }
             });
     });
+    ui.add_space(10.0);
+    ui.checkbox(&mut cfg.price_gem_rows, "Price reward-panel gems through trade search (uses search budget)");
+    ui.small(
+        "Each gem row is one trade search, counted against the same limit as your own price checks. Currency \
+         rows price through poe.ninja and ask the exchange only for what it lacks, whatever this says.",
+    );
 }
 
 fn section_capture_ocr(ui: &mut egui::Ui) {
@@ -566,6 +630,7 @@ fn section_capture_ocr(ui: &mut egui::Ui) {
 fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
     ui.heading("Macros & Shortcuts");
     ui.add_space(6.0);
+    let conflicts = crate::bindings::resolve(cfg).conflicts;
 
     ui.label("Chat macros");
     let mut remove: Option<usize> = None;
@@ -581,6 +646,7 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
                 remove = Some(i);
             }
         });
+        conflict_label(ui, &conflicts, crate::bindings::Slot::Macro(i));
     }
     if let Some(i) = remove {
         cfg.macros.remove(i);
@@ -611,6 +677,7 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
                 remove = Some(i);
             }
         });
+        conflict_label(ui, &conflicts, crate::bindings::Slot::Shortcut(i));
     }
     if let Some(i) = remove {
         cfg.resource_shortcuts.remove(i);

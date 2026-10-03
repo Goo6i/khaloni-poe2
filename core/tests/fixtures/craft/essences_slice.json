@@ -1,0 +1,701 @@
+{
+ "slug": "Essences",
+ "essences": [
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_the_Body",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour or Belt: <span class=\"mod-value\">+(30—39)</span> to maximum Life",
+    "Jewellery: <span class=\"mod-value\">+(20—29)</span> to maximum Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_the_Mind",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Belt, Boots, Gloves, Helmet or Jewellery: <span class=\"mod-value\">+(25—34)</span> to maximum Mana"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Enhancement",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour: <span class=\"mod-value\">(27—42)</span>% increased Armour, Evasion or Energy Shield"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Abrasion",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(4—6)</span> to <span class=\"mod-value\">(7—11)</span> Physical Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(5—8)</span> to <span class=\"mod-value\">(10—15)</span> Physical Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Flames",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(4—6)</span> to <span class=\"mod-value\">(7—10)</span> Fire Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(6—9)</span> to <span class=\"mod-value\">(10—16)</span> Fire Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Ice",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(3—5)</span> to <span class=\"mod-value\">(6—9)</span> Cold Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(5—8)</span> to <span class=\"mod-value\">(9—14)</span> Cold Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Electricity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">1</span> to <span class=\"mod-value\">(13—19)</span> Lightning Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(1—2)</span> to <span class=\"mod-value\">(19—27)</span> Lightning Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Ruin",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(4—7)</span>% to Chaos Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Battle",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">+(61—84)</span> to Accuracy Rating"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Sorcery",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(35—44)</span>% increased Spell Damage",
+    "Staff: <span class=\"mod-value\">(69—88)</span>% increased Spell Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Haste",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Melee Weapon: <span class=\"mod-value\">(11—13)</span>% increased Attack Speed",
+    "Bow or Crossbow: <span class=\"mod-value\">(8—10)</span>% increased Attack Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_the_Infinite",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Equipment: <span class=\"mod-value\">+(9—12)</span> to Strength, Dexterity or Intelligence"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_the_Body",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Belt, Body Armour, Helmet or Shield: <span class=\"mod-value\">+(85—99)</span> to maximum Life",
+    "Amulet, Boots, Gloves or Ring: <span class=\"mod-value\">+(70—84)</span> to maximum Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_the_Mind",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Belt, Boots, Gloves or Helmet: <span class=\"mod-value\">+(65—79)</span> to maximum Mana",
+    "Jewellery: <span class=\"mod-value\">+(80—89)</span> to maximum Mana"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Enhancement",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour: <span class=\"mod-value\">(56—67)</span>% increased Armour, Evasion or Energy Shield"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Abrasion",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(10—15)</span> to <span class=\"mod-value\">(18—26)</span> Physical Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(14—21)</span> to <span class=\"mod-value\">(25—37)</span> Physical Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Flames",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(20—24)</span> to <span class=\"mod-value\">(32—37)</span> Fire Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(30—37)</span> to <span class=\"mod-value\">(45—56)</span> Fire Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Ice",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(17—20)</span> to <span class=\"mod-value\">(26—32)</span> Cold Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(25—30)</span> to <span class=\"mod-value\">(38—46)</span> Cold Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Electricity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(1—3)</span> to <span class=\"mod-value\">(55—60)</span> Lightning Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(1—4)</span> to <span class=\"mod-value\">(80—88)</span> Lightning Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Ruin",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(8—11)</span>% to Chaos Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Battle",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">+(124—167)</span> to Accuracy Rating"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Sorcery",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(55—64)</span>% increased Spell Damage",
+    "Staff: <span class=\"mod-value\">(109—128)</span>% increased Spell Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Haste",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Melee Weapon: <span class=\"mod-value\">(17—19)</span>% increased Attack Speed",
+    "Bow or Crossbow: <span class=\"mod-value\">(11—13)</span>% increased Attack Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_the_Infinite",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Equipment: <span class=\"mod-value\">+(17—20)</span> to Strength, Dexterity or Intelligence"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_the_Body",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Belt, Body Armour, Helmet or Shield: <span class=\"mod-value\">+(100—119)</span> to maximum Life",
+    "Amulet, Boots or Gloves: <span class=\"mod-value\">+(85—99)</span> to maximum Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_the_Mind",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Belt, Boots, Gloves or Helmet: <span class=\"mod-value\">+(80—89)</span> to maximum Mana",
+    "Jewellery: <span class=\"mod-value\">+(90—104)</span> to maximum Mana"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Enhancement",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour: <span class=\"mod-value\">(68—79)</span>% increased Armour, Evasion or Energy Shield"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Abrasion",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(16—24)</span> to <span class=\"mod-value\">(28—42)</span> Physical Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(23—35)</span> to <span class=\"mod-value\">(39—59)</span> Physical Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Flames",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(35—44)</span> to <span class=\"mod-value\">(56—71)</span> Fire Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(56—70)</span> to <span class=\"mod-value\">(84—107)</span> Fire Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Ice",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(31—38)</span> to <span class=\"mod-value\">(47—59)</span> Cold Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(46—57)</span> to <span class=\"mod-value\">(70—88)</span> Cold Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Electricity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Adds <span class=\"mod-value\">(1—6)</span> to <span class=\"mod-value\">(85—107)</span> Lightning Damage",
+    "Two Handed Melee Weapon or Crossbow: Adds <span class=\"mod-value\">(1—8)</span> to <span class=\"mod-value\">(128—162)</span> Lightning Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Ruin",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(16—19)</span>% to Chaos Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Battle",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon, Gloves or Quiver: <span class=\"mod-value\">+(237—346)</span> to Accuracy Rating"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Sorcery",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(75—89)</span>% increased Spell Damage",
+    "Staff: <span class=\"mod-value\">(149—188)</span>% increased Spell Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Haste",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Melee Weapon: <span class=\"mod-value\">(23—25)</span>% increased Attack Speed",
+    "Bow or Crossbow: <span class=\"mod-value\">(14—16)</span>% increased Attack Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_the_Infinite",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Equipment: <span class=\"mod-value\">+(25—27)</span> to Strength, Dexterity or Intelligence"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_the_Body",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Body Armour: <span class=\"mod-value\">(8—10)</span>% increased maximum Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_the_Mind",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Ring: <span class=\"mod-value\">(4—6)</span>% increased maximum Mana"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Enhancement",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Amulet: <span class=\"mod-value\">(20—30)</span>% increased Global Defences"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Abrasion",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Gain <span class=\"mod-value\">(15—20)</span>% of Damage as Extra Physical Damage",
+    "Two Handed Melee Weapon or Crossbow: Gain <span class=\"mod-value\">(25—33)</span>% of Damage as Extra Physical Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Flames",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Gain <span class=\"mod-value\">(15—20)</span>% of Damage as Extra Fire Damage",
+    "Two Handed Melee Weapon or Crossbow: Gain <span class=\"mod-value\">(25—33)</span>% of Damage as Extra Fire Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Ice",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Gain <span class=\"mod-value\">(15—20)</span>% of Damage as Extra Cold Damage",
+    "Two Handed Melee Weapon or Crossbow: Gain <span class=\"mod-value\">(25—33)</span>% of Damage as Extra Cold Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Electricity",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "One Handed Melee Weapon or Bow: Gain <span class=\"mod-value\">(15—20)</span>% of Damage as Extra Lightning Damage",
+    "Two Handed Melee Weapon or Crossbow: Gain <span class=\"mod-value\">(25—33)</span>% of Damage as Extra Lightning Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Ruin",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Body Armour: <span class=\"mod-value\">(10—15)</span>% of Physical Damage from Hits taken as Chaos Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Battle",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "One Handed Melee Weapon or Bow: <span class=\"mod-value\">+3</span> to Level of all Attack Skills",
+    "Two Handed Melee Weapon or Crossbow: <span class=\"mod-value\">+5</span> to Level of all Attack Skills"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Sorcery",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Wand: <span class=\"mod-value\">+3</span> to Level of all Spell Skills",
+    "Staff: <span class=\"mod-value\">+5</span> to Level of all Spell Skills"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Haste",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">(20—25)</span>% chance to gain Onslaught on Killing Hits with this Weapon"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_the_Infinite",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Amulet: <span class=\"mod-value\">(7—10)</span>% increased Strength, Dexterity or Intelligence"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Seeking",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">+(1.51—2.1)</span>% to Critical Hit Chance",
+    "Focus or Wand: <span class=\"mod-value\">(34—39)</span>% increased Critical Hit Chance for Spells",
+    "Staff: <span class=\"mod-value\">(50—59)</span>% increased Critical Hit Chance for Spells"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Seeking",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">+(2.11—2.7)</span>% to Critical Hit Chance",
+    "Focus or Wand: <span class=\"mod-value\">(40—46)</span>% increased Critical Hit Chance for Spells",
+    "Staff: <span class=\"mod-value\">(60—69)</span>% increased Critical Hit Chance for Spells"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Seeking",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Martial Weapon: <span class=\"mod-value\">+(3.11—3.8)</span>% to Critical Hit Chance",
+    "Focus or Wand: <span class=\"mod-value\">(47—53)</span>% increased Critical Hit Chance for Spells",
+    "Staff: <span class=\"mod-value\">(70—79)</span>% increased Critical Hit Chance for Spells"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Seeking",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Body Armour: Hits against you have <span class=\"mod-value\">(40—50)</span>% reduced Critical Damage Bonus"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Hysteria",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Helmet: <span class=\"mod-value\">+1</span> to Level of all Minion Skills",
+    "Body Armour: <span class=\"mod-value\">(64—97)</span> to <span class=\"mod-value\">(97—145)</span> Physical Thorns damage",
+    "Gloves: <span class=\"mod-value\">(25—29)</span>% increased Critical Damage Bonus",
+    "Boots: <span class=\"mod-value\">30</span>% increased Movement Speed",
+    "Ring: <span class=\"mod-value\">(50—59)</span>% increased Mana Regeneration Rate",
+    "Amulet: <span class=\"mod-value\">(19—21)</span>% of Damage taken Recouped as Life",
+    "Belt: <span class=\"mod-value\">+(254—304)</span> to Stun Threshold",
+    "Shield: <span class=\"mod-value\">(20—24)</span>% increased Block chance",
+    "Quiver: <span class=\"mod-value\">(43—50)</span>% increased Damage with Bow Skills",
+    "Focus: <span class=\"mod-value\">(41—45)</span>% increased Energy Shield Recharge Rate"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Delirium",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Body Armour: Allocates a random Notable Passive Skill"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Horror",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Gloves or Boots: <span class=\"mod-value\">60</span>% increased effect of Socketed Items"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Insanity",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Belt: On Corruption, Item gains two Enchantments"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_the_Abyss",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Equipment: Mark of the Abyssal Lord"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Insulation",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(11—15)</span>% to Fire Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Insulation",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(21—25)</span>% to Fire Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Insulation",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(31—35)</span>% to Fire Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Insulation",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Belt: <span class=\"mod-value\">(26—30)</span>% of Fire Damage taken Recouped as Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Thawing",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(11—15)</span>% to Cold Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Thawing",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(21—25)</span>% to Cold Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Thawing",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(31—35)</span>% to Cold Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Thawing",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Helmet: <span class=\"mod-value\">(26—30)</span>% of Cold Damage taken Recouped as Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Grounding",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(11—15)</span>% to Lightning Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Grounding",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(21—25)</span>% to Lightning Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Grounding",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Armour, Belt or Jewellery: <span class=\"mod-value\">+(31—35)</span>% to Lightning Resistance"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Grounding",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Gloves: <span class=\"mod-value\">(26—30)</span>% of Lightning Damage taken Recouped as Life"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Alacrity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(13—16)</span>% increased Cast Speed",
+    "Staff: <span class=\"mod-value\">(20—25)</span>% increased Cast Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Alacrity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(17—20)</span>% increased Cast Speed",
+    "Staff: <span class=\"mod-value\">(26—31)</span>% increased Cast Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Alacrity",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(25—28)</span>% increased Cast Speed",
+    "Staff: <span class=\"mod-value\">(38—43)</span>% increased Cast Speed"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Alacrity",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Focus or Wand: <span class=\"mod-value\">(18—20)</span>% increased Mana Cost Efficiency",
+    "Staff: <span class=\"mod-value\">(28—32)</span>% increased Mana Cost Efficiency"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Opulence",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Boots, Gloves, Helmet or Jewellery: <span class=\"mod-value\">(6—10)</span>% increased Rarity of Items found"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Opulence",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Boots, Gloves, Helmet or Jewellery: <span class=\"mod-value\">(11—14)</span>% increased Rarity of Items found"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Opulence",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Boots, Gloves, Helmet or Jewellery: <span class=\"mod-value\">(15—18)</span>% increased Rarity of Items found"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Opulence",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Gloves: <span class=\"mod-value\">(10—15)</span>% increased Quantity of Gold Dropped by Slain Enemies"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Lesser_Essence_of_Command",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Sceptre: Allies in your Presence deal <span class=\"mod-value\">(35—44)</span>% increased Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Essence_of_Command",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Sceptre: Allies in your Presence deal <span class=\"mod-value\">(55—64)</span>% increased Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Greater_Essence_of_Command",
+   "explicitMods": [
+    "Upgrades a Magic item to a Rare item, adding a guaranteed modifier",
+    "Sceptre: Allies in your Presence deal <span class=\"mod-value\">(75—89)</span>% increased Damage"
+   ]
+  },
+  {
+   "name": "",
+   "slug": "Perfect_Essence_of_Command",
+   "explicitMods": [
+    "Removes a random modifier and augments a Rare item with a new guaranteed modifier",
+    "Sceptre: Aura Skills have <span class=\"mod-value\">(15—20)</span>% increased Magnitudes"
+   ]
+  }
+ ]
+}

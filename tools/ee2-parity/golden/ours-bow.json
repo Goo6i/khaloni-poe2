@@ -1,0 +1,197 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "dps": {
+       "min": 431
+      },
+      "pdps": {
+       "min": 396
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_dexterity",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1202301673",
+       "value": {
+        "min": 3
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_1940865751",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": true,
+       "id": "crafted.stat_518292764",
+       "value": {
+        "min": 3.1
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "equipment_filters": {
+     "filters": {
+      "aps": {
+       "min": 1.1
+      },
+      "crit": {
+       "min": 8.1
+      },
+      "dps": {
+       "min": 431
+      },
+      "pdps": {
+       "min": 396
+      }
+     }
+    },
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.bow"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_dexterity",
+       "value": {
+        "min": 31
+       }
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_3398402065",
+       "value": {
+        "min": -50
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1202301673",
+       "value": {
+        "min": 3
+       }
+      },
+      {
+       "disabled": true,
+       "id": "desecrated.stat_1940865751",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": true,
+       "id": "crafted.stat_518292764",
+       "value": {
+        "min": 3.1
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

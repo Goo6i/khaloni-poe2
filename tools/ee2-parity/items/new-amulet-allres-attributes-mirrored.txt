@@ -1,0 +1,26 @@
+Item Class: Amulets
+Rarity: Rare
+Havoc Charm
+Stellar Amulet
+--------
+Requires: Level 54
+--------
+Item Level: 82
+--------
+{ Implicit Modifier — Attribute }
++6(5-7) to all Attributes
+--------
+{ Prefix Modifier "Rotund" (Tier: 2) — Life }
++112(100-119) to maximum Life
+{ Prefix Modifier "Countess'" (Tier: 3) }
++41(38-42) to Spirit
+{ Prefix Modifier "Dauntless" (Tier: 2) — Defences }
+38(34-40)% increased maximum Energy Shield
+{ Suffix Modifier "of the Rainbow" (Tier: 2) — Elemental, Fire, Cold, Lightning, Resistance }
++14(13-16)% to all Elemental Resistances
+{ Suffix Modifier "of the Galaxy" (Tier: 3) — Attribute }
++15(13-17) to all Attributes
+{ Suffix Modifier "of the Lost" (Tier: 6) — Chaos, Resistance }
++7(4-7)% to Chaos Resistance
+--------
+Mirrored

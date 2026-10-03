@@ -1,0 +1,12 @@
+Item Class: Amulets
+Rarity: Unique
+Stellar Amulet
+--------
+Requires: Level 54
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Attribute }
++6(5-7) to all Attributes (implicit)
+--------
+Unidentified

@@ -1,0 +1,32 @@
+Item Class: Bows
+Rarity: Rare
+Gale Wing
+Gemini Bow
+--------
+Quality: +14% (augmented)
+Physical Damage: 120-260 (augmented)
+Fire Damage: 40-80 (augmented)
+Cold Damage: 30-55 (augmented)
+Critical Hit Chance: 6.20% (augmented)
+Attacks per Second: 1.32 (augmented)
+--------
+Requires: Level 78, 163 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 82
+--------
+{ Fractured Prefix Modifier "Merciless" (Tier: 1) — Damage, Physical, Attack }
+170(170-179)% increased Physical Damage (fractured)
+{ Prefix Modifier "Flaming" (Tier: 4) — Damage, Elemental, Fire, Attack }
+Adds 40(35-52) to 80(70-88) Fire Damage
+{ Prefix Modifier "Frozen" (Tier: 5) — Damage, Elemental, Cold, Attack }
+Adds 30(25-36) to 55(46-60) Cold Damage
+{ Suffix Modifier "of Celebration" (Tier: 3) — Attack, Speed }
+10(8-10)% increased Attack Speed
+{ Suffix Modifier "of Piercing" (Tier: 4) — Attack, Critical }
++1.2(1.01-1.5)% to Critical Hit Chance
+{ Suffix Modifier "of the Fox" (Tier: 5) — Attribute }
++19(17-20) to Dexterity
+--------
+Fractured Item

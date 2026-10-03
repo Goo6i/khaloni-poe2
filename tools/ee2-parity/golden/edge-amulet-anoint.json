@@ -1,0 +1,215 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "accessory.amulet"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_all_elemental_resistances",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 82
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_fire_resistance",
+       "value": {
+        "min": 41
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 85
+       }
+      },
+      {
+       "disabled": false,
+       "id": "enchant.stat_2954116742|3492",
+       "value": {}
+      },
+      {
+       "disabled": true,
+       "id": "implicit.stat_3917489142",
+       "value": {
+        "min": 13
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "accessory.amulet"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_all_elemental_resistances",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_elemental_resistance",
+       "value": {
+        "min": 82
+       }
+      },
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_total_fire_resistance",
+       "value": {
+        "min": 41
+       }
+      },
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_total_life",
+       "value": {
+        "min": 85
+       }
+      },
+      {
+       "disabled": false,
+       "id": "enchant.stat_2954116742|3492",
+       "value": {}
+      },
+      {
+       "disabled": false,
+       "id": "implicit.stat_3917489142",
+       "value": {
+        "min": 13
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_prefix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

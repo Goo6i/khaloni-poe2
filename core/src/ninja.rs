@@ -80,6 +80,22 @@ pub struct ExchangeLine {
     pub max_volume_currency: Option<String>,
     #[serde(default)]
     pub max_volume_rate: Option<f64>,
+    /// Seven daily points, see [`Sparkline`].
+    #[serde(default)]
+    pub sparkline: Option<Sparkline>,
+}
+
+/// poe.ninja's week of history for one line: `data[i]` is the cumulative
+/// percent change against the first day, oldest first, `null` where the
+/// source has no figure for that day. The exchange overview spells the key
+/// `sparkline`, the item overview `sparkLine`.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sparkline {
+    #[serde(default)]
+    pub data: Vec<Option<f64>>,
+    #[serde(default)]
+    pub total_change: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,6 +130,8 @@ pub struct ItemLine {
     pub listing_count: Option<u32>,
     #[serde(default)]
     pub corrupted: Option<bool>,
+    #[serde(default)]
+    pub spark_line: Option<Sparkline>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -122,15 +140,133 @@ pub struct ItemOverview {
     pub lines: Vec<ItemLine>,
 }
 
-/// Unique name -> price in exalted, across item overviews. Where a name has
-/// several lines, the uncorrupted line with the most listings speaks for it:
-/// a corrupted copy is a different (usually cheaper) item, and the deepest
-/// market is the most trustworthy price. An overview whose primary currency
-/// is not divine, or which carries no exalted rate, is skipped entirely
-/// rather than mis-scaled.
-pub fn unique_prices(overviews: &[ItemOverview]) -> HashMap<String, f64> {
-    // name -> (corrupted, listings, exalted)
-    let mut best: HashMap<&str, (bool, u32, f64)> = HashMap::new();
+/// What the unique price data says about one item.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UniqueMatch {
+    /// A line for exactly this name, base type and corruption state, in
+    /// exalted.
+    Exact(f64),
+    /// The name is priced, but not as this variant: on other bases, in the
+    /// other corruption state, or on lines that disagree. Those prices are
+    /// for different items (live: "Alpha's Howl" at 0.235 div on one base
+    /// and 3.0 div on another), so none of them is offered.
+    Ambiguous,
+    /// No line carries the name.
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct UniqueVariant {
+    /// `None` when the source does not say which base it priced.
+    base: Option<String>,
+    corrupted: bool,
+    exalted: f64,
+    /// Two lines claimed this same variant at different prices.
+    conflicted: bool,
+}
+
+/// Unique prices in exalted, answerable per (name, base type, corrupted).
+/// A unique's name is shared by every base it drops on and by its corrupted
+/// copies, each its own market; keying by name alone let one of them speak
+/// for all.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UniquePrices {
+    by_name: HashMap<String, Vec<UniqueVariant>>,
+}
+
+fn same_base(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
+}
+
+impl UniquePrices {
+    /// From a source that prices by name only (poe2scout). Such an entry
+    /// stands for the ordinary uncorrupted item on whatever base, which is
+    /// all a name-only source can mean; a corrupted item never matches it.
+    pub fn from_names(names: HashMap<String, f64>) -> UniquePrices {
+        let mut out = UniquePrices::default();
+        for (name, exalted) in names {
+            out.insert(&name, None, false, exalted);
+        }
+        out
+    }
+
+    fn insert(&mut self, name: &str, base: Option<&str>, corrupted: bool, exalted: f64) {
+        let variants = self.by_name.entry(name.to_string()).or_default();
+        let same = variants.iter_mut().find(|v| {
+            v.corrupted == corrupted
+                && match (&v.base, base) {
+                    (Some(a), Some(b)) => same_base(a, b),
+                    (None, None) => true,
+                    _ => false,
+                }
+        });
+        match same {
+            Some(v) if (v.exalted - exalted).abs() > f64::EPSILON * v.exalted.abs().max(1.0) => v.conflicted = true,
+            Some(_) => {}
+            None => variants.push(UniqueVariant {
+                base: base.map(str::to_string),
+                corrupted,
+                exalted,
+                conflicted: false,
+            }),
+        }
+    }
+
+    /// The price of exactly this item. `base` is the item's base type when
+    /// the caller knows it; without one, a name answers only if it has a
+    /// single variant in that corruption state, so there is nothing it
+    /// could be confused with.
+    pub fn lookup(&self, name: &str, base: Option<&str>, corrupted: bool) -> UniqueMatch {
+        let Some(variants) = self.by_name.get(name) else {
+            return UniqueMatch::Unknown;
+        };
+        let mut candidates = variants.iter().filter(|v| {
+            v.corrupted == corrupted
+                && match (&v.base, base) {
+                    (Some(have), Some(want)) => same_base(have, want),
+                    // A name-only line, or an item whose base is not known.
+                    _ => true,
+                }
+        });
+        match (candidates.next(), candidates.next()) {
+            (Some(v), None) if !v.conflicted => UniqueMatch::Exact(v.exalted),
+            _ => UniqueMatch::Ambiguous,
+        }
+    }
+
+    /// Distinct unique names carried.
+    pub fn len(&self) -> usize {
+        self.by_name.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_name.is_empty()
+    }
+
+    /// Adds every name of `other` this set does not carry yet. A name
+    /// already here keeps its variants untouched: two sources' lines for
+    /// one name are not mixed.
+    pub fn fill_from(&mut self, other: &UniquePrices) {
+        for (name, variants) in &other.by_name {
+            self.by_name.entry(name.clone()).or_insert_with(|| variants.clone());
+        }
+    }
+
+    /// Replaces the names `newer` carries and keeps the rest, so a refresh
+    /// in which one category failed does not drop that category's prices.
+    pub fn merged_with(&self, newer: &UniquePrices) -> UniquePrices {
+        let mut out = newer.clone();
+        out.fill_from(self);
+        out
+    }
+}
+
+/// Unique prices in exalted across item overviews, one entry per (name,
+/// base type, corrupted) line. An overview whose primary currency is not
+/// divine, or which carries no exalted rate, is skipped entirely rather
+/// than mis-scaled.
+pub fn unique_prices(overviews: &[ItemOverview]) -> UniquePrices {
+    let mut out = UniquePrices::default();
     for ov in overviews {
         if ov.core.primary != "divine" {
             continue;
@@ -142,22 +278,72 @@ pub fn unique_prices(overviews: &[ItemOverview]) -> HashMap<String, f64> {
             if !(line.primary_value.is_finite() && line.primary_value > 0.0) {
                 continue;
             }
-            let cand = (
+            out.insert(
+                &line.name,
+                line.base_type.as_deref().filter(|b| !b.trim().is_empty()),
                 line.corrupted.unwrap_or(false),
-                line.listing_count.unwrap_or(0),
                 line.primary_value * ex,
             );
-            let better = match best.get(line.name.as_str()) {
-                None => true,
-                // Uncorrupted beats corrupted; then more listings.
-                Some(&(cor, n, _)) => (!cand.0, cand.1) > (!cor, n),
-            };
-            if better {
-                best.insert(line.name.as_str(), cand);
-            }
         }
     }
-    best.into_iter().map(|(name, (_, _, ex))| (name.to_string(), ex)).collect()
+    out
+}
+
+/// Writes `bytes` to `path` so that a reader sees the old file or the new
+/// one, never part of each: a uniquely named temp file beside it, synced,
+/// then renamed over it. A cache written in place and torn by a crash
+/// parses as garbage on every later launch.
+pub fn write_cache_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(std::path::Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("cache");
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.{}.{seq}.tmp", std::process::id()));
+    let written = (|| {
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+/// Where the overview of (league, typ) is cached under `cache_dir`.
+pub fn cache_file(cache_dir: &std::path::Path, league: &str, typ: &str) -> PathBuf {
+    let safe: String = format!("{league}-{typ}")
+        .chars()
+        .map(|c| if c == '/' || c == '\\' { '_' } else { c })
+        .collect();
+    cache_dir.join(format!("{safe}.json"))
+}
+
+/// When the cached overview of (league, typ) was written, which is when its
+/// figures were fetched.
+pub fn cached_at(cache_dir: &std::path::Path, league: &str, typ: &str) -> Option<std::time::SystemTime> {
+    std::fs::metadata(cache_file(cache_dir, league, typ)).and_then(|m| m.modified()).ok()
+}
+
+/// The cached exchange overview of (league, typ), held to the same checks a
+/// fetched one passes. For readers that must not touch the network: the
+/// settings window and the offline tools.
+pub fn cached_exchange_overview(cache_dir: &std::path::Path, league: &str, typ: &str) -> Option<ExchangeOverview> {
+    let body = std::fs::read_to_string(cache_file(cache_dir, league, typ)).ok()?;
+    let ov: ExchangeOverview = serde_json::from_str(&body).ok()?;
+    NinjaClient::validate(&ov, typ).ok()?;
+    Some(ov)
+}
+
+/// The cached item overview of (league, typ); see
+/// [`cached_exchange_overview`].
+pub fn cached_item_overview(cache_dir: &std::path::Path, league: &str, typ: &str) -> Option<ItemOverview> {
+    let body = std::fs::read_to_string(cache_file(cache_dir, league, typ)).ok()?;
+    let ov: ItemOverview = serde_json::from_str(&body).ok()?;
+    (ov.core.primary == "divine").then_some(ov)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,11 +408,17 @@ impl NinjaClient {
     }
 
     fn cache_path(&self, league: &str, typ: &str) -> PathBuf {
-        let safe: String = format!("{league}-{typ}")
-            .chars()
-            .map(|c| if c == '/' || c == '\\' { '_' } else { c })
-            .collect();
-        self.cache_dir.join(format!("{safe}.json"))
+        cache_file(&self.cache_dir, league, typ)
+    }
+
+    /// When this client's cached overview of (league, typ) was written.
+    pub fn cached_at(&self, league: &str, typ: &str) -> Option<std::time::SystemTime> {
+        cached_at(&self.cache_dir, league, typ)
+    }
+
+    /// Where this client caches; the market history log lives under it.
+    pub fn cache_dir(&self) -> &std::path::Path {
+        &self.cache_dir
     }
 
     pub fn exchange_overview(
@@ -269,9 +461,14 @@ impl NinjaClient {
         })
     }
 
-    /// Fetches `url`, validates and caches the body under (league, typ) on
-    /// success; on any transport failure serves the last cached body as
-    /// stale data, and errors only when there is none.
+    /// Fetches `url`; a body that parses and validates is cached under
+    /// (league, typ) and returned as fresh. Anything else - a transport
+    /// failure, an error status, a 200 whose body does not parse or fails
+    /// validation (a challenge page, an emptied overview) - serves the last
+    /// good cached body as stale data, and is an error only when there is
+    /// none.
+    /// The cache is replaced only by a body that passed, so a bad answer
+    /// can never push out a good one.
     fn fetch_cached<T: serde::de::DeserializeOwned>(
         &self,
         url: &str,
@@ -279,30 +476,32 @@ impl NinjaClient {
         typ: &str,
         validate: impl Fn(&T) -> Result<(), NinjaError>,
     ) -> Result<(T, DataOrigin), NinjaError> {
-        let fetched: Result<String, NinjaError> = (|| {
+        let parse = |body: &str| -> Result<T, NinjaError> {
+            let ov: T = serde_json::from_str(body)?;
+            validate(&ov)?;
+            Ok(ov)
+        };
+        let path = self.cache_path(league, typ);
+        let fetched: Result<T, NinjaError> = (|| {
             let body = self.http.get(url).send()?.error_for_status()?.text()?;
-            Ok(body)
+            let ov = parse(&body)?;
+            // Losing the cache write costs offline resilience later, not
+            // the prices in hand.
+            let _ = write_cache_atomic(&path, body.as_bytes());
+            Ok(ov)
         })();
         match fetched {
-            Ok(body) => {
-                let ov: T = serde_json::from_str(&body)?;
-                validate(&ov)?;
-                std::fs::create_dir_all(&self.cache_dir)?;
-                std::fs::write(self.cache_path(league, typ), &body)?;
-                Ok((ov, DataOrigin::Fresh))
-            }
-            Err(fetch_err) => {
-                let path = self.cache_path(league, typ);
-                match std::fs::read_to_string(&path) {
-                    Ok(body) => {
-                        let ov: T = serde_json::from_str(&body)?;
-                        Ok((ov, DataOrigin::StaleCache))
-                    }
-                    Err(_) => Err(NinjaError::NoData(format!(
-                        "{typ} for {league}: {fetch_err}"
-                    ))),
-                }
-            }
+            Ok(ov) => Ok((ov, DataOrigin::Fresh)),
+            Err(fetch_err) => match std::fs::read_to_string(&path).map_err(NinjaError::from).and_then(|b| parse(&b)) {
+                Ok(ov) => Ok((ov, DataOrigin::StaleCache)),
+                // With nothing cached, a transport failure is "no data";
+                // a body the API did send keeps its own, more telling error
+                // (an empty type is a definitive answer, not an outage).
+                Err(_) => Err(match fetch_err {
+                    NinjaError::Http(e) => NinjaError::NoData(format!("{typ} for {league}: {e}")),
+                    other => other,
+                }),
+            },
         }
     }
 }
@@ -372,6 +571,15 @@ impl PriceTable {
             exalted_per_divine,
             chaos_per_divine,
         }
+    }
+
+    /// A value known only in exalted (a trade listing, a poe2scout unique,
+    /// an exchange rate) in all three currencies, through this table's
+    /// rates. A rate the table does not carry leaves that side at zero,
+    /// which the display reads as "not available in this currency".
+    pub fn price_from_exalted(&self, exalted: f64) -> Price {
+        let divine = if self.exalted_per_divine > 0.0 { exalted / self.exalted_per_divine } else { 0.0 };
+        Price { divine, exalted, chaos: divine * self.chaos_per_divine }
     }
 
     pub fn lookup(&self, name: &str) -> Option<&Price> {

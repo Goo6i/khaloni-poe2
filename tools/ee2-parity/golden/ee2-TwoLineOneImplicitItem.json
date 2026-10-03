@@ -1,0 +1,155 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_number_of_uses_remaining",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2017682521",
+       "value": {
+        "min": 6
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3873704640",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3836551197",
+       "value": {
+        "min": 6
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3962960008",
+       "value": {
+        "min": 5
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Delirium Precursor Tablet"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "mirrored": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "pseudo.pseudo_number_of_uses_remaining",
+       "value": {
+        "min": 17
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2017682521",
+       "value": {
+        "min": 6
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3873704640",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3836551197",
+       "value": {
+        "min": 6
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3962960008",
+       "value": {
+        "min": 5
+       }
+      }
+     ],
+     "type": "and"
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Delirium Precursor Tablet"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

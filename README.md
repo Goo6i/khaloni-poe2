@@ -158,18 +158,16 @@ disabled automatically when running from a `cargo` build directory.
 | Key | Action |
 |-----|--------|
 | F7  | Price the item under the cursor |
-| F8  | Overlay on or off |
-| F9  | In-overlay reference search (affixes, bases, uniques, gems, keystones, currencies, more) |
-| F10 | In-overlay leveling checklist (act-by-act, progress persists, auto-advances from the game log) |
 | F12 | Open the settings window |
 
 An optional upgrade-check hotkey (set it in Settings) searches the trade
 site for strictly-better versions of the hovered equipped item: same item
 class, every mod meets-or-beats your current roll, cheapest first.
 
-Panel detection, focus pausing, and price freshness are automatic; F8 is
-the manual override, and it stops the pipeline too, not just the drawing.
-KDE asks once to approve the shortcuts on first launch (and again when the
+Panel detection, focus pausing, and price freshness are automatic. The
+overlay stops reading the screen and hides its rows while the game is out
+of focus, and while it is minimized or covered unless you turn that off in
+Settings. KDE asks once to approve the shortcuts on first launch (and again when the
 binding set changes). Chat macros and per-site item shortcuts get their own
 keys once configured in Settings.
 
@@ -178,8 +176,8 @@ keys once configured in Settings.
 Everything is configured from a native settings window: `F12`, the tray
 icon's "Open Settings", or `khaloni-poe2 --settings` all open it. Changes save
 automatically and apply to the running overlay within a second (hotkey
-changes need a relaunch). The tray icon (Plasma system tray) also toggles
-the overlay, pauses pricing, and quits.
+changes need a relaunch). The tray icon (Plasma system tray) also pauses
+pricing and quits.
 
 The Waystones section also builds stash-search regexes from your reward
 mods (with the 50-character in-game limit enforced), and the Account

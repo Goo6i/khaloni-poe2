@@ -1,0 +1,16 @@
+Item Class: Mana Flasks
+Rarity: Magic
+Ultimate Mana Flask of the Doctor
+--------
+Recovers 310 Mana over 3.00 Seconds
+Consumes 10 of 75 Charges on use
+Currently has 42 Charges
+--------
+Requires: Level 60
+--------
+Item Level: 79
+--------
+{ Suffix Modifier "of the Doctor" (Tier: 2) — Flask }
+24(21-25)% Chance to gain a Charge when you kill an enemy
+--------
+Right click to drink. Can only hold charges while in belt. Refill at Wells or by killing monsters.

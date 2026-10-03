@@ -1,0 +1,235 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "Loreweave",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_3032590688",
+       "value": {
+        "min": 13
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_1050105434",
+       "value": {
+        "min": 50
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3655769732",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 8
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_798767971",
+       "value": {
+        "min": 77
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 133
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 133
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "explicit.stat_3917489142",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2306002879",
+       "value": {
+        "min": 16
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ornate Ringmail"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    }
+   },
+   "name": "Loreweave",
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_3032590688",
+       "value": {
+        "min": 13
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_1050105434",
+       "value": {
+        "min": 50
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3655769732",
+       "value": {
+        "min": 10
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 8
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_798767971",
+       "value": {
+        "min": 77
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_691932474",
+       "value": {
+        "min": 133
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_803737631",
+       "value": {
+        "min": 133
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    },
+    {
+     "disabled": false,
+     "filters": [
+      {
+       "disabled": false,
+       "id": "explicit.stat_3917489142",
+       "value": {
+        "min": 16
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2306002879",
+       "value": {
+        "min": 16
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   },
+   "type": "Ornate Ringmail"
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

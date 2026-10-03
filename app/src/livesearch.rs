@@ -32,6 +32,14 @@ const BETWEEN_SEARCHES: Duration = Duration::from_secs(5);
 /// (rare) repeat alert for bounded memory over a long session.
 const SEEN_CAP: usize = 2000;
 
+/// How long the poller stays quiet after a cooldown of `d`: all of it, and
+/// a little more so the retry does not land on the boundary. The wait was
+/// once capped at 60s, which had the poller back at a half-hour ban a
+/// minute into it.
+pub fn backoff(d: Duration) -> Duration {
+    d + Duration::from_secs(2)
+}
+
 struct Watched {
     name: String,
     league: String,
@@ -115,12 +123,23 @@ fn run(cfg_searches: Vec<LiveSearch>, poesessid: String, tx: Sender<Alert>) {
                     // The limiter (or the server) said stop; honor it and
                     // let the next pass retry this search.
                     eprintln!("live-search {}: rate limited, backing off {d:?}", w.name);
-                    std::thread::sleep(d.min(Duration::from_secs(60)));
+                    std::thread::sleep(backoff(d));
                 }
                 Err(e) => eprintln!("live-search {}: {e}", w.name),
             }
             std::thread::sleep(BETWEEN_SEARCHES);
         }
         std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_ban_is_waited_out_in_full() {
+        assert!(backoff(Duration::from_secs(1800)) >= Duration::from_secs(1800));
+        assert!(backoff(Duration::from_secs(5)) >= Duration::from_secs(5));
     }
 }

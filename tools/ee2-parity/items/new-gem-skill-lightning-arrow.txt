@@ -1,0 +1,27 @@
+Item Class: Skill Gems
+Rarity: Gem
+Lightning Arrow
+--------
+Attack, AoE, Projectile, Lightning, Chaining
+Level: 17
+Mana Cost: 27
+Attack Speed: 100% of base
+Attack Damage: 118%
+Quality: +12% (augmented)
+--------
+Requires: Level 66, 143 Dex
+Requires: Bow
+--------
+Sockets: G G G G 
+--------
+Fire a charged arrow at the target. On hitting an enemy, the arrow fires beams of Lightning at other enemies near that enemy.
+--------
+Arrow
+--------
+Converts 40% of Physical Damage to Lightning Damage
+--------
+Beam
+--------
+Fires beams at up to 5 enemies within 3.2 metres
+--------
+Skills can be managed in the Skills Panel.

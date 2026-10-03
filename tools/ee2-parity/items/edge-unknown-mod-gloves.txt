@@ -1,0 +1,23 @@
+Item Class: Gloves
+Rarity: Rare
+Rune Grasp
+Firm Bracers
+--------
+Evasion Rating: 120 (augmented)
+--------
+Requires: Level 33, 53 Dex
+--------
+Sockets: S 
+--------
+Item Level: 45
+--------
+{ Prefix Modifier "Agile" (Tier: 6) — Defences }
++40(35-48) to Evasion Rating
+{ Prefix Modifier "Nonexistent" (Tier: 1) }
+12(10-15)% increased Wombat Summoning Speed
+{ Suffix Modifier "of the Fox" (Tier: 5) — Attribute }
++17(17-20) to Dexterity
+{ Suffix Modifier "of the Lynx" (Tier: 6) — Attribute }
++10(9-12) to Strength
+{ Suffix Modifier "of the Owl" (Tier: 6) — Attribute }
++4(3-6) to Intelligence

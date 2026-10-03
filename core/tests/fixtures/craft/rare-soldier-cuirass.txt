@@ -1,0 +1,21 @@
+Item Class: Body Armours
+Rarity: Rare
+Dusk Shell
+Soldier Cuirass
+--------
+Armour: 612 (augmented)
+--------
+Requires: Level 65, 86 Str
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Virile" (Tier: 8) — Life }
++104(100-119) to maximum Life
+{ Prefix Modifier "Enveloped" (Tier: 8) — Defences }
++203(191-221) to Armour
+{ Suffix Modifier "of the Polar Bear" (Tier: 6) — Elemental, Cold, Resistance }
++33(31-35)% to Cold Resistance
+{ Suffix Modifier "of the Kiln" (Tier: 4) — Elemental, Fire, Resistance }
++22(21-25)% to Fire Resistance
+{ Suffix Modifier "of the Goliath" (Tier: 6) — Attribute }
++26(25-27) to Strength

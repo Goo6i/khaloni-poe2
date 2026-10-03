@@ -1,0 +1,24 @@
+Item Class: Sceptres
+Rarity: Rare
+Soul Song
+Rattling Sceptre
+--------
+Quality: +8% (augmented)
+Spirit: 124 (augmented)
+--------
+Requires: Level 78, 80 Str, 120 Int
+--------
+Sockets: S 
+--------
+Item Level: 79
+--------
++10 to Spirit (rune)
+--------
+{ Prefix Modifier "Lord's" (Tier: 4) }
++35(30-38) to Spirit
+{ Suffix Modifier "of the Prodigy" (Tier: 3) — Attribute }
++28(25-32) to Intelligence
+{ Suffix Modifier "of Sortilege" (Tier: 3) — Mana }
+38(35-44)% increased Mana Regeneration Rate
+{ Suffix Modifier "of the Worthy" (Tier: 2) }
+25(30-25)% reduced Attribute Requirements

@@ -143,3 +143,108 @@ fn per_asset_checksum_wins_over_the_combined_file() {
     // The .sha256 sidecar must never be mistaken for the binary itself.
     assert!(!plan.asset_name.ends_with(".sha256"));
 }
+
+// --- download and install ---
+
+use std::io::{Read, Write};
+use std::time::{Duration, Instant};
+
+/// Serves one response: the headers claiming `total` bytes, then `chunks`
+/// chunks `gap` apart, then (when fewer bytes than claimed were sent) an
+/// open, silent connection.
+fn serve(total: usize, chunks: usize, chunk: usize, gap: Duration) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let Ok((mut s, _)) = listener.accept() else { return };
+        let mut buf = [0u8; 2048];
+        let _ = s.read(&mut buf);
+        let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n");
+        for _ in 0..chunks {
+            if s.write_all(&vec![7u8; chunk]).and_then(|()| s.flush()).is_err() {
+                return;
+            }
+            std::thread::sleep(gap);
+        }
+        if chunks * chunk < total {
+            std::thread::sleep(Duration::from_secs(20));
+        }
+    });
+    format!("http://{addr}/asset")
+}
+
+#[test]
+fn a_slow_but_moving_download_outlives_the_idle_timeout() {
+    // Ten chunks 150 ms apart take 1.5 s in all, three times the idle
+    // allowance: only a gap between chunks may end the download, never its
+    // total length.
+    let url = serve(10_000, 10, 1_000, Duration::from_millis(150));
+    let bytes = khaloni_poe2::update::download(&url, 1 << 20, Duration::from_secs(5), Duration::from_millis(500))
+        .expect("a moving download completes");
+    assert_eq!(bytes.len(), 10_000);
+}
+
+#[test]
+fn a_stalled_download_fails_after_the_idle_timeout() {
+    let url = serve(10_000, 2, 1_000, Duration::from_millis(10));
+    let started = Instant::now();
+    let err = khaloni_poe2::update::download(&url, 1 << 20, Duration::from_secs(5), Duration::from_millis(400))
+        .expect_err("a connection that goes quiet is given up on");
+    assert!(err.to_string().contains("stalled"), "{err}");
+    assert!(started.elapsed() < Duration::from_secs(10), "gave up after {:?}", started.elapsed());
+}
+
+#[test]
+fn an_oversized_download_is_refused() {
+    let url = serve(5_000, 5, 1_000, Duration::from_millis(1));
+    assert!(khaloni_poe2::update::download(&url, 1_000, Duration::from_secs(5), Duration::from_secs(2)).is_err());
+}
+
+fn install_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("khalonipoe2-install-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn install_replaces_the_binary_and_keeps_the_previous_one() {
+    let dir = install_dir("swap");
+    let (exe, staged, backup) = (dir.join("khaloni-poe2"), dir.join(".khaloni-poe2.new"), dir.join(".khaloni-poe2.old"));
+    std::fs::write(&exe, "old binary").unwrap();
+    std::fs::write(&staged, "new binary").unwrap();
+    std::fs::write(&backup, "an even older backup").unwrap();
+    khaloni_poe2::update::install(&staged, &exe, &backup).expect("installs");
+    assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new binary");
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), "old binary");
+    assert!(!staged.exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_install_leaves_the_running_binary_where_it_was() {
+    let dir = install_dir("fail");
+    let (exe, backup) = (dir.join("khaloni-poe2"), dir.join(".khaloni-poe2.old"));
+    std::fs::write(&exe, "old binary").unwrap();
+    // No staged file: the rename over the executable fails, and the
+    // executable must never have moved.
+    assert!(khaloni_poe2::update::install(&dir.join("missing"), &exe, &backup).is_err());
+    assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old binary");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn the_backup_survives_the_first_start_after_an_update() {
+    let dir = install_dir("sweep");
+    let (backup, pending) = (dir.join(".khaloni-poe2.old"), dir.join(".khaloni-poe2.pending"));
+    std::fs::write(&backup, "old binary").unwrap();
+    std::fs::write(&pending, "v9.9.9").unwrap();
+    // First start of the new version: the marker goes, the way back stays.
+    khaloni_poe2::update::cleanup_backup_in(&dir);
+    assert!(backup.exists() && !pending.exists());
+    // It has started once; the next start sweeps the backup.
+    khaloni_poe2::update::cleanup_backup_in(&dir);
+    assert!(!backup.exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}

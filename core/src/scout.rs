@@ -89,6 +89,27 @@ pub fn parse_unique_categories(body: &str) -> Result<Vec<String>, ScoutError> {
     Ok(cats)
 }
 
+/// Name -> price, leaving out any name listed at two different prices: the
+/// rows are then different variants of the unique, this API shape does not
+/// say which is which, and the last one paged used to win.
+fn by_unambiguous_name(listed: Vec<(String, f64)>) -> HashMap<String, f64> {
+    let mut out: HashMap<String, f64> = HashMap::new();
+    let mut conflicted: Vec<String> = Vec::new();
+    for (name, price) in listed {
+        match out.get(&name) {
+            Some(seen) if (seen - price).abs() > f64::EPSILON * seen.abs().max(1.0) => conflicted.push(name),
+            Some(_) => {}
+            None => {
+                out.insert(name, price);
+            }
+        }
+    }
+    for name in conflicted {
+        out.remove(&name);
+    }
+    out
+}
+
 pub struct ScoutClient {
     http: reqwest::blocking::Client,
     base: String,
@@ -132,7 +153,7 @@ impl ScoutClient {
         if categories.is_empty() {
             return Ok(HashMap::new());
         }
-        let mut out = HashMap::new();
+        let mut listed: Vec<(String, f64)> = Vec::new();
         for cat in &categories {
             let mut page = 1u32;
             loop {
@@ -145,7 +166,7 @@ impl ScoutClient {
                 );
                 let body = self.http.get(&url).send()?.error_for_status()?.text()?;
                 let (entries, pages) = parse_unique_page(&body)?;
-                out.extend(entries);
+                listed.extend(entries);
                 if page >= pages {
                     break;
                 }
@@ -153,22 +174,34 @@ impl ScoutClient {
             }
         }
         // Every category paged and none priced: same definitive answer.
-        Ok(out)
+        Ok(by_unambiguous_name(listed))
+    }
+
+    fn read_cache(&self, league: &str) -> Option<HashMap<String, f64>> {
+        serde_json::from_str(&std::fs::read_to_string(self.cache_path(league)).ok()?).ok()
     }
 
     /// All unique item prices (name -> exalted) for a league: fresh from
     /// the API when reachable (and cached to disk), the last cached map
     /// otherwise. The bool is true when the data came from stale cache.
+    ///
+    /// An empty answer is returned as the API's word on the league, but it
+    /// never replaces a cache that holds prices: "no categories" is also
+    /// what a half-working API says, and overwriting a good cache with `{}`
+    /// left nothing to fall back on at the next outage.
     pub fn unique_prices(&self, league: &str) -> Result<(HashMap<String, f64>, bool), ScoutError> {
         match self.fetch_all(league) {
             Ok(map) => {
-                std::fs::create_dir_all(&self.cache_dir)?;
-                std::fs::write(self.cache_path(league), serde_json::to_string(&map)?)?;
+                let keeps_prices = map.is_empty() && self.read_cache(league).is_some_and(|c| !c.is_empty());
+                if !keeps_prices {
+                    let body = serde_json::to_string(&map)?;
+                    crate::ninja::write_cache_atomic(&self.cache_path(league), body.as_bytes())?;
+                }
                 Ok((map, false))
             }
-            Err(fetch_err) => match std::fs::read_to_string(self.cache_path(league)) {
-                Ok(body) => Ok((serde_json::from_str(&body)?, true)),
-                Err(_) => Err(ScoutError::NoData(format!("{league}: {fetch_err}"))),
+            Err(fetch_err) => match self.read_cache(league) {
+                Some(map) => Ok((map, true)),
+                None => Err(ScoutError::NoData(format!("{league}: {fetch_err}"))),
             },
         }
     }

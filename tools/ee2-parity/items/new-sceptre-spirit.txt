@@ -1,0 +1,27 @@
+Item Class: Sceptres
+Rarity: Rare
+Grave Call
+Rattling Sceptre
+--------
+Spirit: 158 (augmented)
+--------
+Requires: Level 78, 50 Str, 118 Int
+--------
+Sockets: S S 
+--------
+Item Level: 81
+--------
+Grants Skill: Level 18 Skeletal Warrior Minion
+--------
+{ Prefix Modifier "Baron's" (Tier: 2) }
+58(56-60)% increased Spirit
+{ Prefix Modifier "Overseer's" (Tier: 3) — Damage, Minion }
+Allies in your Presence deal 67(65-79)% increased Damage
+{ Prefix Modifier "Cerulean" (Tier: 4) — Mana }
++132(125-149) to maximum Mana
+{ Suffix Modifier "of the Headmaster" (Tier: 2) — Minion, Gem }
++4 to Level of all Minion Skills
+{ Suffix Modifier "of the Tutor" (Tier: 5) — Life, Minion }
+Minions have 29(26-30)% increased maximum Life
+{ Suffix Modifier "of the Philosopher" (Tier: 4) — Attribute }
++22(21-24) to Intelligence

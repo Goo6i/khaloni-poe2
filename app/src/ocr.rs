@@ -50,6 +50,54 @@ use image::{imageops, GrayImage};
 // cleanly too: psm 4 at 4x reads all 4 bands of the fixture exactly right.
 // psm 4 at 4x is what's actually used below; psm 7 is not used anywhere.
 
+/// Capture height at which every pixel measurement in this file was
+/// taken. The game lays its interface out against the window height, so a
+/// 1440p client draws the same panel at two thirds the size and a 1080p
+/// client at half: row gaps of 16-18 px become 11 and 8, under the 13 px
+/// merge limit, and every reward row fuses into one band.
+pub const REFERENCE_HEIGHT: u32 = 2160;
+
+/// Ratio of the captured game frame's height to REFERENCE_HEIGHT. Every
+/// pixel constant below is a reference-height measurement and goes through
+/// `px` before use; at the reference height `px` is the identity, so 4K
+/// behaviour is exactly what the constants say.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiScale(f32);
+
+impl UiScale {
+    pub const REFERENCE: UiScale = UiScale(1.0);
+
+    /// Scale of a game frame `frame_height` pixels tall (the whole
+    /// captured client area, not a region cropped out of it).
+    pub fn from_frame_height(frame_height: u32) -> UiScale {
+        if frame_height == 0 {
+            return UiScale::REFERENCE;
+        }
+        UiScale(frame_height as f32 / REFERENCE_HEIGHT as f32)
+    }
+
+    pub fn factor(self) -> f32 {
+        self.0
+    }
+
+    /// A reference-height pixel length at this scale, never below 1.
+    pub fn px(self, reference_px: u32) -> u32 {
+        if reference_px == 0 {
+            return 0;
+        }
+        ((reference_px as f32 * self.0).round() as u32).max(1)
+    }
+
+    /// Integer upscale that hands tesseract glyphs as large as
+    /// `reference_upscale` does at the reference height: the accuracy
+    /// measurements behind BAND_OCR_SCALE and UPSCALE are statements about
+    /// glyph size in the image tesseract sees, not about the factor.
+    #[cfg_attr(not(ocr), allow(dead_code))]
+    fn ocr_upscale(self, reference_upscale: u32) -> u32 {
+        ((reference_upscale as f32 / self.0).round() as u32).clamp(reference_upscale, 4 * reference_upscale)
+    }
+}
+
 /// Mean brightness (capture-pixel space, 0-255) a row must clear to count
 /// as part of a band. See the evidence block above for the measured gap
 /// this sits in.
@@ -146,9 +194,8 @@ pub struct OcrLine {
 /// then is BAND_MIN_H applied. Returns (y0, y1) pairs in capture-pixel
 /// space, top to bottom.
 /// Per-row mean brightness over the band-detection x-window, in
-/// capture-pixel rows. Shared by band detection and optical scroll
-/// estimation (the profile of a scrolled frame is the previous frame's
-/// profile shifted vertically).
+/// capture-pixel rows: band detection's input. `RowSignature` computes the
+/// same profile on its pass for motion tracking.
 pub fn row_profile(gray: &GrayImage) -> Vec<u16> {
     let (w, h) = (gray.width() as usize, gray.height() as usize);
     if w == 0 || h == 0 {
@@ -166,86 +213,210 @@ pub fn row_profile(gray: &GrayImage) -> Vec<u16> {
 }
 
 /// One frame's vertical motion relative to the previous frame, judged
-/// from their row profiles.
+/// from their row signatures over the scrolling list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
-    /// Near-identical to the previous frame (or drifted by <= 2 profile
-    /// rows, which POSITION_SNAP absorbs downstream). Safe to scan.
+    /// The list did not move. Safe to scan.
     Still,
-    /// Content shifted vertically by this many profile rows.
+    /// The list content moved vertically by this many capture rows
+    /// (positive: down).
     Scrolled(i32),
-    /// The frame differs substantially and no shift explains it: a flick
-    /// faster than the search range, a panel switch, or a large content
-    /// change mid-scroll. Positions held from before are untrustworthy.
+    /// The list differs substantially and no shift explains it: a flick
+    /// that left too little of it in view, a panel switch, or a large
+    /// content change. Positions held from before are untrustworthy.
     Lost,
 }
 
-/// Normalized-SAD ceiling (x1024 fixed point) under which two profiles
-/// count as "the same content": accepts a candidate shift, and separates
-/// Still from Lost at dy=0. Measured on the live corpus for
-/// estimate_scroll and carried over unchanged.
-const SAME_MAX: u64 = 12 * 1024;
+// --- Motion tracking ---
+//
+// A frame's motion is found by sliding the previous frame's list rows over
+// the current frame's and keeping the shift under which they coincide. Two
+// facts of the reward panel shape how:
+//
+// Every reward bar has the same white backdrop, so one mean brightness per
+// pixel row repeats with the row pitch: under that profile a scroll by a
+// whole number of rows looks exactly like no movement (measured on the
+// live fixture's rows: a 95 px scroll, one row, read as Still every time).
+// Each row is therefore described by the mean of each of SIG_BINS column
+// bins across the text window, which differs wherever the rows' names and
+// icons differ. The profile still picks the candidate shifts, cheaply; the
+// bins decide between them.
+//
+// Only the list scrolls: the book's title above it, the page below it and
+// the border beside it stay put. Rows outside the list's span are left out
+// of the comparison (with them in, the true shift of a wheel notch did not
+// match closely enough and read as Lost), and within the span only the
+// previous frame's bar rows are compared, since the parchment between bars
+// may be drawn behind the list rather than on it. Static columns inside
+// the window are handled by SIG_TRIM.
 
-/// Classifies the vertical motion between two frames' row profiles:
-/// minimizes normalized SAD over dy candidates, requiring at least 30%
-/// overlap. Sub-millisecond for ~1000-row profiles, so it can run on
-/// every captured frame.
-pub fn track_motion(prev: &[u16], cur: &[u16]) -> Motion {
-    const MAX_DY: i32 = 240;
-    if prev.len() != cur.len() || prev.len() < 100 {
+/// Column bins per row in a `RowSignature`.
+const SIG_BINS: usize = 16;
+/// Bins left out of every comparison, the worst-matching ones. The book
+/// border right of the bars (about two bins of the window) does not move
+/// with the list, so at the true shift it is all that differs.
+const SIG_TRIM: usize = 3;
+/// Mean absolute difference per compared bin (x1024 fixed point) under
+/// which two frames' list rows count as the same content at a shift.
+/// Measured on the live fixture's rows (2026-09-30): the true shift scores
+/// 0, one pixel off it 4.7-5.6, and any other row 10.5 or more; a scroll
+/// the game renders between whole pixels lands under the one-pixel score.
+const SIG_SAME_MAX: u64 = 7 * 1024;
+/// Shifts within this of the best score count as tied, and a tie goes to
+/// the smallest displacement (x1024 fixed point, as SIG_SAME_MAX).
+const SIG_TIE: u64 = 64;
+/// Candidate shifts taken from the profile to be checked against the bins.
+const SIG_CANDIDATES: usize = 32;
+/// Fewest bar rows (reference px) a shift must leave in view on both
+/// frames to be judged: a little under one bar.
+const TRACK_MIN_ROWS: u32 = 60;
+/// A list whose rows vary by less than this brightness carries no motion.
+const TRACK_FLAT: u16 = 20;
+
+/// What motion tracking knows of each pixel row of a frame: the
+/// band-detection profile (`row_profile`), and the mean of each of
+/// SIG_BINS column bins across the same window.
+pub struct RowSignature {
+    profile: Vec<u16>,
+    bins: Vec<u16>,
+}
+
+impl RowSignature {
+    /// One pass over the text window of `gray`.
+    pub fn of(gray: &GrayImage) -> RowSignature {
+        let (w, h) = (gray.width() as usize, gray.height() as usize);
+        if w == 0 || h == 0 {
+            return RowSignature { profile: Vec::new(), bins: Vec::new() };
+        }
+        let x0 = ((w as f32) * ICON_CUT) as usize;
+        let x1 = (((w as f32) * (1.0 - RIGHT_TRIM)) as usize).clamp(x0 + 1, w);
+        let edges: Vec<usize> = (0..=SIG_BINS).map(|k| x0 + (x1 - x0) * k / SIG_BINS).collect();
+        let raw = gray.as_raw();
+        let mut profile = Vec::with_capacity(h);
+        let mut bins = Vec::with_capacity(h * SIG_BINS);
+        for y in 0..h {
+            let row = &raw[y * w..y * w + w];
+            let mut total = 0u64;
+            for k in 0..SIG_BINS {
+                let cells = &row[edges[k]..edges[k + 1]];
+                let sum: u64 = cells.iter().map(|&p| u64::from(p)).sum();
+                bins.push((sum / cells.len().max(1) as u64) as u16);
+                total += sum;
+            }
+            profile.push((total / (x1 - x0) as u64) as u16);
+        }
+        RowSignature { profile, bins }
+    }
+
+    /// Per-row mean brightness, identical to `row_profile` of the frame.
+    pub fn profile(&self) -> &[u16] {
+        &self.profile
+    }
+
+    fn bins_of(&self, y: usize) -> &[u16] {
+        &self.bins[y * SIG_BINS..(y + 1) * SIG_BINS]
+    }
+}
+
+/// The list's motion between two frames. `span` is the rows (y0, y1) the
+/// scrolling list occupies, from the reward bars seen so far: only the
+/// previous frame's bar rows inside it are compared, against rows of the
+/// current frame that are inside it too. Positive dy = content moved down
+/// (cur row y shows what prev row y - dy showed), the direction slot y
+/// values shift. Any shift that leaves TRACK_MIN_ROWS of bar rows in view
+/// is found, so a real scroll of up to most of the viewport between two
+/// frames is tracked; under a millisecond at 4K.
+pub fn track_motion(prev: &RowSignature, cur: &RowSignature, span: (u32, u32), scale: UiScale) -> Motion {
+    let n = prev.profile.len();
+    if n != cur.profile.len() || n == 0 {
         return Motion::Lost;
     }
-    let n = prev.len() as i32;
-    // Flat profiles (no structure) match at every shift; call the frame
-    // Still and let band detection decide what is actually on screen.
-    let (min, max) = cur.iter().fold((u16::MAX, 0u16), |(a, b), &v| (a.min(v), b.max(v)));
-    if max - min < 20 {
+    let (a, b) = ((span.0 as usize).min(n), (span.1 as usize).min(n));
+    if b <= a {
         return Motion::Still;
     }
-    // Convention: positive dy = content moved DOWN by dy rows (cur[i]
-    // matches prev[i - dy]), which is the direction slot y values shift.
-    let sad_at = |dy: i32| -> Option<u64> {
-        let (p0, c0) = if dy >= 0 { (0usize, dy as usize) } else { ((-dy) as usize, 0usize) };
-        let overlap = (n - dy.abs()) as usize;
-        if overlap * 10 < prev.len() * 3 {
-            return None;
-        }
-        let mut sum = 0u64;
-        for i in 0..overlap {
-            sum += u64::from(prev[p0 + i].abs_diff(cur[c0 + i]));
-        }
-        // Scaled normalization: plain integer division floors away
-        // the one-pixel edge signal that disambiguates neighboring
-        // offsets (measured: a 1 px misalignment scores 0.68/row, which
-        // floored to 0 and tied three offsets at zero).
-        Some(sum * 1024 / overlap as u64)
+    // No structure in view: nothing to track, band detection decides what
+    // is on screen.
+    let (lo, hi) = cur.profile[a..b].iter().fold((u16::MAX, 0u16), |(l, h), &v| (l.min(v), h.max(v)));
+    if hi - lo < TRACK_FLAT {
+        return Motion::Still;
+    }
+    let bright: Vec<usize> = (a..b).filter(|&y| prev.profile[y] >= u16::from(BAND_BRIGHTNESS)).collect();
+    let min_rows = scale.px(TRACK_MIN_ROWS) as usize;
+    if bright.len() < min_rows {
+        return Motion::Still;
+    }
+    let (a, b) = (a as i64, b as i64);
+    // The compared rows at a shift: previous bar rows whose content would
+    // land inside the span.
+    let rows_at = |dy: i64| -> &[usize] {
+        let from = bright.partition_point(|&y| (y as i64) + dy < a);
+        let to = bright.partition_point(|&y| (y as i64) + dy < b);
+        &bright[from..to]
     };
-    let Some(base) = sad_at(0) else {
-        return Motion::Lost;
+    let max_dy = (b - a) - min_rows as i64;
+    let profile_score = |dy: i64| -> Option<u64> {
+        let rows = rows_at(dy);
+        (rows.len() >= min_rows).then(|| {
+            let sum: u64 = rows
+                .iter()
+                .map(|&y| u64::from(prev.profile[y].abs_diff(cur.profile[(y as i64 + dy) as usize])))
+                .sum();
+            sum * 1024 / rows.len() as u64
+        })
     };
-    let mut best = (0i32, base);
-    for dy in (-MAX_DY..=MAX_DY).filter(|&d| d != 0) {
-        if let Some(s) = sad_at(dy) {
-            // Ties (uniform background regions) resolve toward the
-            // smallest displacement.
-            if s < best.1 || (s == best.1 && dy.abs() < best.0.abs()) {
-                best = (dy, s);
+    let bins_score = |dy: i64| -> Option<u64> {
+        let rows = rows_at(dy);
+        (rows.len() >= min_rows).then(|| {
+            let mut per_bin = [0u64; SIG_BINS];
+            for &y in rows {
+                let (p, c) = (prev.bins_of(y), cur.bins_of((y as i64 + dy) as usize));
+                for k in 0..SIG_BINS {
+                    per_bin[k] += u64::from(p[k].abs_diff(c[k]));
+                }
+            }
+            per_bin.sort_unstable();
+            let kept = &per_bin[..SIG_BINS - SIG_TRIM];
+            kept.iter().sum::<u64>() * 1024 / (rows.len() * kept.len()) as u64
+        })
+    };
+    // Candidates: the profile's local minima, best first. A whole-row
+    // shift and its aliases are all among them.
+    let coarse: Vec<Option<u64>> = (-max_dy..=max_dy).map(profile_score).collect();
+    let mut candidates: Vec<(u64, i64)> = coarse
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| {
+            let s = (*s)?;
+            let around = &coarse[i.saturating_sub(2)..(i + 3).min(coarse.len())];
+            around.iter().all(|o| o.is_none_or(|o| o >= s)).then_some((s, i as i64 - max_dy))
+        })
+        .collect();
+    candidates.sort_unstable();
+    candidates.truncate(SIG_CANDIDATES);
+    let mut scored: Vec<(i64, u64)> = Vec::new();
+    for dy in std::iter::once(0).chain(candidates.iter().flat_map(|&(_, c)| c - 1..=c + 1)) {
+        if dy.abs() <= max_dy && !scored.iter().any(|&(d, _)| d == dy) {
+            if let Some(s) = bins_score(dy) {
+                scored.push((dy, s));
             }
         }
     }
-    // A shift only counts when it beats "no movement" decisively AND is
-    // a near-exact overlay of the previous frame (a true scroll is the
-    // same pixels displaced; unrelated content merely resembles it).
-    if best.0 != 0 && best.1 * 3 < base && best.1 <= SAME_MAX {
-        if best.0.abs() > 2 {
-            Motion::Scrolled(best.0)
-        } else {
-            Motion::Still
-        }
-    } else if base <= SAME_MAX {
+    let Some(best) = scored.iter().map(|&(_, s)| s).min() else {
+        return Motion::Lost;
+    };
+    let (dy, score) = scored
+        .iter()
+        .copied()
+        .filter(|&(_, s)| s <= best + SIG_TIE)
+        .min_by_key(|&(d, _)| (d.abs(), d))
+        .expect("the best score is within its own tie");
+    if score > SIG_SAME_MAX {
+        Motion::Lost
+    } else if dy == 0 {
         Motion::Still
     } else {
-        Motion::Lost
+        Motion::Scrolled(dy as i32)
     }
 }
 
@@ -255,6 +426,11 @@ pub fn detect_bands(gray: &GrayImage) -> Vec<(u32, u32)> {
 }
 
 pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
+    detect_bands_from_profile_at(profile, UiScale::REFERENCE)
+}
+
+/// `detect_bands_from_profile` for a region cut from a frame at `scale`.
+pub fn detect_bands_from_profile_at(profile: &[u16], scale: UiScale) -> Vec<(u32, u32)> {
     let mut bands = Vec::new();
     let mut band_start: Option<u32> = None;
     for (y, &mean) in profile.iter().enumerate() {
@@ -275,11 +451,11 @@ pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
     let mut merged: Vec<(u32, u32)> = Vec::new();
     for (y0, y1) in bands {
         match merged.last_mut() {
-            Some((_, last_y1)) if gap_is_internal(profile, *last_y1, y0) => *last_y1 = y1,
+            Some((_, last_y1)) if gap_is_internal(profile, *last_y1, y0, scale) => *last_y1 = y1,
             _ => merged.push((y0, y1)),
         }
     }
-    merged.retain(|(y0, y1)| y1 - y0 >= BAND_MIN_H);
+    merged.retain(|(y0, y1)| y1 - y0 >= scale.px(BAND_MIN_H));
     merged
 }
 
@@ -292,12 +468,12 @@ pub fn detect_bands_from_profile(profile: &[u16]) -> Vec<(u32, u32)> {
 /// 2026-09-11) - so a gap with no row darker than GAP_LIGHT_MIN is row
 /// shading, not a border. Capped at GAP_LIGHT_MAX_LEN: the shading gaps
 /// measure 17-18 rows, the page-strip gap 50.
-fn gap_is_internal(profile: &[u16], from: u32, to: u32) -> bool {
+fn gap_is_internal(profile: &[u16], from: u32, to: u32, scale: UiScale) -> bool {
     let len = to.saturating_sub(from);
-    if len <= BAND_MERGE_GAP {
+    if len <= scale.px(BAND_MERGE_GAP) {
         return true;
     }
-    len <= GAP_LIGHT_MAX_LEN
+    len <= scale.px(GAP_LIGHT_MAX_LEN)
         && profile[from as usize..to as usize].iter().all(|&v| v >= GAP_LIGHT_MIN)
 }
 
@@ -351,18 +527,24 @@ fn mean_of(profile: &[u16], y0: u32, y1: u32) -> Option<f64> {
 /// `row_profile(gray)`) has the reward-bar signature above. A band that
 /// touches both crop edges has no measurable edge and is rejected.
 pub fn is_reward_bar(gray: &GrayImage, profile: &[u16], y0: u32, y1: u32) -> bool {
+    is_reward_bar_at(gray, profile, y0, y1, UiScale::REFERENCE)
+}
+
+/// `is_reward_bar` for a region cut from a frame at `scale`.
+pub fn is_reward_bar_at(gray: &GrayImage, profile: &[u16], y0: u32, y1: u32, scale: UiScale) -> bool {
     let h = profile.len() as u32;
-    if y1 <= y0 || y1 > h || y1 - y0 < BAND_MIN_H {
+    if y1 <= y0 || y1 > h || y1 - y0 < scale.px(BAND_MIN_H) {
         return false;
     }
+    let (edge_inside, edge_outside) = (scale.px(EDGE_INSIDE), scale.px(EDGE_OUTSIDE));
     let Some(mean) = mean_of(profile, y0, y1) else { return false };
     if mean < f64::from(BAR_MIN_MEAN) {
         return false;
     }
-    let inside = EDGE_INSIDE.min(y1 - y0);
+    let inside = edge_inside.min(y1 - y0);
     let mut edges_seen = 0;
     if y0 > 0 {
-        let outside = mean_of(profile, y0.saturating_sub(EDGE_OUTSIDE), y0).unwrap_or(0.0);
+        let outside = mean_of(profile, y0.saturating_sub(edge_outside), y0).unwrap_or(0.0);
         let inner = mean_of(profile, y0, y0 + inside).unwrap_or(0.0);
         if inner - outside < f64::from(BAR_MIN_EDGE) {
             return false;
@@ -370,7 +552,7 @@ pub fn is_reward_bar(gray: &GrayImage, profile: &[u16], y0: u32, y1: u32) -> boo
         edges_seen += 1;
     }
     if y1 < h {
-        let outside = mean_of(profile, y1, (y1 + EDGE_OUTSIDE).min(h)).unwrap_or(0.0);
+        let outside = mean_of(profile, y1, (y1 + edge_outside).min(h)).unwrap_or(0.0);
         let inner = mean_of(profile, y1 - inside, y1).unwrap_or(0.0);
         if inner - outside < f64::from(BAR_MIN_EDGE) {
             return false;
@@ -394,9 +576,14 @@ pub fn is_reward_bar(gray: &GrayImage, profile: &[u16], y0: u32, y1: u32) -> boo
 /// The bright bands of `profile` that carry the reward-bar signature: the
 /// rows worth OCR, and the only evidence that a reward panel is on screen.
 pub fn reward_bars(gray: &GrayImage, profile: &[u16]) -> Vec<(u32, u32)> {
-    detect_bands_from_profile(profile)
+    reward_bars_at(gray, profile, UiScale::REFERENCE)
+}
+
+/// `reward_bars` for a region cut from a frame at `scale`.
+pub fn reward_bars_at(gray: &GrayImage, profile: &[u16], scale: UiScale) -> Vec<(u32, u32)> {
+    detect_bands_from_profile_at(profile, scale)
         .into_iter()
-        .filter(|&(y0, y1)| is_reward_bar(gray, profile, y0, y1))
+        .filter(|&(y0, y1)| is_reward_bar_at(gray, profile, y0, y1, scale))
         .collect()
 }
 
@@ -407,11 +594,17 @@ pub fn reward_bars(gray: &GrayImage, profile: &[u16]) -> Vec<(u32, u32)> {
 /// template engine so learned strips and later encounters are
 /// pixel-compatible by construction.
 pub fn band_crop(gray: &GrayImage, y0: u32, y1: u32) -> Option<GrayImage> {
+    band_crop_at(gray, y0, y1, UiScale::REFERENCE)
+}
+
+/// `band_crop` for a region cut from a frame at `scale`.
+pub fn band_crop_at(gray: &GrayImage, y0: u32, y1: u32, scale: UiScale) -> Option<GrayImage> {
     let (w, h) = (gray.width(), gray.height());
+    let pad = scale.px(BAND_PAD);
     let x0 = ((w as f32) * ICON_CUT) as u32;
     let x1 = (((w as f32) * (1.0 - RIGHT_TRIM)) as u32).clamp(x0 + 1, w);
-    let cy0 = y0.saturating_sub(BAND_PAD);
-    let cy1 = (y1 + BAND_PAD).min(h);
+    let cy0 = y0.saturating_sub(pad);
+    let cy1 = (y1 + pad).min(h);
     if x1 <= x0 || cy1 <= cy0 {
         return None;
     }
@@ -419,15 +612,19 @@ pub fn band_crop(gray: &GrayImage, y0: u32, y1: u32) -> Option<GrayImage> {
 }
 
 #[cfg(ocr)]
-fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> Option<OcrLine> {
-    let crop = band_crop(gray, y0, y1)?;
-    let up = imageops::resize(
-        &crop,
-        crop.width() * BAND_OCR_SCALE,
-        crop.height() * BAND_OCR_SCALE,
+fn upscale_for_ocr(crop: &GrayImage, factor: u32) -> GrayImage {
+    imageops::resize(
+        crop,
+        crop.width() * factor,
+        crop.height() * factor,
         imageops::FilterType::Lanczos3,
-    );
+    )
+}
 
+#[cfg(ocr)]
+fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32, scale: UiScale) -> Option<OcrLine> {
+    let crop = band_crop_at(gray, y0, y1, scale)?;
+    let up = upscale_for_ocr(&crop, scale.ocr_upscale(BAND_OCR_SCALE));
     let tsv = engine.tsv(&up).ok()?;
     parse_band_tsv(&tsv, y0, y1)
 }
@@ -437,9 +634,20 @@ fn ocr_one_band(engine: &mut OcrEngine, gray: &GrayImage, y0: u32, y1: u32) -> O
 /// under one old CLI spawn) and returns a single y-ordered Vec<OcrLine>.
 #[cfg(ocr)]
 pub fn ocr_bands(engine: &mut OcrEngine, gray: &GrayImage, bands: &[(u32, u32)]) -> Vec<OcrLine> {
+    ocr_bands_at(engine, gray, bands, UiScale::REFERENCE)
+}
+
+/// `ocr_bands` for a region cut from a frame at `scale`.
+#[cfg(ocr)]
+pub fn ocr_bands_at(
+    engine: &mut OcrEngine,
+    gray: &GrayImage,
+    bands: &[(u32, u32)],
+    scale: UiScale,
+) -> Vec<OcrLine> {
     let mut lines: Vec<OcrLine> = bands
         .iter()
-        .filter_map(|&(y0, y1)| ocr_one_band(engine, gray, y0, y1))
+        .filter_map(|&(y0, y1)| ocr_one_band(engine, gray, y0, y1, scale))
         .collect();
     lines.sort_by_key(|l| l.y_top);
     lines
@@ -457,6 +665,19 @@ pub fn ocr_bands(engine: &mut OcrEngine, gray: &GrayImage, bands: &[(u32, u32)])
 pub struct OcrEngine {
     lt: leptess::LepTess,
 }
+
+// Tesseract's OpenMP team: distro builds of tesseract are compiled with
+// OpenMP, and libgomp parks its worker team in a spin loop between
+// parallel regions, which on strips this small is pure waste. Nothing in
+// this file can stop it. Tesseract's parallel loops carry an explicit
+// num_threads clause, so omp_set_num_threads(1) on the calling thread
+// changes nothing (measured: 16.1 s CPU against 16.3 s for 150 band
+// passes), and libgomp reads OMP_THREAD_LIMIT / OMP_WAIT_POLICY in a
+// load-time constructor, so std::env::set_var before the first engine
+// changes nothing either (measured the same way). Only a process that
+// STARTS with OMP_THREAD_LIMIT=1 runs single-threaded (14.0 s CPU, equal
+// to wall time): the binary has to be launched with it, or re-exec itself
+// with it as the first thing in main().
 
 #[cfg(ocr)]
 impl OcrEngine {
@@ -623,16 +844,10 @@ const WHOLE_ICON_CUT: f32 = 0.25;
 /// benefits from being stretched to full contrast before tesseract sees
 /// it).
 #[cfg(ocr)]
-fn whole_preprocess(region: &GrayImage) -> GrayImage {
+fn whole_preprocess(region: &GrayImage, upscale: u32) -> GrayImage {
     let cut = (region.width() as f32 * WHOLE_ICON_CUT) as u32;
     let text = imageops::crop_imm(region, cut, 0, region.width() - cut, region.height()).to_image();
-    let up = imageops::resize(
-        &text,
-        text.width() * UPSCALE,
-        text.height() * UPSCALE,
-        imageops::FilterType::Lanczos3,
-    );
-    whole_normalize(up)
+    whole_normalize(upscale_for_ocr(&text, upscale))
 }
 
 #[cfg(ocr)]
@@ -723,8 +938,25 @@ pub fn parse_whole_tsv(tsv: &str) -> Vec<OcrLine> {
 /// a crash" contract.
 #[cfg(ocr)]
 pub fn ocr_whole_panel(engine: &mut OcrEngine, gray: &GrayImage) -> Vec<OcrLine> {
-    let pre = whole_preprocess(gray);
-    run_whole_tesseract(engine, &pre).unwrap_or_default()
+    ocr_whole_panel_at(engine, gray, UiScale::REFERENCE)
+}
+
+/// `ocr_whole_panel` for a region cut from a frame at `scale`. Below the
+/// reference height the image is enlarged by more than UPSCALE so the
+/// glyphs reach tesseract at their measured size; line positions are
+/// brought back to the UPSCALE coordinate contract afterwards.
+#[cfg(ocr)]
+pub fn ocr_whole_panel_at(engine: &mut OcrEngine, gray: &GrayImage, scale: UiScale) -> Vec<OcrLine> {
+    let upscale = scale.ocr_upscale(UPSCALE);
+    let pre = whole_preprocess(gray, upscale);
+    let mut lines = run_whole_tesseract(engine, &pre).unwrap_or_default();
+    if upscale != UPSCALE {
+        for l in &mut lines {
+            l.y_top = l.y_top * UPSCALE / upscale;
+            l.height = l.height * UPSCALE / upscale;
+        }
+    }
+    lines
 }
 
 /// The rows the whole-panel pass reads, given the signature bars: from a
@@ -743,9 +975,14 @@ pub fn whole_span(bars: &[(u32, u32)], height: u32) -> Option<(u32, u32)> {
 /// `ocr_whole_panel` over `span` only, with line positions mapped back
 /// to the region's own preprocessed-pixel space.
 #[cfg(ocr)]
-fn ocr_whole_span(engine: &mut OcrEngine, gray: &GrayImage, (y0, y1): (u32, u32)) -> Vec<OcrLine> {
+fn ocr_whole_span(
+    engine: &mut OcrEngine,
+    gray: &GrayImage,
+    (y0, y1): (u32, u32),
+    scale: UiScale,
+) -> Vec<OcrLine> {
     let crop = imageops::crop_imm(gray, 0, y0, gray.width(), y1 - y0).to_image();
-    let mut lines = ocr_whole_panel(engine, &crop);
+    let mut lines = ocr_whole_panel_at(engine, &crop, scale);
     for l in &mut lines {
         l.y_top += y0 * UPSCALE;
     }
@@ -875,9 +1112,21 @@ pub fn union_ocr_lines(band_lines: Vec<OcrLine>, whole_lines: Vec<OcrLine>) -> V
 /// reward row.
 #[cfg(ocr)]
 pub fn ocr_scan(engine: &mut OcrEngine, gray: &GrayImage, bars: &[(u32, u32)]) -> Vec<OcrLine> {
-    let band_lines = ocr_bands(engine, gray, bars);
+    ocr_scan_at(engine, gray, bars, UiScale::REFERENCE)
+}
+
+/// `ocr_scan` for a region cut from a frame at `scale`; `bars` must come
+/// from `reward_bars_at` at the same scale.
+#[cfg(ocr)]
+pub fn ocr_scan_at(
+    engine: &mut OcrEngine,
+    gray: &GrayImage,
+    bars: &[(u32, u32)],
+    scale: UiScale,
+) -> Vec<OcrLine> {
+    let band_lines = ocr_bands_at(engine, gray, bars, scale);
     let whole_lines = match whole_span(bars, gray.height()) {
-        Some(span) => ocr_whole_span(engine, gray, span),
+        Some(span) => ocr_whole_span(engine, gray, span, scale),
         None => Vec::new(),
     };
     union_ocr_lines(band_lines, whole_lines)
@@ -940,7 +1189,21 @@ impl ScanCache {
         bars: &[(u32, u32)],
         with_whole: bool,
     ) -> Vec<OcrLine> {
-        let crops: Vec<Option<GrayImage>> = bars.iter().map(|&(y0, y1)| band_crop(gray, y0, y1)).collect();
+        self.scan_at(engine, gray, bars, with_whole, UiScale::REFERENCE)
+    }
+
+    /// `scan` for a region cut from a frame at `scale`; `bars` must come
+    /// from `reward_bars_at` at the same scale.
+    pub fn scan_at(
+        &mut self,
+        engine: &mut OcrEngine,
+        gray: &GrayImage,
+        bars: &[(u32, u32)],
+        with_whole: bool,
+        scale: UiScale,
+    ) -> Vec<OcrLine> {
+        let crops: Vec<Option<GrayImage>> =
+            bars.iter().map(|&(y0, y1)| band_crop_at(gray, y0, y1, scale)).collect();
         let keys: Vec<u64> = crops.iter().map(|c| c.as_ref().map_or(0, content_key)).collect();
         let mut scene_key: u64 = 0xcbf2_9ce4_8422_2325;
         for (k, &(y0, y1)) in keys.iter().zip(bars) {
@@ -966,12 +1229,7 @@ impl ScanCache {
                 Some(cached) => cached.clone(),
                 None => {
                     self.ocr_runs += 1;
-                    let up = imageops::resize(
-                        crop,
-                        crop.width() * BAND_OCR_SCALE,
-                        crop.height() * BAND_OCR_SCALE,
-                        imageops::FilterType::Lanczos3,
-                    );
+                    let up = upscale_for_ocr(crop, scale.ocr_upscale(BAND_OCR_SCALE));
                     let read = engine.tsv(&up).ok().and_then(|tsv| parse_band_tsv(&tsv, y0, y1));
                     self.bands.insert(key, read.clone());
                     read
@@ -992,7 +1250,7 @@ impl ScanCache {
         let whole_lines = match whole_span(bars, gray.height()) {
             Some(span) => {
                 self.ocr_runs += 1;
-                ocr_whole_span(engine, gray, span)
+                ocr_whole_span(engine, gray, span, scale)
             }
             None => Vec::new(),
         };

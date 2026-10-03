@@ -1,0 +1,205 @@
+{
+ "body": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.staff"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "skill.firebolt",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_3962278098",
+       "value": {
+        "min": 52
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_591105508",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": true,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 20
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_affix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "body_all": {
+  "query": {
+   "filters": {
+    "misc_filters": {
+     "filters": {
+      "corrupted": {
+       "option": "false"
+      },
+      "mirrored": {
+       "option": "false"
+      },
+      "sanctified": {
+       "option": "false"
+      }
+     }
+    },
+    "trade_filters": {
+     "filters": {
+      "collapse": {
+       "option": "true"
+      }
+     }
+    },
+    "type_filters": {
+     "filters": {
+      "category": {
+       "option": "weapon.staff"
+      },
+      "rarity": {
+       "option": "nonunique"
+      }
+     }
+    }
+   },
+   "stats": [
+    {
+     "filters": [
+      {
+       "disabled": true,
+       "id": "skill.firebolt",
+       "value": {
+        "min": 12
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2974417149",
+       "value": {
+        "min": 70
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_3962278098",
+       "value": {
+        "min": 52
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_591105508",
+       "value": {
+        "min": 2
+       }
+      },
+      {
+       "disabled": false,
+       "id": "explicit.stat_2891184298",
+       "value": {
+        "min": 20
+       }
+      }
+     ],
+     "type": "and"
+    },
+    {
+     "disabled": true,
+     "filters": [
+      {
+       "disabled": true,
+       "id": "pseudo.pseudo_number_of_empty_affix_mods",
+       "value": {
+        "min": 2
+       }
+      }
+     ],
+     "type": "count",
+     "value": {
+      "max": 1,
+      "min": 1
+     }
+    }
+   ],
+   "status": {
+    "option": "securable"
+   }
+  },
+  "sort": {
+   "price": "asc"
+  }
+ },
+ "preset": "filters.preset_pseudo"
+}

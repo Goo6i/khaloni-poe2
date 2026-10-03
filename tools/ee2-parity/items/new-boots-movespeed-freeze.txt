@@ -1,0 +1,26 @@
+Item Class: Boots
+Rarity: Rare
+Storm Stride
+Drakeskin Boots
+--------
+Quality: +20% (augmented)
+Evasion Rating: 612 (augmented)
+--------
+Requires: Level 80, 106 Dex
+--------
+Sockets: S 
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Hellion's" (Tier: 1) — Speed }
+35% increased Movement Speed
+{ Prefix Modifier "Phantasm's" (Tier: 3) — Defences }
+72(68-79)% increased Evasion Rating
+{ Prefix Modifier "Virile" (Tier: 4) — Life }
++96(85-99) to maximum Life
+{ Suffix Modifier "of the Tempest" (Tier: 4) — Elemental, Lightning, Resistance }
++27(26-30)% to Lightning Resistance
+{ Suffix Modifier "of Thawing" (Tier: 2) — Elemental, Cold, Ailment }
+51(55-51)% reduced Freeze Duration on you
+{ Suffix Modifier "of the Lynx" (Tier: 5) — Attribute }
++19(17-20) to Dexterity

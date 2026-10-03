@@ -12,28 +12,30 @@ fn mod_row(label: &str, kind: ev::AffixKind, tier: u8, score: f32, min: f64, i: 
         label: label.into(),
         badge: Some(ev::TierBadge { kind, tier }),
         score: Some(score),
-        min,
+        min: Some(min),
         max: None,
         enabled: true,
         target: Some(ev::Target::Stat(i)),
         hidden: false,
         group: ev::RowGroup::Explicit,
+        note: None,
     }
 }
 
 /// A computed weapon figure: searchable as an equipment_filters minimum,
 /// so it gets a checkbox and a min box but never a max box.
-fn weapon_row(label: &str, min: f64, bound: ev::WeaponBound, enabled: bool) -> ev::StatRow {
+fn weapon_row(label: &str, min: f64, bound: ev::EquipKey, enabled: bool) -> ev::StatRow {
     ev::StatRow {
         label: label.into(),
         badge: None,
         score: None,
-        min,
+        min: Some(min),
         max: None,
         enabled,
-        target: Some(ev::Target::Weapon(bound)),
+        target: Some(ev::Target::Equipment(bound)),
         hidden: false,
         group: ev::RowGroup::Property,
+        note: None,
     }
 }
 
@@ -44,12 +46,13 @@ fn derived(label: &str) -> ev::StatRow {
         label: label.into(),
         badge: None,
         score: None,
-        min: 0.0,
+        min: None,
         max: None,
         enabled: false,
         target: None,
         hidden: false,
         group: ev::RowGroup::Property,
+        note: None,
     }
 }
 
@@ -59,12 +62,13 @@ fn pseudo_row(label: &str, min: f64, i: usize) -> ev::StatRow {
         label: label.into(),
         badge: None,
         score: None,
-        min,
+        min: Some(min),
         max: None,
         enabled: false,
         target: Some(ev::Target::Stat(i)),
         hidden: true,
         group: ev::RowGroup::Explicit,
+        note: None,
     }
 }
 
@@ -82,9 +86,9 @@ fn main() -> anyhow::Result<()> {
             base: Some(ev::BaseToggle { label: "Expert Dualstring Bow".into(), enabled: true }),
         },
         rows: vec![
-            weapon_row("Physical DPS", 412.6, ev::WeaponBound::Pdps, true),
-            weapon_row("Total DPS", 731.9, ev::WeaponBound::Dps, false),
-            weapon_row("Critical Hit Chance", 11.5, ev::WeaponBound::Crit, false),
+            weapon_row("Physical DPS", 412.6, ev::EquipKey::Pdps, true),
+            weapon_row("Total DPS", 731.9, ev::EquipKey::Dps, false),
+            weapon_row("Critical Hit Chance", 11.5, ev::EquipKey::Crit, false),
             mod_row("Adds 40 to 75 Physical Damage", ev::AffixKind::Prefix, 2, 4.6, 40.0, 0),
             mod_row("+180 to maximum Life", ev::AffixKind::Prefix, 9, 0.8, 180.0, 1),
             mod_row("24% increased Critical Damage Bonus", ev::AffixKind::Suffix, 1, 4.0, 24.0, 2),
@@ -102,20 +106,44 @@ fn main() -> anyhow::Result<()> {
         ],
         show_hidden: false,
         strictness: ev::Strictness::Broad,
-        estimate: Some(ev::EstimateView {
-            amount: "5.5".into(),
-            denom: Denom::Divine,
-            detail: "Range: 3.1-9.4 div  -  from 23 listings".into(),
-            reliability: "Very Low".into(),
-            shaky: true,
-        }),
-        listings: vec!["4.8 div  Vaalstep#3311".into(), "6.2 div  Emberlark#8074".into()],
-        status: "23 shown".into(),
+        status: "Broad search, bounds -10%: 2 of 23 shown".into(),
         search_id: Some("k9f2".into()),
+        searching: false,
+        ..ev::Panel::default()
+    };
+
+    // What the search found, under the first card: two listings and the
+    // ladder they make. `panel_preview` renders every block from the
+    // fixture; this is the one-glance version.
+    let card = ev::Card { name: String::new(), base: String::new(), rarity: String::new(), figures: Vec::new(), lines: Vec::new() };
+    let listing = |price: &str, age: &str, seller: &str, state: ev::SellerState| ev::ListingRow {
+        price: price.into(),
+        raw: String::new(),
+        age: age.into(),
+        seller: seller.into(),
+        state,
+        mine: false,
+        times: 1,
+        stack: None,
+        ilvl: Some(81),
+        quality: None,
+        gem_level: None,
+        corrupted: false,
+        instant_buyout: true,
+        card: card.clone(),
+    };
+    let ep = ev::Panel {
+        listings: vec![
+            listing("4.8 div", "2 h", "Vaalstep#3311", ev::SellerState::Online),
+            listing("6.2 div", "3 d", "Emberlark#8074", ev::SellerState::Offline),
+        ],
+        ladder: "cheapest 4.8 div, then 6.2 · 2 of 23 matched".into(),
+        budget_text: "searches 4/30 (5 min)".into(),
+        ..ep
     };
 
     // Second state of the same card: a magic item, hidden rows expanded, a
-    // max box being typed into, and no estimate yet.
+    // max box being typed into, and nothing found yet.
     let ep2 = ev::Panel {
         header: ev::ItemHeader {
             name: "Kraken Grip Sapphire Ring".into(),
@@ -126,8 +154,6 @@ fn main() -> anyhow::Result<()> {
         },
         show_hidden: true,
         strictness: ev::Strictness::Quick,
-        estimate: None,
-        listings: Vec::new(),
         status: "searching...".into(),
         rows: vec![
             derived("Energy Shield: 46"),
@@ -139,6 +165,8 @@ fn main() -> anyhow::Result<()> {
             ev::StatRow { hidden: true, ..mod_row("+9 to Intelligence", ev::AffixKind::Suffix, 8, 0.4, 9.0, 2) },
         ],
         search_id: None,
+        searching: true,
+        ..ev::Panel::default()
     };
 
     // Lay the cards out from their own measured sizes, so the canvas fits

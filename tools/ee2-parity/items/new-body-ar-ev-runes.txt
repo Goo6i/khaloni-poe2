@@ -1,0 +1,30 @@
+Item Class: Body Armours
+Rarity: Rare
+Kraken Hide
+Death Mail
+--------
+Quality: +20% (augmented)
+Armour: 842 (augmented)
+Evasion Rating: 771 (augmented)
+--------
+Requires: Level 80, 95 Str, 95 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 81
+--------
++24% to Fire Resistance (rune)
+--------
+{ Prefix Modifier "Victor's" (Tier: 2) — Defences }
+84(80-91)% increased Armour and Evasion
+{ Prefix Modifier "Captain's" (Tier: 3) — Defences }
+34(33-38)% increased Armour and Evasion
++71(64-94) to Stun Threshold
+{ Prefix Modifier "Rapturous" (Tier: 1) — Life }
++203(200-214) to maximum Life
+{ Suffix Modifier "of the Rainbow" (Tier: 2) — Elemental, Fire, Cold, Lightning, Resistance }
++15(13-16)% to all Elemental Resistances
+{ Suffix Modifier "of Allaying" (Tier: 3) — Physical, Ailment }
+47(50-46)% reduced Duration of Bleeding on You
+{ Suffix Modifier "of the Thunderhead" (Tier: 5) — Elemental, Lightning, Resistance }
++24(21-25)% to Lightning Resistance

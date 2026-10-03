@@ -1,0 +1,10 @@
+Item Class: Body Armours
+Rarity: Magic
+Hale Leather Vest
+--------
+Evasion Rating: 29
+--------
+Item Level: 6
+--------
+{ Prefix Modifier "Hale" (Tier: 13) — Life }
++14(10-19) to maximum Life

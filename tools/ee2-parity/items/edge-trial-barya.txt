@@ -1,0 +1,10 @@
+Item Class: Trial Coins
+Rarity: Currency
+Djinn Barya
+--------
+Area Level: 79
+Number of Trials: 4
+--------
+Item Level: 79
+--------
+Take this item to the Relic Altar at the Trial of the Sekhemas to enter.

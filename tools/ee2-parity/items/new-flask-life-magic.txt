@@ -1,0 +1,19 @@
+Item Class: Life Flasks
+Rarity: Magic
+Substantial Ultimate Life Flask of the Plentiful
+--------
+Quality: +20% (augmented)
+Recovers 1488 (augmented) Life over 3.00 Seconds
+Consumes 10 of 75 Charges on use
+Currently has 75 Charges
+--------
+Requires: Level 60
+--------
+Item Level: 81
+--------
+{ Prefix Modifier "Substantial" (Tier: 3) — Flask, Life }
+58(51-60)% increased Amount Recovered
+{ Suffix Modifier "of the Plentiful" (Tier: 2) — Flask }
+33(30-35)% increased Charges gained
+--------
+Right click to drink. Can only hold charges while in belt. Refill at Wells or by killing monsters.

@@ -1,0 +1,14 @@
+Item Class: Tablet
+Rarity: Magic
+Breach Tablet of the Vortex
+--------
+Item Level: 79
+--------
+{ Implicit Modifier }
+Adds an Otherworldy Breach to a Map
+10 uses remaining (implicit)
+--------
+{ Suffix Modifier "of the Vortex" (Tier: 1) }
+Breaches in Map open and close 12(10-15)% slower
+--------
+Can be used in a personal Map Device to add modifiers to a Map.

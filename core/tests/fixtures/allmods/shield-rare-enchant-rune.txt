@@ -1,0 +1,39 @@
+Item Class: Shields
+Rarity: Rare
+Chimeric Rock
+Sekheman Crest Shield
+--------
+Quality: +20% (augmented)
+Block chance: 25%
+Armour: 953 (augmented)
+Energy Shield: 253 (augmented)
+--------
+Requires: Level 70, 50 (augmented) Str, 50 (augmented) Int
+--------
+Sockets: S 
+--------
+Item Level: 81
+--------
+{ Corruption Enhancement — Armour, Energy Shield }
+25(15-25)% increased Armour and Energy Shield
+--------
+20% increased Armour, Evasion and Energy Shield (rune)
+--------
+Grants Skill: Raise Shield
+--------
+{ Prefix Modifier "Saintly" (Tier: 1) — Armour, Energy Shield }
++148(128-149) to Armour
++38(37-42) to maximum Energy Shield
+{ Prefix Modifier "Interpermeated" (Tier: 1) — Armour, Energy Shield }
+107(101-110)% increased Armour and Energy Shield
+{ Prefix Modifier "Sentinel's" (Tier: 1) }
+41(39-42)% increased Armour and Energy Shield
++112(95-136) to Stun Threshold
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++34(31-35)% to Lightning Resistance
+{ Suffix Modifier "of the Bushfire" (Tier: 3) — Elemental, Fire, Resistance }
++1% to Maximum Fire Resistance
+{ Suffix Modifier "of Thermokryptance" (Tier: 1) — Armour, Elemental }
++46(44-50)% of Armour also applies to Elemental Damage
+--------
+Corrupted

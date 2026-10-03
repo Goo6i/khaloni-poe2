@@ -1,0 +1,17 @@
+Item Class: Body Armours
+Rarity: Rare
+Grim Carapace
+Soldier Cuirass
+--------
+Armour: 480 (augmented)
+--------
+Requires: Level 65, 86 Str
+--------
+Item Level: 80
+--------
+{ Prefix Modifier "Rotund" (Tier: 7) — Life }
++91(85-99) to maximum Life
+{ Crafted Suffix Modifier "of the Polar Bear" (Tier: 3) — Elemental, Cold, Resistance }
++33(31-35)% to Cold Resistance (crafted)
+{ Desecrated Suffix Modifier "of Ulaman" (Tier: 1) — Elemental, Lightning, Chaos, Resistance }
++15(13-17)% to Lightning and Chaos Resistances (desecrated)

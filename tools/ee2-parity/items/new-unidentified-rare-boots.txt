@@ -1,0 +1,11 @@
+Item Class: Boots
+Rarity: Rare
+Sekhema Sandals
+--------
+Energy Shield: 83
+--------
+Requires: Level 75, 125 Int
+--------
+Item Level: 80
+--------
+Unidentified

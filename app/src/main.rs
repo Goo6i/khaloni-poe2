@@ -20,7 +20,47 @@ use khaloni_poe2::{
 };
 use khaloni_poe2_core::ninja::NinjaClient;
 
+/// Set once the overlay has reached its main loop. An error after that is
+/// the overlay stopping, not failing to start, and the dialog says which.
+static OVERLAY_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Marks OMP_* variables as set by `limit_openmp_threads`, so the launch
+/// wrapper knows to keep them away from the game.
+#[cfg(target_os = "linux")]
+const OMP_MARKER: &str = "KHALONI_OMP_LIMITED";
+
+/// Restarts this process with tesseract's OpenMP pool limited to one
+/// passive thread. libgomp reads OMP_THREAD_LIMIT and OMP_WAIT_POLICY once,
+/// when it is loaded, so setting them from inside the process does
+/// nothing; without them its idle workers spin and were measured at close
+/// to half of the overlay's CPU. `exec` keeps the pid, so the process Steam
+/// tracks for `--launch` is unchanged. No loop: the restarted process sees
+/// the variable and returns. A failed exec only costs the CPU saving.
+#[cfg(target_os = "linux")]
+fn limit_openmp_threads() {
+    use std::os::unix::process::CommandExt;
+    if !needs_openmp_restart(std::env::var_os("OMP_THREAD_LIMIT").as_deref()) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let err = std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .env("OMP_THREAD_LIMIT", "1")
+        .env("OMP_WAIT_POLICY", "passive")
+        .env(OMP_MARKER, "1")
+        .exec();
+    eprintln!("restart with OpenMP limited failed ({err}); OCR will use more CPU");
+}
+
+/// A value the user (or the first pass through here) already set stands.
+#[cfg(target_os = "linux")]
+fn needs_openmp_restart(thread_limit: Option<&std::ffi::OsStr>) -> bool {
+    thread_limit.is_none()
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    limit_openmp_threads();
     // Remove the binary a previous self-update replaced, if any.
     khaloni_poe2::update::cleanup_backup();
     // Without a console (GUI subsystem, or a menu launch), diagnostics
@@ -38,7 +78,7 @@ fn main() {
             Ok(code) => std::process::exit(code),
             Err(e) => {
                 eprintln!("fatal: {e:#}");
-                fatal_dialog(&format!("{e:#}"));
+                fatal_dialog(fatal_heading(false, None), &format!("{e:#}"));
                 std::process::exit(1);
             }
         }
@@ -46,62 +86,140 @@ fn main() {
     let result = match args.get(1).map(String::as_str).unwrap_or("") {
         "--headless" => headless(),
         "--settings" => khaloni_poe2::settings_ui::run(),
+        GAME_SESSION_ARG => game_session_mode(),
         _ => overlay_mode(None, None),
     };
     if let Err(e) = result {
         // A GUI app's fatal error must be visible like any normal
         // program's: native dialog first, log always.
         eprintln!("fatal: {e:#}");
-        fatal_dialog(&format!("{e:#}"));
+        let heading = fatal_heading(
+            OVERLAY_RUNNING.load(Ordering::Relaxed),
+            e.downcast_ref::<khaloni_poe2::platform::OverlayError>(),
+        );
+        fatal_dialog(heading, &format!("{e:#}"));
         std::process::exit(1);
     }
 }
 
+/// The dialog's first line. An overlay that ran for an hour and then lost
+/// the compositor did not fail to start, and saying it did sent the user
+/// looking at their install instead of at what just happened.
+fn fatal_heading(
+    running: bool,
+    overlay: Option<&khaloni_poe2::platform::OverlayError>,
+) -> &'static str {
+    use khaloni_poe2::platform::OverlayError;
+    match overlay {
+        Some(OverlayError::Connection(_)) => "khaloni-poe2 stopped: the display connection was lost",
+        Some(OverlayError::Startup(_) | OverlayError::NoOutput) if !running => "khaloni-poe2 could not start",
+        _ if running => "khaloni-poe2 stopped working",
+        _ => "khaloni-poe2 could not start",
+    }
+}
+
+/// Spawns a helper program and leaves it running, with a thread waiting on
+/// it: a child nobody waits for stays a zombie for as long as the overlay
+/// lives, one per opened link.
+fn spawn_detached(mut cmd: std::process::Command, what: &str) -> std::io::Result<()> {
+    let mut child = cmd.spawn()?;
+    let waiter = std::thread::Builder::new().name(format!("reap-{what}")).spawn(move || {
+        let _ = child.wait();
+    });
+    if let Err(e) = waiter {
+        eprintln!("{what}: no waiter thread ({e}); the child will linger until exit");
+    }
+    Ok(())
+}
+
 /// Steam wrapper mode: `khaloni-poe2 --launch %command%` in the game's
-/// launch options. Spawns the game command as a child, runs the overlay
-/// beside it, and closes the overlay the moment the game exits. The
-/// wrapper process stays alive as long as the game does — even if the
-/// overlay is quit from the tray, or dies — so Steam keeps tracking the
-/// session it started, and the game's own exit code is what Steam sees.
+/// launch options. Spawns the game command as a child, starts the overlay
+/// beside it as a second child, and closes the overlay the moment the game
+/// exits. The wrapper process stays alive as long as the game does, so
+/// Steam keeps tracking the session it started, and the game's own exit
+/// code is what Steam sees.
+///
+/// The overlay is its own process so that quitting it quits it. When it
+/// ran inside the wrapper, Quit ended the overlay loop but the process had
+/// to live on for Steam, tray icon and all: the overlay looked impossible
+/// to close.
 fn launch_mode(rest: &[String]) -> anyhow::Result<i32> {
     let cmd = game_command(rest).ok_or_else(|| {
         anyhow::anyhow!(
             "--launch needs the game command; in Steam's launch options use: khaloni-poe2 --launch %command%"
         )
     })?;
-    let mut child = std::process::Command::new(&cmd[0])
-        .args(&cmd[1..])
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("launching {}: {e}", cmd[0]))?;
+    let mut game_cmd = std::process::Command::new(&cmd[0]);
+    game_cmd.args(&cmd[1..]);
+    // The OpenMP limit is for this program's OCR. The game gets the
+    // environment Steam gave it, minus what `limit_openmp_threads` added.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os(OMP_MARKER).is_some() {
+        game_cmd.env_remove("OMP_THREAD_LIMIT").env_remove("OMP_WAIT_POLICY").env_remove(OMP_MARKER);
+    }
+    let mut game = game_cmd.spawn().map_err(|e| anyhow::anyhow!("launching {}: {e}", cmd[0]))?;
 
-    match khaloni_poe2::platform::single_instance() {
-        // An overlay is already up (started by hand, or a second game
-        // launch): leave it alone and just be the process Steam waits on.
-        Err(_) => {
-            eprintln!("overlay already running; passing the game through");
-            Ok(child.wait()?.code().unwrap_or(0))
+    // The overlay reads its stdin only for end-of-file: the wrapper holds
+    // the other end for as long as the game runs, so the pipe closing means
+    // "game over" whether the wrapper dropped it or died.
+    // The overlay is a program of the host, not of the Steam runtime this
+    // wrapper was started in: it gets the host environment back, without
+    // the Steam overlay preload (which has no business in a layer-shell
+    // client and is inherited by everything the overlay starts in turn).
+    let overlay = std::env::current_exe().and_then(|exe| {
+        khaloni_poe2::platform::host_command(exe)
+            .arg(GAME_SESSION_ARG)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+    });
+    let mut overlay = match overlay {
+        Ok(child) => Some(child),
+        Err(e) => {
+            // The game plays on without the overlay.
+            eprintln!("starting the overlay: {e}");
+            None
         }
-        Ok(lock) => {
-            let game_over = Arc::new(AtomicBool::new(false));
-            let (code_tx, code_rx) = mpsc::channel();
-            let flag = game_over.clone();
-            std::thread::spawn(move || {
-                let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(0);
-                flag.store(true, Ordering::Relaxed);
-                let _ = code_tx.send(code);
-            });
-            if let Err(e) = overlay_mode(Some(lock), Some(game_over)) {
-                // The overlay died; the game plays on. Report it like any
-                // fatal error, then keep waiting so Steam's session stays
-                // honest.
-                eprintln!("fatal: {e:#}");
-                fatal_dialog(&format!("{e:#}"));
-            }
-            // Already-exited and still-running both land here: the watcher
-            // sends exactly once, and recv blocks until it does.
-            Ok(code_rx.recv().unwrap_or(0))
+    };
+
+    let code = game.wait()?.code().unwrap_or(0);
+    if let Some(child) = overlay.as_mut() {
+        drop(child.stdin.take());
+        // It closes on its own within a loop tick; the kill is for an
+        // overlay that is wedged, so Steam is never left waiting on it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while matches!(child.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
+    Ok(code)
+}
+
+/// The overlay as `launch_mode` starts it: tied to the game session.
+const GAME_SESSION_ARG: &str = "--game-session";
+
+/// Runs the overlay until the user quits it or the launch wrapper's pipe
+/// closes (see `launch_mode`). An overlay that is already running is left
+/// alone, without the error a second manual start gets: the game was the
+/// point of this launch.
+fn game_session_mode() -> anyhow::Result<()> {
+    let Ok(lock) = khaloni_poe2::platform::single_instance() else {
+        eprintln!("overlay already running; leaving it be");
+        return Ok(());
+    };
+    let game_over = Arc::new(AtomicBool::new(false));
+    let flag = game_over.clone();
+    std::thread::Builder::new().name("game-session-pipe".into()).spawn(move || {
+        use std::io::Read;
+        let mut sink = [0u8; 64];
+        let mut stdin = std::io::stdin();
+        while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+        flag.store(true, Ordering::Relaxed);
+    })?;
+    overlay_mode(Some(lock), Some(game_over))
 }
 
 /// The game command from everything after `--launch`, tolerating an
@@ -116,8 +234,8 @@ fn game_command(rest: &[String]) -> Option<&[String]> {
 
 /// Shows a native error dialog. Best-effort: a missing dialog helper
 /// falls back to the (already-written) log line.
-fn fatal_dialog(msg: &str) {
-    let text = format!("khaloni-poe2 could not start:\n\n{msg}");
+fn fatal_dialog(heading: &str, msg: &str) {
+    let text = format!("{heading}:\n\n{msg}");
     #[cfg(target_os = "windows")]
     {
         use windows::core::HSTRING;
@@ -130,13 +248,17 @@ fn fatal_dialog(msg: &str) {
     }
     #[cfg(target_os = "linux")]
     {
-        // kdialog on KDE, zenity elsewhere; silent if neither exists (the
-        // journal/terminal already carries the message).
-        let tried = std::process::Command::new("kdialog")
+        // kdialog on KDE, zenity elsewhere; silent if neither works (the
+        // journal/terminal already carries the message). Both are host
+        // programs: started from Steam they need the host's libraries back.
+        // kdialog can be installed and still fail (no Qt platform plugin
+        // under the Steam runtime), which its exit status shows.
+        let shown = khaloni_poe2::platform::host_command("kdialog")
             .args(["--error", &text, "--title", "khaloni-poe2"])
-            .status();
-        if tried.is_err() {
-            let _ = std::process::Command::new("zenity")
+            .status()
+            .is_ok_and(|st| st.success());
+        if !shown {
+            let _ = khaloni_poe2::platform::host_command("zenity")
                 .args(["--error", "--text", &text, "--title", "khaloni-poe2"])
                 .status();
         }
@@ -175,23 +297,11 @@ fn redirect_output_to_log() {
     std::mem::forget(file);
 }
 
-fn game_window_logical() -> Rect {
-    // Stage A shortcut: the reference game window is the fullscreen gamescope
-    // window on DP-2. Stage B replaces this with the live KWin geometry feed.
-    Rect {
-        x: 2560,
-        y: 0,
-        w: 2560,
-        h: 1440,
-    }
-}
-
-/// Percent-encodes a string for use in a URL query (RFC 3986 unreserved
-/// set kept literal; everything else percent-encoded, space as %20).
 /// Prices one specific cut skill gem: resolve the OCR'd name to an exact gem
 /// type, item-search it at the given level, and convert the cheapest listing
-/// to exalted via the currency table. `Unpriced` when the name doesn't resolve
-/// or there are no listings; leaves it for the caller to cache.
+/// to exalted via the currency table. `Ok(None)` when the name does not
+/// resolve, there are no listings, or none of them converts; an error is
+/// returned as one, so the caller can retry it instead of caching "no price".
 fn price_one_gem(
     client: &mut khaloni_poe2_core::trade::TradeClient,
     skill_lower: &str,
@@ -199,33 +309,14 @@ fn price_one_gem(
     gem_types: &[String],
     cur_id_to_name: &std::collections::HashMap<String, String>,
     table: &khaloni_poe2_core::ninja::PriceTable,
-) -> khaloni_poe2::pricing::GemState {
-    use khaloni_poe2::pricing::GemState;
+) -> Result<Option<f64>, khaloni_poe2_core::trade::TradeError> {
     let Some(name) = khaloni_poe2_core::trade::match_gem_name(skill_lower, gem_types) else {
-        return GemState::Unpriced;
+        return Ok(None);
     };
-    let listings = match client.price_gem(&name, i64::from(level)) {
-        Ok(l) => l,
-        // A transient error (rate limit, network): stay Pending so the next
-        // scan re-requests, rather than caching a wrong "unpriced".
-        Err(_) => return GemState::Pending,
-    };
+    let listings = client.price_gem(&name, i64::from(level))?;
     // Cheapest listing that converts to exalted (search is price-asc, so the
     // first convertible one is the floor).
-    for l in &listings {
-        let ex = if l.price_currency == "exalted" {
-            Some(l.price_amount)
-        } else {
-            cur_id_to_name
-                .get(&l.price_currency)
-                .and_then(|n| table.lookup(n))
-                .map(|p| l.price_amount * p.exalted)
-        };
-        if let Some(ex) = ex {
-            return GemState::Priced(ex);
-        }
-    }
-    GemState::Unpriced
+    Ok(listings.iter().find_map(|l| khaloni_poe2::appraise::listing_exalted(l, cur_id_to_name, table)))
 }
 
 /// Turns a trade category id ("weapon.bow", "armour.helmet") into a readable
@@ -248,6 +339,18 @@ fn pretty_category(cat: &str) -> String {
     out
 }
 
+/// Percent-encodes a string for use in a URL query (RFC 3986 unreserved
+/// set kept literal; everything else percent-encoded, space as %20).
+/// The trade site's search page for a query, the query itself in the link
+/// (see the "Open site" action for why not an id).
+fn site_search_url(league: &str, query: &khaloni_poe2_core::trade::Query) -> String {
+    format!(
+        "https://www.pathofexile.com/trade2/search/poe2/{}?q={}",
+        urlencode(league),
+        urlencode(&query.to_body().to_string())
+    )
+}
+
 fn urlencode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -263,8 +366,9 @@ fn urlencode(s: &str) -> String {
 
 /// Opens `url_template` (with `{name}` replaced by the copied item's name,
 /// URL-encoded) in the default browser. Uses the base type when the item has
-/// no distinct name (magic/normal). No-ops on an unparseable/empty item.
-fn open_resource(url_template: &str, item_text: &str) {
+/// no distinct name (magic/normal). An unparseable/empty item is an error
+/// for the caller to show.
+fn open_resource(url_template: &str, item_text: &str) -> Result<(), String> {
     let name = khaloni_poe2_core::item::parse_item(item_text)
         .ok()
         .and_then(|it| {
@@ -276,17 +380,25 @@ fn open_resource(url_template: &str, item_text: &str) {
         })
         .unwrap_or_default();
     if name.trim().is_empty() {
-        return;
+        return Err("hover an item first".into());
     }
     let url = url_template.replace("{name}", &urlencode(name.trim()));
-    open_url(&url);
+    open_url(&url)
 }
 
 /// Opens a URL in the default browser, per-OS. Detached spawn: the overlay
-/// must never block on a browser starting up.
-fn open_url(url: &str) {
+/// must never block on a browser starting up. `Err` carries what to tell
+/// the user: a link that silently did not open reads as a dead button.
+fn open_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    {
+        // The browser is a host program and gets the host's environment
+        // (see `platform::host_command`): kde-open died on the Steam
+        // runtime's pinned libcurl, so nothing opened (journal 2026-09-19).
+        let mut cmd = khaloni_poe2::platform::host_command("xdg-open");
+        cmd.arg(url);
+        spawn_detached(cmd, "xdg-open").map_err(|e| format!("could not run xdg-open: {e}"))
+    }
     #[cfg(target_os = "windows")]
     {
         // `start` is a cmd builtin; the empty "" is its window-title slot so
@@ -295,24 +407,24 @@ fn open_url(url: &str) {
         // the GUI-subsystem build.
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", "start", "", url]).creation_flags(CREATE_NO_WINDOW);
+        spawn_detached(cmd, "start").map_err(|e| format!("could not open the browser: {e}"))
     }
 }
 
 /// Sets the overlay's pointer input region to the union bounding box of
-/// every open interactive panel (evaluate, reference, leveling), or clears
-/// it when none is open. One region because the layer surface supports a
-/// single rect; the union is slightly generous when panels are far apart,
-/// but clicks between them still fall through to nothing (hit() misses).
+/// every open interactive panel (evaluate with its hover card, market,
+/// craft), or clears it when none is open. One region because the layer
+/// surface supports a single rect; the union is slightly generous when
+/// panels are far apart, but clicks between them still fall through to
+/// nothing (hit() misses).
 fn sync_input_region(
     overlay: &mut khaloni_poe2::platform::overlay::Overlay,
     renderer: &khaloni_poe2::render::Renderer,
-    apanel: &Option<(khaloni_poe2::evaluate_ui::Panel, khaloni_poe2_core::trade::Query, (i32, i32))>,
-    ref_panel: &Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
-    lvl_panel: &Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
+    apanel: &Option<EvalPanel>,
+    mkt_panel: &Option<(khaloni_poe2::market_ui::Panel, (i32, i32))>,
+    craft_panel: &Option<CraftPanel>,
 ) -> anyhow::Result<()> {
     let out = overlay.output_pos();
     // One measurer for every panel: they all draw their text in the same
@@ -323,13 +435,19 @@ fn sync_input_region(
     if let Some((p, _, pos)) = apanel {
         let lay = khaloni_poe2::evaluate_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.size.0, lay.size.1));
+        // The hover card sits beside the panel (left of it when the
+        // output's edge is near, so its x can be negative) and is drawn
+        // there; a compositor that clips to the region would cut it off.
+        if let Some(c) = &lay.card {
+            boxes.push((pos.0 - out.0 + c.rect.x, pos.1 - out.1 + c.rect.y, c.rect.w as i32, c.rect.h as i32));
+        }
     }
-    if let Some((p, pos)) = ref_panel {
-        let lay = khaloni_poe2::reference_ui::layout(p, &measure);
+    if let Some((p, pos)) = mkt_panel {
+        let lay = khaloni_poe2::market_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
     }
-    if let Some((p, pos)) = lvl_panel {
-        let lay = khaloni_poe2::leveling_ui::layout(p, &measure);
+    if let Some((p, pos)) = craft_panel {
+        let lay = khaloni_poe2::craft_ui::layout(p, &measure);
         boxes.push((pos.0 - out.0, pos.1 - out.1, lay.w, lay.h));
     }
     let union = boxes.into_iter().fold(None, |acc: Option<(i32, i32, i32, i32)>, (x, y, w, h)| {
@@ -341,47 +459,6 @@ fn sync_input_region(
     overlay.set_interactive(
         union.map(|(x0, y0, x1, y1)| (x0, y0, (x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32)),
     )
-}
-
-/// Formats a computed estimate for the panel's value box. Divine display
-/// kicks in on the same threshold the rest of the overlay uses, and the
-/// listing count is always shown: this is arithmetic over listings we
-/// actually fetched, not an opinion, and it should read that way.
-fn estimate_view(
-    est: &khaloni_poe2_core::estimate::Estimate,
-    table: &khaloni_poe2_core::ninja::PriceTable,
-    cfg: &Config,
-) -> khaloni_poe2::evaluate_ui::EstimateView {
-    use khaloni_poe2_core::estimate::Reliability;
-    let div = table.lookup("Divine Orb").map(|p| p.exalted).filter(|v| *v > 0.0);
-    let fmt = |ex: f64| -> (String, khaloni_poe2::pricing::Denom) {
-        match div {
-            Some(rate) if ex / rate >= cfg.divine_threshold => (
-                khaloni_poe2_core::value::format_amount(ex / rate),
-                khaloni_poe2::pricing::Denom::Divine,
-            ),
-            _ => (khaloni_poe2_core::value::format_amount(ex), khaloni_poe2::pricing::Denom::Exalted),
-        }
-    };
-    let (amount, denom) = fmt(est.exalted);
-    let (lo, lo_d) = fmt(est.low);
-    let (hi, hi_d) = fmt(est.high);
-    let unit = |d: khaloni_poe2::pricing::Denom| match d {
-        khaloni_poe2::pricing::Denom::Divine => "div",
-        _ => "ex",
-    };
-    let range = if lo_d == hi_d {
-        format!("{lo}-{hi} {}", unit(hi_d))
-    } else {
-        format!("{lo} {} - {hi} {}", unit(lo_d), unit(hi_d))
-    };
-    khaloni_poe2::evaluate_ui::EstimateView {
-        amount,
-        denom,
-        detail: format!("Range: {range}  -  from {} listing(s)", est.count),
-        reliability: est.reliability.label().to_string(),
-        shaky: est.reliability < Reliability::Medium,
-    }
 }
 
 /// Built-in map-mod seed rules plus the config's extra needles, lowercased.
@@ -431,13 +508,35 @@ fn migrate_legacy_dirs() {
 
 /// Launches the native settings window as its own process; the overlay keeps
 /// running and picks config changes up via the mtime watcher, so no IPC.
-fn open_settings() {
-    match std::env::current_exe() {
-        Ok(exe) => {
-            let _ = std::process::Command::new(exe).arg("--settings").spawn();
-        }
-        Err(e) => eprintln!("settings window: cannot find own binary: {e}"),
+/// One window at a time: the tray fires on every click, and each click used
+/// to open another copy, all editing the same config file. `Err` is for the
+/// caller to show.
+fn open_settings() -> Result<(), String> {
+    static OPEN: AtomicBool = AtomicBool::new(false);
+    if OPEN.swap(true, Ordering::AcqRel) {
+        // Still running: that window is the settings window.
+        return Ok(());
     }
+    let started = std::env::current_exe().map_err(|e| format!("cannot find own binary: {e}")).and_then(|exe| {
+        // A host program like the overlay itself (see `launch_mode`): no
+        // Steam overlay preload in a window that has nothing to do with
+        // the game.
+        let mut cmd = khaloni_poe2::platform::host_command(exe);
+        cmd.arg("--settings");
+        let mut child = cmd.spawn().map_err(|e| format!("settings window: {e}"))?;
+        std::thread::Builder::new()
+            .name("settings-window".into())
+            .spawn(move || {
+                let _ = child.wait();
+                OPEN.store(false, Ordering::Release);
+            })
+            .map_err(|e| format!("settings window: {e}"))?;
+        Ok(())
+    });
+    if started.is_err() {
+        OPEN.store(false, Ordering::Release);
+    }
+    started
 }
 
 /// Headless one-shot needs the Linux capture + OCR stack; the Windows
@@ -447,9 +546,43 @@ fn headless() -> anyhow::Result<()> {
     anyhow::bail!("this build has no OCR (windows-gnu check target); the shipped Windows build is MSVC with vcpkg tesseract")
 }
 
+/// The capture thread shared by the overlay and headless mode: streams
+/// until the capture cannot be re-opened any more, re-opening the portal
+/// session with the saved restore token whenever the stream ends. Returns
+/// the receiver of its lifecycle events.
+#[cfg(ocr)]
+#[allow(clippy::too_many_arguments)]
+fn spawn_capture(
+    rt: &tokio::runtime::Runtime,
+    start: capture::CaptureStart,
+    region_rx: mpsc::Receiver<Rect>,
+    region: Rect,
+    ftx: mpsc::SyncSender<khaloni_poe2::platform::RegionFrame>,
+    panel_open: Arc<AtomicBool>,
+    full_tx: mpsc::SyncSender<image::GrayImage>,
+    paused: Arc<AtomicBool>,
+) -> anyhow::Result<mpsc::Receiver<khaloni_poe2::platform::CaptureEvent>> {
+    let (cap_ev_tx, cap_ev_rx) = mpsc::channel();
+    let handle = rt.handle().clone();
+    let control = khaloni_poe2::platform::CaptureControl { paused, events: Some(cap_ev_tx) };
+    std::thread::Builder::new().name("capture".into()).spawn(move || {
+        let reopen = move || {
+            // Read at each attempt: a re-open may have stored a newer token.
+            let token = khaloni_poe2::config::RestoreToken::new().load();
+            handle.block_on(capture::portal_session(token.as_deref()))
+        };
+        if let Err(e) =
+            capture::consume_supervised(start, region_rx, region, ftx, panel_open, Some(full_tx), control, reopen)
+        {
+            eprintln!("capture ended: {e}");
+        }
+    })?;
+    Ok(cap_ev_rx)
+}
+
 #[cfg(ocr)]
 fn headless() -> anyhow::Result<()> {
-    let mut cfg = Config::load()?;
+    let cfg = Config::load()?;
 
     eprintln!("fetching prices for {}...", cfg.league);
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
@@ -465,10 +598,10 @@ fn headless() -> anyhow::Result<()> {
     eprintln!("price table ready ({} names)", svc.snapshot().table.len());
 
     let rt = tokio::runtime::Runtime::new()?;
-    let start = rt.block_on(capture::portal_session(cfg.restore_token.as_deref()))?;
+    let token_store = khaloni_poe2::config::RestoreToken::new();
+    let start = rt.block_on(capture::portal_session(token_store.load().as_deref()))?;
     if let Some(tok) = &start.new_token {
-        cfg.restore_token = Some(tok.clone());
-        cfg.save()?;
+        token_store.save(tok)?;
     }
 
     // Headless works from full frames only: detect the reward panel on
@@ -478,18 +611,23 @@ fn headless() -> anyhow::Result<()> {
     let (ftx, frx) = mpsc::sync_channel(1);
     let (_rtx, rrx) = mpsc::channel::<Rect>();
     let (full_tx, full_rx) = mpsc::sync_channel::<image::GrayImage>(1);
-    let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    std::thread::spawn(move || {
-        let dummy = Rect { x: 0, y: 0, w: 64, h: 64 };
-        if let Err(e) = capture::consume(start, rrx, dummy, ftx, panel_open, Some(full_tx)) {
-            eprintln!("capture thread died: {e}");
-        }
-    });
+    let panel_open = Arc::new(AtomicBool::new(false));
+    let dummy = Rect { x: 0, y: 0, w: 64, h: 64 };
+    let cap_ev_rx =
+        spawn_capture(&rt, start, rrx, dummy, ftx, panel_open, full_tx, Arc::new(AtomicBool::new(false)))?;
     // Keep the region channel drained so capture's try_send never backs up.
-    std::thread::spawn(move || for _ in frx {});
+    std::thread::Builder::new().name("region-drain".into()).spawn(move || for _ in frx {})?;
+    std::thread::Builder::new().name("capture-events".into()).spawn(move || {
+        for ev in cap_ev_rx {
+            if let khaloni_poe2::platform::CaptureEvent::NewToken(tok) = ev {
+                if let Err(e) = khaloni_poe2::config::RestoreToken::new().save(&tok) {
+                    eprintln!("capture: restore token not saved: {e}");
+                }
+            }
+        }
+    })?;
 
     eprintln!("headless pipeline running; open a Runeshape panel. Ctrl+C to quit.");
-    let game = game_window_logical();
     let mut engine = ocr::OcrEngine::new()?;
     for frame in full_rx {
         let Some(region) = khaloni_poe2::autoregion::detect_reward_region(&frame) else {
@@ -503,8 +641,10 @@ fn headless() -> anyhow::Result<()> {
             region.y1 - region.y0,
         )
         .to_image();
+        // No window feed here: positions print in capture pixels, as if the
+        // game window were the captured frame.
         let map = CoordMap::new(
-            game,
+            Rect { x: 0, y: 0, w: frame.width(), h: frame.height() },
             (frame.width(), frame.height()),
             Rect {
                 x: region.x0 as i32,
@@ -513,8 +653,10 @@ fn headless() -> anyhow::Result<()> {
                 h: region.y1 - region.y0,
             },
         );
-        let bars = ocr::reward_bars(&crop, &ocr::row_profile(&crop));
-        let lines = ocr::ocr_scan(&mut engine, &crop, &bars);
+        // The UI scales with the whole frame's height, not the crop's.
+        let scale = ocr::UiScale::from_frame_height(frame.height());
+        let bars = ocr::reward_bars_at(&crop, &ocr::row_profile(&crop), scale);
+        let lines = ocr::ocr_scan_at(&mut engine, &crop, &bars, scale);
         let snap = svc.snapshot();
         let (rows, total) = pricing::price_lines(&snap.table, &snap.vocab, &lines, &cfg);
         println!(
@@ -551,10 +693,12 @@ type FrameState = (
     // Focused value box (row index, field, live edit buffer), so typed
     // digits repaint even though the committed panel values are unchanged.
     Option<(usize, khaloni_poe2::evaluate_ui::Field, String)>,
-    // In-overlay reference search and leveling checklist panels.
-    Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))>,
-    Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))>,
+    Option<(khaloni_poe2::market_ui::Panel, (i32, i32))>,
+    Option<CraftPanel>,
 );
+
+/// The craft planner panel and its placed top-left (global logical px).
+type CraftPanel = (khaloni_poe2::craft_ui::Panel, (i32, i32));
 
 /// Shared placement geometry from the full-frame worker: (capture frame
 /// dims, detected reward region in capture px), both None until first seen.
@@ -563,73 +707,361 @@ type ScanGeom = std::sync::Arc<std::sync::Mutex<(Option<(u32, u32)>, Option<Rect
 /// What an in-flight copy-hovered request (other than a price check) should
 /// do with the copied item text once it arrives.
 enum PendingAction {
-    /// Open the item in the browser via `Config::resource_shortcuts[i]`.
-    Shortcut(usize),
+    /// Open the item in the browser with this URL template. The template is
+    /// the one bound to the key that was pressed (see `bindings`), not an
+    /// index into a list that may have been edited since.
+    Shortcut(String),
     /// Run the gear-upgrade search on the copied item.
     UpgradeCheck,
+    /// Open the craft planner on the copied item.
+    Craft,
 }
 
-/// Appraisal worker requests: Auto = fresh item, build the query and
-/// relax until listings appear; Exact = the user's checkbox state, run
-/// verbatim with no relaxation (their toggle IS the intent).
+/// Trade worker requests. Item checks carry the number of the check they
+/// belong to: a check the user has already replaced with another is dropped
+/// unrun instead of spending two rate-limited requests on a closed panel.
 enum AppraiseReq {
-    Auto(khaloni_poe2_core::item::Item),
-    Exact { title: String, query: khaloni_poe2_core::trade::Query },
+    /// A fresh item: build its query and search once, exactly as built.
+    Auto { item: khaloni_poe2_core::item::Item, generation: u64 },
+    /// The panel's Search: the user's checkbox state (relaxed by the main
+    /// loop when Broad is selected), run verbatim.
+    Exact {
+        title: String,
+        query: khaloni_poe2_core::trade::Query,
+        strictness: khaloni_poe2::evaluate_ui::Strictness,
+    },
     /// Price a stackable currency (e.g. an omen) by its display name via the
     /// trade exchange; the result comes back on the exchange channel.
-    Currency { name: String, for_row: bool },
+    /// `hover_stack` is the hovered stack's size for a user check, None for
+    /// a reward row.
+    Currency { name: String, hover_stack: Option<u32> },
     /// Find strictly-better listings for an equipped item: same category,
     /// every matched mod meets-or-beats the current roll, cheapest first.
-    Upgrade(khaloni_poe2_core::item::Item),
+    Upgrade { item: khaloni_poe2_core::item::Item, generation: u64 },
     /// Price a specific cut skill gem (reward-panel "Skill Level N: <name>")
     /// by name + level via item search; the result is written to the shared
     /// gem cache the OCR pricer reads.
     Gem { skill: String, level: u32 },
+    /// What each of the panel's strongest mods is worth: one search per
+    /// mod with that mod's filter dropped, against the baseline's cheapest
+    /// listing. Sent on the panel's button only, never on its own.
+    Attribute {
+        title: String,
+        /// (label, the searched query without that mod) per mod, strongest
+        /// first.
+        mods: Vec<(String, khaloni_poe2_core::trade::Query)>,
+        /// The cheapest table listing of the search on the card, in `unit`,
+        /// and its seller.
+        baseline: (f64, String),
+        unit: String,
+        unit_per_exalted: f64,
+    },
 }
 
-/// Shared cache of specific-gem prices, written by the trade worker and read
-/// (with lazy request) by the reward-panel pricer.
-type GemMap = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(String, u32), khaloni_poe2::pricing::GemState>>>;
+/// An exchange lookup's answer. The error keeps its reason and how long to
+/// leave the API alone, so the popup can say "trade cooldown 12s" and the
+/// cache can ask again afterwards instead of holding "no price" for the run.
+struct ExchangeDone {
+    /// The league the price was asked in; an answer from a league the
+    /// overlay has since left is dropped on arrival.
+    league: String,
+    name: String,
+    hover_stack: Option<u32>,
+    /// How many offers stood behind the rate, when the body was read.
+    offers: Option<usize>,
+    outcome: Result<Option<f64>, (String, Duration)>,
+}
 
-/// Reads a gem's cached price and, on a miss, marks it pending and asks the
-/// trade worker to price it.
+/// Exchange prices in exalted per unit (None = nobody offers it), shared by
+/// the reward-row pricer and the hover check.
+type CurrencyMap =
+    Arc<std::sync::Mutex<khaloni_poe2::appraise::AsyncCache<String, Option<f64>>>>;
+/// Specific-gem prices in exalted (None = not priceable), written by the
+/// trade worker and read (with lazy request) by the reward-panel pricer.
+type GemMap =
+    Arc<std::sync::Mutex<khaloni_poe2::appraise::AsyncCache<(String, u32), Option<f64>>>>;
+
+/// What a reward row's request must clear before it is sent: the budget
+/// (shared with the user's own requests, which it yields to), the search
+/// limiter's free slots, and the gem-row setting. Refused, the row stays
+/// "..." and a later scan asks again; nothing is queued.
+#[derive(Clone)]
+struct RowGate {
+    budget: Arc<std::sync::Mutex<khaloni_poe2::budget::Budget>>,
+    limiters: khaloni_poe2_core::trade::Limiters,
+    cfg: Arc<std::sync::RwLock<Config>>,
+    /// When a refusal was last logged: a refused row asks again on every
+    /// scan, and one line a scan would fill the log with the same news.
+    last_refusal_logged: Arc<std::sync::Mutex<Option<std::time::Instant>>>,
+}
+
+/// How often a refused row's reason goes to the log.
+const ROW_REFUSAL_LOG_GAP: Duration = Duration::from_secs(30);
+
+impl RowGate {
+    fn allows(&self, kind: khaloni_poe2::appraise::RowKind) -> bool {
+        let gem_rows = self.cfg.read().unwrap_or_else(|e| e.into_inner()).price_gem_rows;
+        // The budget is the minute-and-longer rules; a full burst rule means
+        // the request would wait, and a background request that would wait
+        // is dropped.
+        let search = khaloni_poe2_core::trade::Endpoint::Search;
+        let free = if self.limiters.burst_free(search) == 0 { 0 } else { self.limiters.budget_free(search) };
+        let now = std::time::Instant::now();
+        let mut budget = self.budget.lock().unwrap_or_else(|e| e.into_inner());
+        let (allowed, line) = khaloni_poe2::appraise::row_decision(kind, gem_rows, &mut budget, now, free);
+        let mut last = self.last_refusal_logged.lock().unwrap_or_else(|e| e.into_inner());
+        if allowed || last.is_none_or(|at| now.duration_since(at) >= ROW_REFUSAL_LOG_GAP) {
+            eprintln!("{line}");
+            if !allowed {
+                *last = Some(now);
+            }
+        }
+        allowed
+    }
+}
+
 /// Async exchange pricer for reward rows naming currencies the ninja table
 /// lacks (niche runes etc.): cache-or-request, GemCache's sibling. Lookup
-/// keys are canonical vocab names; misses insert Pending and queue one
-/// exchange query, so each name is asked exactly once per run.
+/// keys are canonical vocab names. A good answer is served for
+/// `appraise::GOOD_TTL` and then asked again; a failed lookup is asked again
+/// after its retry wait. These requests queue behind the user's own.
 struct CurrencyCache {
-    map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, khaloni_poe2::pricing::CurrencyState>>>,
-    req_tx: mpsc::Sender<AppraiseReq>,
+    map: CurrencyMap,
+    req_tx: khaloni_poe2::appraise::PrioritySender<AppraiseReq>,
+    gate: RowGate,
 }
 
 impl khaloni_poe2::pricing::CurrencyPricer for CurrencyCache {
     fn lookup(&self, name: &str) -> Option<khaloni_poe2::pricing::CurrencyState> {
-        let mut m = self.map.lock().unwrap();
-        if let Some(state) = m.get(name) {
-            return Some(*state);
+        use khaloni_poe2::pricing::CurrencyState;
+        // A blank read is no currency; asking for it only draws a refusal.
+        if name.trim().is_empty() {
+            return None;
         }
-        m.insert(name.to_string(), khaloni_poe2::pricing::CurrencyState::Pending);
-        let _ = self.req_tx.send(AppraiseReq::Currency { name: name.to_string(), for_row: true });
-        Some(khaloni_poe2::pricing::CurrencyState::Pending)
+        let key = name.to_string();
+        let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let found = m.lookup(&key, std::time::Instant::now());
+        if found.request
+            && (!self.gate.allows(khaloni_poe2::appraise::RowKind::Currency)
+                || self.req_tx.send_background(AppraiseReq::Currency { name: key.clone(), hover_stack: None }).is_err())
+        {
+            m.unsent(&key);
+        }
+        Some(match found.value {
+            Some(Some(ex)) => CurrencyState::Priced(ex),
+            Some(None) => CurrencyState::Unpriced,
+            None => CurrencyState::Pending,
+        })
     }
 }
 
 struct GemCache {
     map: GemMap,
-    req_tx: mpsc::Sender<AppraiseReq>,
+    req_tx: khaloni_poe2::appraise::PrioritySender<AppraiseReq>,
+    gate: RowGate,
 }
 
 impl khaloni_poe2::pricing::GemPricer for GemCache {
     fn lookup(&self, skill_lower: &str, level: u32) -> khaloni_poe2::pricing::GemState {
+        use khaloni_poe2::pricing::GemState;
         let key = (skill_lower.to_string(), level);
-        let mut m = self.map.lock().unwrap();
-        if let Some(state) = m.get(&key) {
-            return *state;
+        let mut m = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let found = m.lookup(&key, std::time::Instant::now());
+        if found.request
+            && (!self.gate.allows(khaloni_poe2::appraise::RowKind::Gem)
+                || self.req_tx.send_background(AppraiseReq::Gem { skill: key.0.clone(), level }).is_err())
+        {
+            m.unsent(&key);
         }
-        m.insert(key.clone(), khaloni_poe2::pricing::GemState::Pending);
-        drop(m);
-        let _ = self.req_tx.send(AppraiseReq::Gem { skill: skill_lower.to_string(), level });
-        khaloni_poe2::pricing::GemState::Pending
+        match found.value {
+            Some(Some(ex)) => GemState::Priced(ex),
+            Some(None) => GemState::Unpriced,
+            None => GemState::Pending,
+        }
+    }
+}
+
+/// The reward pipeline's template half, on the tracking thread: every band
+/// already learned resolves in ~0.7 ms (measured on the live corpus) with
+/// no tesseract.
+struct TemplateResolver {
+    tstore: Arc<std::sync::Mutex<khaloni_poe2::template::TemplateStore>>,
+    svc: prices::PriceService,
+    cfg: Arc<std::sync::RwLock<Config>>,
+}
+
+impl khaloni_poe2::reward_pipeline::Resolve for TemplateResolver {
+    fn resolve(
+        &mut self,
+        frame: &khaloni_poe2::reward_pipeline::Frame,
+        bars: &[(u32, u32)],
+    ) -> khaloni_poe2::reward_pipeline::TemplatePass {
+        let snap = self.svc.snapshot();
+        let cfg = self.cfg.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let store = self.tstore.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pass = khaloni_poe2::reward_pipeline::TemplatePass {
+            league: Some(snap.league.clone()),
+            stale: snap.stale,
+            ..Default::default()
+        };
+        for &(y0, y1) in bars {
+            let hit = ocr::band_crop_at(&frame.gray, y0, y1, frame.scale).and_then(|crop| store.lookup(&crop));
+            // A template cannot tell "3x" from "8x" on its own: until OCR
+            // has agreed once for this exact crop, the band is read too.
+            if let Some(ticket) = hit.as_ref().and_then(|h| h.verify) {
+                pass.tickets.push((y0, ticket));
+            }
+            let row = hit.and_then(|hit| {
+                pricing::price_resolved(
+                    &snap.table,
+                    &hit.item_key,
+                    hit.count,
+                    hit.count_explicit,
+                    y0 * ocr::UPSCALE,
+                    (y1 - y0) * ocr::UPSCALE,
+                    &cfg,
+                )
+            });
+            match row {
+                Some(r) => pass.rows.push(r),
+                None => pass.unresolved = true,
+            }
+        }
+        pass
+    }
+}
+
+/// The reward pipeline's tesseract half, on its own thread: reads the bars
+/// of the newest frame that needs it, prices the lines, settles the
+/// template confirmations and teaches the store.
+struct RewardReader {
+    engine: ocr::OcrEngine,
+    /// What tesseract already read, by pixel content: an unchanged panel
+    /// costs no OCR at all (see ocr::ScanCache).
+    scan_cache: ocr::ScanCache,
+    tstore: Arc<std::sync::Mutex<khaloni_poe2::template::TemplateStore>>,
+    tpl_path: Option<std::path::PathBuf>,
+    tpl_saved_at: std::time::Instant,
+    svc: prices::PriceService,
+    cfg: Arc<std::sync::RwLock<Config>>,
+    exch_names: Arc<std::sync::OnceLock<Vec<String>>>,
+    /// Match vocab = price-table names + exchange catalog (async-published),
+    /// rebuilt only when either side actually changes.
+    vocab: Option<((usize, usize), pricing::Vocab)>,
+    rumours: Option<khaloni_poe2_core::rumour::RumourIndex>,
+    gem_cache: GemCache,
+    currency_cache: CurrencyCache,
+    dbg: bool,
+    t0: std::time::Instant,
+}
+
+impl khaloni_poe2::reward_pipeline::ReadRows for RewardReader {
+    fn read(&mut self, job: &khaloni_poe2::reward_pipeline::OcrJob) -> Option<khaloni_poe2::reward_pipeline::ReadOut> {
+        let t = std::time::Instant::now();
+        let (gray, scale) = (&job.frame.gray, job.frame.scale);
+        let snap = self.svc.snapshot();
+        let cfg = self.cfg.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let runs_before = self.scan_cache.ocr_runs;
+        let lines = self.scan_cache.scan_at(&mut self.engine, gray, &job.bars, job.with_whole, scale);
+        if self.dbg {
+            let secs = self.t0.elapsed().as_secs_f32();
+            eprintln!("TRACE {secs:>8.2}s ocr passes={} lines={}", self.scan_cache.ocr_runs - runs_before, lines.len());
+            let d = std::env::temp_dir().join("khalonipoe2-frames");
+            let _ = std::fs::create_dir_all(&d);
+            let _ = gray.save(d.join(format!("t{secs:06.2}_bands{}_lines{}.png", job.bars.len(), lines.len())));
+        }
+        let extra = self.exch_names.get().map(|v| v.as_slice()).unwrap_or(&[]);
+        let key = (snap.table.len(), extra.len());
+        if self.vocab.as_ref().is_none_or(|(k, _)| *k != key) {
+            self.vocab = Some((key, pricing::build_vocab_with(&snap.table, extra)));
+        }
+        let vocab = self.vocab.as_ref().map_or(&snap.vocab, |(_, v)| v);
+        let out = pricing::price_lines_with_rumours(
+            &snap.table,
+            vocab,
+            &lines,
+            &cfg,
+            self.rumours.as_ref(),
+            Some(&self.gem_cache),
+            Some(&self.currency_cache),
+        );
+        // Template rows priced under another league's table are not this
+        // scan's to show.
+        let mut resolved = if job.templates.league.as_deref() == Some(snap.league.as_str()) {
+            job.templates.rows.clone()
+        } else {
+            Vec::new()
+        };
+        {
+            let mut store = self.tstore.lock().unwrap_or_else(|e| e.into_inner());
+            // Settle the owed confirmations against what OCR read off the
+            // same bands. A template OCR disagrees with is removed by
+            // `confirm`, and its row leaves `resolved` so the OCR row is
+            // the one shown; the learn loop below re-teaches the band.
+            for &(y0, ticket) in &job.templates.tickets {
+                let y_top = y0 * ocr::UPSCALE;
+                let read = out.0.iter().find(|r| r.y_top == y_top).map(|r| (r.item_key.as_str(), r.count));
+                if !store.confirm(ticket, read) {
+                    resolved.retain(|r| r.y_top != y_top);
+                }
+            }
+            // Teach the template store from confidently identified OCR
+            // rows aligned to a band (OCR-taught templates then take over
+            // for every later encounter of the same reward).
+            for r in &out.0 {
+                if !r.locks_in_one
+                    || r.item_key == "unpriceable"
+                    || r.item_key == "ambiguous"
+                    || r.item_key.starts_with("gem-unleveled")
+                    // Specific gems are priced asynchronously via trade and
+                    // must re-OCR each scan to pick up the arriving price, so
+                    // they are never templated (a template would freeze the
+                    // provisional "…" or an early price).
+                    || r.item_key.starts_with("gemx:")
+                {
+                    continue;
+                }
+                if let Some(&(y0, y1)) = job.bars.iter().find(|&&(y0, _)| y0 * ocr::UPSCALE == r.y_top) {
+                    if let Some(crop) = ocr::band_crop_at(gray, y0, y1, scale) {
+                        store.learn(&r.item_key, r.count, r.count_explicit, &crop);
+                    }
+                }
+            }
+            if store.dirty && self.tpl_saved_at.elapsed().as_secs() >= 30 {
+                if let Some(p) = self.tpl_path.as_deref() {
+                    let _ = store.save(p);
+                }
+                self.tpl_saved_at = std::time::Instant::now();
+            }
+        }
+        // Merge template-resolved rows with the OCR pass: a resolved row
+        // wins over any OCR row overlapping its y range.
+        let mut merged = resolved;
+        for r in out.0 {
+            let clash = merged.iter().any(|m| {
+                let (a0, a1) = (i64::from(m.y_top), i64::from(m.y_top) + i64::from(m.height));
+                let (b0, b1) = (i64::from(r.y_top), i64::from(r.y_top) + i64::from(r.height));
+                a0.max(b0) < a1.min(b1)
+            });
+            if !clash {
+                merged.push(r);
+            }
+        }
+        merged.sort_by_key(|r| r.y_top);
+        // Bands were present but nothing priced (tooltip occlusion,
+        // mid-transition frame): plain empty rows, which the stabilizer
+        // rides out with its occlusion tolerance.
+        if self.dbg {
+            eprintln!(
+                "TRACE {:>8.2}s ocr_done in {:?}: {} lines -> {} rows [{}]",
+                self.t0.elapsed().as_secs_f32(),
+                t.elapsed(),
+                lines.len(),
+                merged.len(),
+                merged.iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>().join(", ")
+            );
+        }
+        Some(khaloni_poe2::reward_pipeline::ReadOut { rows: merged, league: Some(snap.league.clone()), stale: snap.stale })
     }
 }
 
@@ -637,66 +1069,1763 @@ impl khaloni_poe2::pricing::GemPricer for GemCache {
 /// in the trade worker. They travel with the response because the panel is
 /// built on the main loop, which only ever sees the query and the labels —
 /// and a header must state what the item says, not a plausible default.
+#[derive(Clone)]
 struct ItemFacts {
     /// "Rare", "Magic", … exactly as the item text words it.
     rarity: String,
     item_level: Option<u32>,
     requires_level: Option<u32>,
-    /// Computed DPS figures, present only when the item states an attack
-    /// rate (see core::derived).
-    weapon: Option<khaloni_poe2_core::derived::WeaponStats>,
-    /// Pseudo-total rows: label, the item's own total, and the index of
-    /// the disabled pseudo filter appended to the query for it.
-    pseudo_rows: Vec<(String, f64, usize)>,
+    /// The item's computed figures (DPS, defences, spirit, sockets) with
+    /// their search floors and default state (see core::props).
+    props: Vec<khaloni_poe2_core::props::PropFilter>,
+    /// Chaos DPS, which the trade site cannot filter on: shown, never
+    /// searched.
+    chaos_dps: f64,
+}
+
+impl ItemFacts {
+    /// `props` are the figures the search was built with (see
+    /// `ee2::Built::props`). `searched` keeps each one's default state (a
+    /// price check); without it every property is offered switched off (an
+    /// upgrade search, whose bounds are the user's to raise).
+    fn read(
+        item: &khaloni_poe2_core::item::Item,
+        mut props: Vec<khaloni_poe2_core::props::PropFilter>,
+        searched: bool,
+    ) -> ItemFacts {
+        if !searched {
+            for p in &mut props {
+                p.enabled = false;
+            }
+        }
+        ItemFacts {
+            rarity: rarity_label(&item.rarity),
+            item_level: item.item_level,
+            requires_level: requires_level(item),
+            props,
+            chaos_dps: khaloni_poe2_core::derived::weapon_stats(item).map_or(0.0, |w| w.chaos_dps),
+        }
+    }
 }
 
 /// A trade worker response. A check that opens a panel sends two: the
 /// `Seed` the moment the query is built, so the panel shows every row
 /// while the search runs, then the `Result` with the listings. A Search
-/// press sends only a `Result`.
+/// press sends only a `Result`. Every request is answered, failures
+/// included: a press that gets nothing back looks like a dead key.
 enum AppraiseDone {
-    /// Opens the panel: rows, the query its checkboxes edit, header facts.
+    /// Opens the panel: rows, the query its checkboxes edit (boxed: it is
+    /// the bulk of the message), header facts.
     Seed {
+        title: String,
+        query: Box<khaloni_poe2_core::trade::Query>,
+        labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
+        facts: Option<ItemFacts>,
+        /// Rows with no searchable stat that are no line of the item (a
+        /// total without a trade id): listed on the card so the user sees
+        /// they are not part of the search.
+        unsearchable: Vec<String>,
+        /// Every modifier line EE2 gives no row of its own, as a row the
+        /// user can tick into the search.
+        extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+    },
+    /// Listings for the panel with this title. Boxed: a search's answer
+    /// carries every block of the card and dwarfs the other variants.
+    Result {
+        title: String,
+        outcome: Result<Box<SearchDone>, String>,
+        /// What the search was run as, for the status line.
+        strictness: khaloni_poe2::evaluate_ui::Strictness,
+    },
+    /// What each mod is worth, for the panel with this title.
+    Attributed { title: String, outcome: Result<Vec<khaloni_poe2::evaluate_ui::AttributionRow>, String> },
+    /// Something the user should read that belongs to no panel (a reward
+    /// row's gem could not be priced, and why).
+    Note(String),
+}
+
+/// A search that ran, with everything the panel shows for it.
+#[derive(Clone)]
+struct SearchDone {
+    /// None for a stackable's exchange check, which has no search to open.
+    search_id: Option<String>,
+    /// The query that was sent, with Broad's relaxed bounds when that is
+    /// what ran. "Open site" opens this one, so the browser shows the
+    /// search the listings came from.
+    searched: khaloni_poe2_core::trade::Query,
+    /// Set when this is a recent identical search's answer being shown
+    /// again instead of a new request.
+    reused_age: Option<Duration>,
+    /// The league the listings were found in and converted at.
+    league: String,
+    /// The table, the ladder, the price-fixed strip, the closest listings.
+    blocks: khaloni_poe2::appraise::Blocks,
+    /// poe.ninja's line for the item, when it tracks it.
+    ninja: Option<khaloni_poe2::evaluate_ui::NinjaBlock>,
+    /// The exchange offers and the stack's worth, for a stackable.
+    bulk: Option<khaloni_poe2::evaluate_ui::BulkBlock>,
+    stack_value: Option<String>,
+    /// "searches 4/30 (5 min)" and whether it is near the cap.
+    budget: (String, bool),
+    attribute_enabled: bool,
+}
+
+/// What the panel's listings came from, kept beside the panel.
+struct Searched {
+    query: khaloni_poe2_core::trade::Query,
+    /// "Open site" opens the search in this league, the one the listings
+    /// on the card came from, whatever the overlay prices in by then.
+    league: String,
+    /// The cheapest table listing and its seller, in `unit`: the baseline
+    /// the attribution searches compare against.
+    cheapest: Option<(f64, String)>,
+    unit: String,
+    unit_per_exalted: f64,
+}
+
+/// Where a request's answer goes, worked out before the request runs so a
+/// panic while running it can still be answered.
+enum ReplyTo {
+    Panel { title: String, seeds: bool, strictness: khaloni_poe2::evaluate_ui::Strictness },
+    Exchange { name: String, hover_stack: Option<u32> },
+    Gem { skill: String, level: u32 },
+    Attribution { title: String },
+}
+
+fn item_title(item: &khaloni_poe2_core::item::Item) -> String {
+    if item.name.is_empty() {
+        item.base_type.clone().unwrap_or_default()
+    } else {
+        item.name.clone()
+    }
+}
+
+impl AppraiseReq {
+    fn reply_to(&self) -> ReplyTo {
+        use khaloni_poe2::evaluate_ui::Strictness;
+        match self {
+            AppraiseReq::Auto { item, .. } => {
+                ReplyTo::Panel { title: item_title(item), seeds: true, strictness: Strictness::Quick }
+            }
+            AppraiseReq::Upgrade { item, .. } => ReplyTo::Panel {
+                title: khaloni_poe2_core::trade::upgrade_title(item),
+                seeds: true,
+                strictness: Strictness::Quick,
+            },
+            AppraiseReq::Exact { title, strictness, .. } => {
+                ReplyTo::Panel { title: title.clone(), seeds: false, strictness: *strictness }
+            }
+            AppraiseReq::Currency { name, hover_stack } => {
+                ReplyTo::Exchange { name: name.clone(), hover_stack: *hover_stack }
+            }
+            AppraiseReq::Gem { skill, level } => ReplyTo::Gem { skill: skill.clone(), level: *level },
+            AppraiseReq::Attribute { title, .. } => ReplyTo::Attribution { title: title.clone() },
+        }
+    }
+}
+
+/// The last item check's own side, kept for the searches the panel runs
+/// after it: the built item the closest listings are compared with, and
+/// what poe.ninja is asked for.
+struct Checked {
+    title: String,
+    built: khaloni_poe2_core::ee2::request::Built,
+    /// (name, base when the item has a name of its own, corrupted).
+    ninja: (String, Option<String>, bool),
+}
+
+/// The trade site's catalogs a price check needs. Each loads on first use
+/// through `TradeClient::cached_data` (validated, written atomically, kept
+/// for a day) and is retried with a growing wait when it fails.
+struct Catalogs {
+    /// Body of data/stats, and the index built from it.
+    stats: khaloni_poe2::appraise::Retrying<(String, khaloni_poe2_core::trade::StatIndex)>,
+    /// From data/static: display name -> exchange id, and the reverse.
+    currencies: khaloni_poe2::appraise::Retrying<(
+        std::collections::HashMap<String, String>,
+        std::collections::HashMap<String, String>,
+    )>,
+    /// Body of data/items, and the gem type names in it.
+    items: khaloni_poe2::appraise::Retrying<(String, Vec<String>)>,
+}
+
+/// How long a catalog on disk is used before it is downloaded again. They
+/// change with a game patch, not by the hour.
+const CATALOG_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Everything the trade worker thread owns.
+struct TradeWorker {
+    done_tx: mpsc::Sender<AppraiseDone>,
+    exch_tx: mpsc::Sender<ExchangeDone>,
+    /// The league the client is pointed at and this worker's answers are
+    /// in. It follows `current` between requests, never during one.
+    league: String,
+    current: khaloni_poe2::league::Current,
+    cache_dir: std::path::PathBuf,
+    gem_map: GemMap,
+    svc: prices::PriceService,
+    exch_names: Arc<std::sync::OnceLock<Vec<String>>>,
+    reference: Arc<std::sync::OnceLock<khaloni_poe2::refcache::Reference>>,
+    generation: Arc<std::sync::atomic::AtomicU64>,
+    client: khaloni_poe2::appraise::Retrying<khaloni_poe2_core::trade::TradeClient>,
+    catalogs: Catalogs,
+    ee2: khaloni_poe2::appraise::Retrying<khaloni_poe2_core::ee2::Ee2Data>,
+    /// The last search that ran, by request body.
+    last_search: khaloni_poe2::appraise::ReuseSlot<String, SearchDone>,
+    /// The last item check, for the panel's later searches.
+    last_check: Option<Checked>,
+    /// The config as last saved: the display threshold, the market floors
+    /// and the account name the listings are read with.
+    cfg: Arc<std::sync::RwLock<Config>>,
+    /// Where every price check's fetched listings go, for the observed
+    /// craft model. The send never waits: the craft worker records them.
+    craft_tx: mpsc::Sender<CraftReq>,
+}
+
+impl TradeWorker {
+    fn run(mut self, rx: khaloni_poe2::appraise::PriorityReceiver<AppraiseReq>) {
+        // The catalogs load before anyone asks: the reward-row matcher
+        // needs the exchange names to recognise a row at all, and a row it
+        // cannot recognise never sends the request that would load them.
+        self.load_catalogs();
+        loop {
+            let req = match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(req) => req,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // A quiet moment: retry whatever failed to load (each
+                    // catalog keeps its own backoff).
+                    self.load_catalogs();
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
+            let reply = req.reply_to();
+            // One bad item must not end trade pricing for the session: a
+            // panic is answered like any other failure and the loop goes on.
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle(req)));
+            if let Err(panic) = ran {
+                let why = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".into());
+                eprintln!("trade worker: request panicked: {why}");
+                self.fail(reply, format!("internal error: {why}"), khaloni_poe2::appraise::ERROR_RETRY);
+            }
+        }
+    }
+
+    /// Answers a request with a failure, wherever its answer goes.
+    fn fail(&mut self, reply: ReplyTo, why: String, retry: Duration) {
+        match reply {
+            ReplyTo::Panel { title, seeds, strictness } => {
+                // The card opens to say why: a failed check that opened
+                // nothing looked like the hotkey was dead.
+                if seeds {
+                    let _ = self.done_tx.send(AppraiseDone::Seed {
+                        title: title.clone(),
+                        query: Default::default(),
+                        labels: Vec::new(),
+                        facts: None,
+                        unsearchable: Vec::new(),
+                        extra: Vec::new(),
+                    });
+                }
+                let _ = self.done_tx.send(AppraiseDone::Result { title, outcome: Err(why), strictness });
+            }
+            ReplyTo::Exchange { name, hover_stack } => {
+                // A hovered stack's card is open by now: the reason goes on
+                // it, and the cache learns the failure like a row's.
+                if hover_stack.is_some() {
+                    let _ = self.done_tx.send(AppraiseDone::Result {
+                        title: name.clone(),
+                        outcome: Err(why.clone()),
+                        strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+                    });
+                }
+                let _ = self.exch_tx.send(ExchangeDone {
+                    league: self.league.clone(),
+                    name,
+                    hover_stack,
+                    offers: None,
+                    outcome: Err((why, retry)),
+                });
+            }
+            ReplyTo::Gem { skill, level } => {
+                khaloni_poe2::league::store_if_still(
+                    &self.current,
+                    &self.league,
+                    &self.gem_map,
+                    (skill.clone(), level),
+                    Err((why.clone(), retry)),
+                    std::time::Instant::now(),
+                );
+                let _ = self.done_tx.send(AppraiseDone::Note(format!("{skill} {level} not priced: {why}")));
+            }
+            ReplyTo::Attribution { title } => {
+                let _ = self.done_tx.send(AppraiseDone::Attributed { title, outcome: Err(why) });
+            }
+        }
+    }
+
+    /// Between requests only: a request runs in one league from its first
+    /// byte to its answer. A request queued before a league change runs in
+    /// the new league, which is what the user is looking at by then.
+    fn follow_league(&mut self) {
+        let now = self.current.name();
+        if now != self.league {
+            eprintln!("trade worker: league {} -> {now}", self.league);
+            self.league = now;
+            khaloni_poe2::league::retarget(&mut self.client, &mut self.last_search, &self.league);
+        }
+    }
+
+    /// Why nothing may be converted right now, if so: the price table is
+    /// another league's or has not arrived.
+    fn prices_not_ready(&self) -> Option<String> {
+        khaloni_poe2::league::not_ready(&self.svc.snapshot(), &self.league)
+    }
+
+    /// The trade client, with the POESESSID saved in settings.
+    fn client(&mut self) -> Result<&mut khaloni_poe2_core::trade::TradeClient, String> {
+        let league = self.league.clone();
+        let session = self.cfg.read().unwrap_or_else(|e| e.into_inner()).poesessid.clone();
+        khaloni_poe2::appraise::session_client(&mut self.client, &session, std::time::Instant::now(), || {
+            khaloni_poe2_core::trade::TradeClient::new(khaloni_poe2_core::trade::TRADE_BASE, &league)
+                .map_err(|e| format!("trade client unavailable: {e}"))
+        })
+    }
+
+    /// Loads whichever catalogs are still missing and due for an attempt.
+    /// Failures are logged here and surface where the catalog is needed.
+    fn load_catalogs(&mut self) {
+        use khaloni_poe2_core::trade::{self, TradeData};
+        let now = std::time::Instant::now();
+        let dir = self.cache_dir.clone();
+        let Ok(client) = self.client.get_or_load(now, || {
+            trade::TradeClient::new(trade::TRADE_BASE, &self.league).map_err(|e| format!("trade client unavailable: {e}"))
+        }) else {
+            return;
+        };
+        let client: &trade::TradeClient = client;
+        let fetch = |kind: TradeData, file: &str| {
+            client.cached_data(kind, &dir.join(file), CATALOG_MAX_AGE).map_err(|e| e.to_string())
+        };
+        if self.catalogs.stats.attempt_due(now) {
+            let r = self.catalogs.stats.get_or_load(now, || {
+                let body = fetch(TradeData::Stats, "trade_stats.json")?;
+                let index = trade::StatIndex::from_json(&body).map_err(|e| e.to_string())?;
+                Ok((body, index))
+            });
+            if let Err(e) = r {
+                eprintln!("trade stats catalog: {e}");
+            }
+        }
+        if self.catalogs.currencies.attempt_due(now) {
+            let r = self.catalogs.currencies.get_or_load(now, || {
+                let ids = trade::parse_static_currency_ids(&fetch(TradeData::Static, "trade_static.json")?);
+                let names = ids.iter().map(|(name, id)| (id.clone(), name.clone())).collect();
+                Ok((ids, names))
+            });
+            match r {
+                // Published once: the OCR worker extends its match vocab
+                // with the exchange catalog's names.
+                Ok((ids, _)) => {
+                    let _ = self.exch_names.set(ids.keys().cloned().collect());
+                }
+                Err(e) => eprintln!("trade currency catalog: {e}"),
+            }
+        }
+        if self.catalogs.items.attempt_due(now) {
+            let r = self.catalogs.items.get_or_load(now, || {
+                let body = fetch(TradeData::Items, "trade_items.json")?;
+                let gems = trade::parse_gem_types(&body);
+                Ok((body, gems))
+            });
+            if let Err(e) = r {
+                eprintln!("trade items catalog: {e}");
+            }
+        }
+    }
+
+    /// EE2's stat and item data, which the price-check search is built
+    /// from. A failed load is tried again on a later check.
+    fn load_ee2(&mut self) -> Result<(), String> {
+        use khaloni_poe2_core::ee2::data;
+        let now = std::time::Instant::now();
+        if !self.ee2.is_loaded() {
+            // The reference loader downloads the same files at startup;
+            // give it a moment so both do not fetch them at once, but never
+            // wait on it without a limit (it may have died).
+            let deadline = now + Duration::from_secs(20);
+            while self.reference.get().is_none() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        let dir = self.cache_dir.clone();
+        let d = self.ee2.get_or_load(now, || {
+            khaloni_poe2::refcache::try_ee2_data(&dir)
+                .map_err(|e| format!("EE2 reference data unavailable ({e}); the search cannot be built"))
+        })?;
+        // The trade catalogs may arrive after the EE2 data did.
+        if d.trade_stats.is_none() {
+            d.trade_stats =
+                self.catalogs.stats.get().and_then(|(body, _)| data::TradeStatTexts::from_json(body).ok());
+        }
+        if d.trade_items.is_none() {
+            d.trade_items = self.catalogs.items.get().and_then(|(body, _)| data::trade_item_names(body).ok());
+        }
+        Ok(())
+    }
+
+    fn handle(&mut self, req: AppraiseReq) {
+        use khaloni_poe2::appraise;
+        let reply = req.reply_to();
+        self.follow_league();
+        self.load_catalogs();
+        match req {
+            AppraiseReq::Currency { name, hover_stack: None } => {
+                let outcome = self.exchange_price(&name).map(|a| a.map(|(ex, _)| ex));
+                let _ = self.exch_tx.send(ExchangeDone {
+                    league: self.league.clone(),
+                    name,
+                    hover_stack: None,
+                    offers: None,
+                    outcome,
+                });
+            }
+            // The user's own check of a stack: the card opens with the
+            // exchange offers and the stack's worth; the cache learns the
+            // rate like a row's answer, so a reward row naming the same
+            // currency costs nothing more.
+            AppraiseReq::Currency { name, hover_stack: Some(stack) } => {
+                let _ = self.done_tx.send(AppraiseDone::Seed {
+                    title: name.clone(),
+                    query: Default::default(),
+                    labels: Vec::new(),
+                    facts: Some(ItemFacts {
+                        rarity: "Currency".to_string(),
+                        item_level: None,
+                        requires_level: None,
+                        props: Vec::new(),
+                        chaos_dps: 0.0,
+                    }),
+                    unsearchable: Vec::new(),
+                    extra: Vec::new(),
+                });
+                let answer = self.exchange_price(&name);
+                let offers = answer.as_ref().ok().and_then(|a| a.as_ref()).map(|(_, view)| view.offers.len());
+                let outcome = match &answer {
+                    Ok(Some((ex, view))) => Ok(Box::new(self.stack_done(*ex, view, stack))),
+                    Ok(None) => Err("no exchange offers right now".to_string()),
+                    Err((why, _)) => Err(why.clone()),
+                };
+                let _ = self.done_tx.send(AppraiseDone::Result {
+                    title: name.clone(),
+                    outcome,
+                    strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+                });
+                let _ = self.exch_tx.send(ExchangeDone {
+                    league: self.league.clone(),
+                    name,
+                    hover_stack: Some(stack),
+                    offers,
+                    outcome: answer.map(|a| a.map(|(ex, _)| ex)),
+                });
+            }
+            AppraiseReq::Attribute { title, mods, baseline, unit, unit_per_exalted } => {
+                let outcome = self.attribute(&mods, &baseline, &unit, unit_per_exalted);
+                let _ = self.done_tx.send(AppraiseDone::Attributed { title, outcome });
+            }
+            AppraiseReq::Gem { skill, level } => {
+                let outcome = self.gem_price(&skill, level);
+                if let Err((why, _)) = &outcome {
+                    let _ = self.done_tx.send(AppraiseDone::Note(format!("{skill} {level} not priced: {why}")));
+                }
+                khaloni_poe2::league::store_if_still(
+                    &self.current,
+                    &self.league,
+                    &self.gem_map,
+                    (skill, level),
+                    outcome,
+                    std::time::Instant::now(),
+                );
+            }
+            AppraiseReq::Auto { item, generation } => {
+                if generation < self.generation.load(Ordering::Acquire) {
+                    return; // the user has checked another item since
+                }
+                let title = item_title(&item);
+                let built = self.load_ee2().and_then(|()| {
+                    let data = self.ee2.get().expect("loaded by load_ee2");
+                    khaloni_poe2_core::ee2::build(&item.raw, data).map_err(|e| e.to_string())
+                });
+                // An item the EE2 data cannot place gets no search at all:
+                // a loosened one would price something else. The card
+                // opens to say why.
+                let mut built = match built {
+                    Ok(b) => b,
+                    Err(e) => return self.fail(reply, e, appraise::ERROR_RETRY),
+                };
+                // The extra rows take their ids from the site's own catalog
+                // when it is loaded; without it they keep the pinned data's.
+                if let Some((_, catalog)) = self.catalogs.stats.get() {
+                    built.resolve_extra(catalog);
+                }
+                // Header facts are read here, while the parsed item still
+                // exists; the main loop never sees it.
+                let unreadable = built.reads_no_modifier();
+                let facts = ItemFacts::read(&item, built.props.clone(), true);
+                // What poe.ninja is asked for: a unique by its name and
+                // base, anything else by the name it goes by.
+                let ninja = if item.name.is_empty() {
+                    (item.base_type.clone().unwrap_or_default(), None, hover::is_corrupted(&item.raw))
+                } else {
+                    (item.name.clone(), item.base_type.clone(), hover::is_corrupted(&item.raw))
+                };
+                self.last_check = Some(Checked { title: title.clone(), built: built.clone(), ninja });
+                let unsearchable = built.unsearchable_totals();
+                // Nothing on this item could be read into the search: the
+                // listings would be "any item of this category" and a price
+                // from them would be a number about something else. The
+                // card opens with every line on it and says why it is not
+                // priced.
+                if unreadable {
+                    let _ = self.done_tx.send(AppraiseDone::Seed {
+                        title: title.clone(),
+                        query: Box::new(built.query),
+                        labels: built.labels,
+                        facts: Some(facts),
+                        unsearchable,
+                        extra: built.extra,
+                    });
+                    let _ = self.done_tx.send(AppraiseDone::Result {
+                        title,
+                        outcome: Err("not priced: the item text is the simple format, so no modifier \
+                                      could be read. Chat-linked items copy this way; for your own \
+                                      items turn on advanced mod descriptions"
+                            .into()),
+                        strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+                    });
+                    return;
+                }
+                self.seed_and_search(title, built.query, built.labels, facts, unsearchable, built.extra);
+            }
+            AppraiseReq::Upgrade { item, generation } => {
+                if generation < self.generation.load(Ordering::Acquire) {
+                    return;
+                }
+                // An upgrade search is not this item's price: the listings
+                // are compared with nothing and poe.ninja is not asked.
+                self.last_check = None;
+                let Some((_, stats)) = self.catalogs.stats.get() else {
+                    let why = format!(
+                        "upgrade search needs the trade stats catalog: {}",
+                        self.catalogs.stats.last_error()
+                    );
+                    return self.fail(reply, why, appraise::ERROR_RETRY);
+                };
+                let (q, labels) = khaloni_poe2_core::trade::build_upgrade_query_with_labels(&item, stats);
+                let title = khaloni_poe2_core::trade::upgrade_title(&item);
+                // The figures are a nicety on this card; without the EE2
+                // data the search still runs on the mods.
+                let props = match self.load_ee2() {
+                    Ok(()) => khaloni_poe2_core::ee2::build(&item.raw, self.ee2.get().expect("loaded"))
+                        .map(|b| b.props)
+                        .unwrap_or_default(),
+                    Err(_) => Vec::new(),
+                };
+                let facts = ItemFacts::read(&item, props, false);
+                self.seed_and_search(title, q, labels, facts, Vec::new(), Vec::new());
+            }
+            AppraiseReq::Exact { title, query, strictness } => {
+                let outcome = self.search(&query, &title).map(Box::new);
+                let _ = self.done_tx.send(AppraiseDone::Result { title, outcome, strictness });
+            }
+        }
+    }
+
+    /// The panel opens now, with every row, before the search: the user
+    /// reads and adjusts the selection while the listings are fetched
+    /// instead of waiting on the request to see the mods at all.
+    fn seed_and_search(
+        &mut self,
         title: String,
         query: khaloni_poe2_core::trade::Query,
         labels: Vec<khaloni_poe2_core::trade::FilterLabel>,
-        facts: Option<ItemFacts>,
-    },
-    /// Listings for the panel with this title.
-    Result {
-        title: String,
-        outcome: Result<Vec<khaloni_poe2_core::trade::Listing>, String>,
-        search_id: Option<String>,
-        /// Computed from the listings this search actually returned (never
-        /// a model's opinion), or None when nothing priceable came back.
-        estimate: Option<khaloni_poe2_core::estimate::Estimate>,
-        /// The query the auto search actually ran (a relaxed search that
-        /// dropped filters to find matches has them switched off), for the
-        /// panel's checkboxes to take when the user has not touched them
-        /// since the seed. None for a Search press: the panel already
-        /// holds that query.
-        searched: Option<khaloni_poe2_core::trade::Query>,
-    },
+        facts: ItemFacts,
+        unsearchable: Vec<String>,
+        extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+    ) {
+        let _ = self.done_tx.send(AppraiseDone::Seed {
+            title: title.clone(),
+            query: Box::new(query.clone()),
+            labels,
+            facts: Some(facts),
+            unsearchable,
+            extra,
+        });
+        let outcome = self.search(&query, &title).map(Box::new);
+        let _ = self.done_tx.send(AppraiseDone::Result {
+            title,
+            outcome,
+            strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+        });
+    }
+
+    /// One search, exactly as given, and its listings: the table's twenty
+    /// in two fetch calls, up to forty when the closest listings are wanted
+    /// and the search matched more than twenty (the pages past the table
+    /// are best effort: a cooldown there costs the comparison, not the
+    /// check). A query that finds nothing says so: dropping filters until
+    /// something matched is how a price check came back with items nothing
+    /// like the one checked (observed live 2026-09-18). The same request
+    /// body within `appraise::REUSE_TTL` is answered from the previous
+    /// result.
+    fn search(&mut self, q: &khaloni_poe2_core::trade::Query, title: &str) -> Result<SearchDone, String> {
+        use khaloni_poe2::appraise;
+        // Before the request, not after: a search costs a slot of the
+        // site's rate limit, and its listings could not be converted.
+        if let Some(why) = self.prices_not_ready() {
+            return Err(why);
+        }
+        let body = q.to_body().to_string();
+        let now = std::time::Instant::now();
+        if let Some((mut done, age)) = self.last_search.get(&body, now) {
+            eprintln!("trade search: same request {}s ago, shown again", age.as_secs());
+            done.reused_age = Some(age);
+            done.budget = self.budget_text();
+            done.attribute_enabled = self.attribute_enabled();
+            return Ok(done);
+        }
+        let wants_closest = self.last_check.as_ref().is_some_and(|c| c.title == title && appraise::wants_closest(&c.built));
+        let client = self.client()?;
+        let fetched = client.search(q).and_then(|s| {
+            let plan = appraise::fetch_plan(s.total, s.hashes.len(), wants_closest);
+            let mut raw: Vec<Option<serde_json::Value>> = Vec::new();
+            let mut dropped = 0;
+            for (page, range) in plan.into_iter().enumerate() {
+                // Fetching an empty id list 404s, so an empty search stops
+                // here; the plan never yields an empty page.
+                match client.fetch_counted(&s.id, &s.hashes[range]) {
+                    Ok(outcome) => {
+                        dropped += outcome.dropped;
+                        raw.extend(outcome.raw);
+                    }
+                    Err(e) if page >= appraise::TABLE_LISTINGS / appraise::PAGE => {
+                        eprintln!(
+                            "trade fetch (page {} for the closest listings): {}",
+                            page + 1,
+                            appraise::error_text(&e)
+                        );
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok((s.id, s.total, raw, dropped))
+        });
+        // The outcome joins the "price check:" line in the log: a report of
+        // failed checks could not be told apart from a cooldown, a refused
+        // body or a dead connection without it.
+        let (search_id, total, raw, dropped) = match fetched {
+            Ok(f) => f,
+            Err(e) => {
+                let why = appraise::error_text(&e);
+                eprintln!("trade search: {why}");
+                return Err(why);
+            }
+        };
+        eprintln!(
+            "trade search: {} listings fetched ({dropped} gone or unpriced, {:?} matches)",
+            raw.len() - dropped,
+            total
+        );
+        // The listings' mods and tiers feed the observed craft model; the
+        // craft worker joins them to the mod data off this thread.
+        let _ = self.craft_tx.send(CraftReq::Record { league: self.league.clone(), raw: raw.clone() });
+        let snap = self.svc.snapshot();
+        // The listings are `self.league`'s. Converting them at another
+        // league's rates gives a number that looks like any other.
+        if snap.league != self.league || !self.current.is(&self.league) {
+            return Err(format!("the league changed to {} during the search: search again", self.current.name()));
+        }
+        let empty = std::collections::HashMap::new();
+        let names = self.catalogs.currencies.get().map(|(_, names)| names).unwrap_or(&empty);
+        let (divine_threshold, floors, my_account) = {
+            let cfg = self.cfg.read().unwrap_or_else(|e| e.into_inner());
+            (cfg.divine_threshold, cfg.market_floors(), cfg.account_name.clone())
+        };
+        let now_unix = prices::unix_now();
+        let checked = self.last_check.as_ref().filter(|c| c.title == title);
+        let blocks = appraise::blocks(&appraise::Fetched {
+            raw: &raw,
+            total,
+            now_unix,
+            my_account: &my_account,
+            currency_names: names,
+            table: &snap.table,
+            divine_threshold,
+            built: checked.map(|c| &c.built),
+        });
+        let ninja = checked.and_then(|c| {
+            let model = appraise::market_model(&self.svc.market(), floors, now_unix);
+            let (name, base, corrupted) = &c.ninja;
+            khaloni_poe2_core::market::ninja_block(&model, name, base.as_deref(), *corrupted, None)
+                .map(|b| appraise::ninja_view(&b, &snap.table, divine_threshold))
+        });
+        let done = SearchDone {
+            search_id: Some(search_id),
+            searched: q.clone(),
+            reused_age: None,
+            league: self.league.clone(),
+            blocks,
+            ninja,
+            bulk: None,
+            stack_value: None,
+            budget: self.budget_text(),
+            attribute_enabled: self.attribute_enabled(),
+        };
+        self.last_search.put(body, done.clone(), now);
+        Ok(done)
+    }
+
+    /// The panel's budget line: the five-minute rule as the last search
+    /// response reported it, else the limiter's tightest rule.
+    fn budget_text(&self) -> (String, bool) {
+        let fallback =
+            self.client.get().map(|c| c.limiters().budget_text(khaloni_poe2_core::trade::Endpoint::Search));
+        khaloni_poe2::appraise::budget_text(fallback.as_deref().unwrap_or(""))
+    }
+
+    fn free_slots(&self) -> u32 {
+        self.client.get().map_or(0, |c| c.limiters().budget_free(khaloni_poe2_core::trade::Endpoint::Search))
+    }
+
+    fn attribute_enabled(&self) -> bool {
+        khaloni_poe2::appraise::attribute_enabled(self.free_slots())
+    }
+
+    /// The card's answer for a hovered stack: the bulk offers and the
+    /// stack's worth at the going rate.
+    fn stack_done(&self, per_unit_exalted: f64, view: &khaloni_poe2_core::bulk::BulkView, stack: u32) -> SearchDone {
+        let snap = self.svc.snapshot();
+        let empty = std::collections::HashMap::new();
+        let names = self.catalogs.currencies.get().map(|(_, names)| names).unwrap_or(&empty);
+        let divine_threshold = self.cfg.read().unwrap_or_else(|e| e.into_inner()).divine_threshold;
+        SearchDone {
+            search_id: None,
+            searched: Default::default(),
+            reused_age: None,
+            league: self.league.clone(),
+            blocks: Default::default(),
+            ninja: None,
+            bulk: Some(khaloni_poe2::appraise::bulk_block(view, names)),
+            stack_value: Some(khaloni_poe2::appraise::stack_value_text(
+                stack,
+                per_unit_exalted,
+                &snap.table,
+                divine_threshold,
+            )),
+            budget: self.budget_text(),
+            attribute_enabled: false,
+        }
+    }
+
+    /// One search per mod with its filter dropped, each fetched once (its
+    /// cheapest page), against the baseline. Refused before the first
+    /// request when the budget has fewer than `ATTRIBUTE_MIN_FREE` slots.
+    fn attribute(
+        &mut self,
+        mods: &[(String, khaloni_poe2_core::trade::Query)],
+        baseline: &(f64, String),
+        unit: &str,
+        unit_per_exalted: f64,
+    ) -> Result<Vec<khaloni_poe2::evaluate_ui::AttributionRow>, String> {
+        use khaloni_poe2::appraise;
+        if let Some(why) = self.prices_not_ready() {
+            return Err(why);
+        }
+        let free = self.free_slots();
+        if !appraise::attribute_enabled(free) {
+            return Err(format!(
+                "what each mod is worth needs {} free search slots; {free} free",
+                appraise::ATTRIBUTE_MIN_FREE
+            ));
+        }
+        if mods.is_empty() {
+            return Err("no ticked mod with a tier to price".to_string());
+        }
+        let snap = self.svc.snapshot();
+        let empty = std::collections::HashMap::new();
+        let names = self.catalogs.currencies.get().map(|(_, names)| names.clone()).unwrap_or(empty);
+        let client = self.client()?;
+        let mut dropped: Vec<(String, Option<(f64, String)>)> = Vec::new();
+        for (label, q) in mods {
+            let cheapest = client
+                .search(q)
+                .and_then(|s| {
+                    if s.hashes.is_empty() {
+                        return Ok(None);
+                    }
+                    let outcome = client.fetch_counted(&s.id, &s.hashes[..s.hashes.len().min(appraise::PAGE)])?;
+                    // The search is price-ascending, so the first listing
+                    // that converts is the cheapest.
+                    Ok(outcome.listings.iter().find_map(|l| {
+                        appraise::listing_exalted(l, &names, &snap.table)
+                            .map(|ex| (ex * unit_per_exalted, l.account.clone()))
+                    }))
+                })
+                .map_err(|e| appraise::error_text(&e))?;
+            eprintln!("attribution: without {label}: {:?}", cheapest.as_ref().map(|(p, _)| p));
+            dropped.push((label.clone(), cheapest));
+        }
+        Ok(appraise::attribution_rows((baseline.0, &baseline.1), &dropped, unit))
+    }
+
+    /// A currency's exalted price per unit, with the exchange offers it was
+    /// read from. The poe.ninja table answers first, with no request and
+    /// no offers; only a currency it lacks goes to the exchange.
+    fn exchange_price(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<(f64, khaloni_poe2_core::bulk::BulkView)>, (String, Duration)> {
+        use khaloni_poe2::appraise;
+        if name.trim().is_empty() {
+            return Ok(None);
+        }
+        let soon = |why: String| (why, appraise::ERROR_RETRY);
+        if let Some(why) = self.prices_not_ready() {
+            return Err(soon(why));
+        }
+        let snap = self.svc.snapshot();
+        let table_price = snap.table.lookup(name).map(|p| p.exalted);
+        if !appraise::needs_exchange(table_price) {
+            return Ok(table_price.map(|ex| (ex, khaloni_poe2_core::bulk::BulkView::default())));
+        }
+        let id = match self.catalogs.currencies.get() {
+            Some((ids, _)) => match ids.get(&name.to_lowercase()) {
+                Some(id) => id.clone(),
+                // Not an exchange item at all: that is an answer.
+                None => return Ok(None),
+            },
+            None => {
+                return Err(soon(format!("trade currency catalog: {}", self.catalogs.currencies.last_error())));
+            }
+        };
+        let client = self.client().map_err(soon)?;
+        // The body that answered is kept beside the rate: the bulk view
+        // reads the offers, the rate is their median.
+        let mut offers: Option<khaloni_poe2_core::bulk::BulkView> = None;
+        let rate = appraise::exchange_with_fallback(
+            &mut |have| {
+                let view = khaloni_poe2_core::bulk::parse_exchange(&client.exchange_raw(&id, have)?);
+                let rate = view.median_rate();
+                if rate.is_some() {
+                    offers = Some(view);
+                }
+                Ok(rate)
+            },
+            &|table_name| snap.table.lookup(table_name).map(|p| p.exalted),
+        )
+        .map_err(|e| (appraise::error_text(&e), appraise::retry_after(&e)))?;
+        Ok(rate.map(|ex| (ex, offers.unwrap_or_default())))
+    }
+
+    fn gem_price(&mut self, skill: &str, level: u32) -> Result<Option<f64>, (String, Duration)> {
+        use khaloni_poe2::appraise;
+        let soon = |why: String| (why, appraise::ERROR_RETRY);
+        if let Some(why) = self.prices_not_ready() {
+            return Err(soon(why));
+        }
+        let Some((_, gem_types)) = self.catalogs.items.get() else {
+            return Err(soon(format!("trade items catalog: {}", self.catalogs.items.last_error())));
+        };
+        let gem_types = gem_types.clone();
+        let empty = std::collections::HashMap::new();
+        let names = self.catalogs.currencies.get().map(|(_, names)| names.clone()).unwrap_or(empty);
+        let snap = self.svc.snapshot();
+        let client = self.client().map_err(soon)?;
+        price_one_gem(client, skill, level, &gem_types, &names, &snap.table)
+            .map_err(|e| (appraise::error_text(&e), appraise::retry_after(&e)))
+    }
 }
 
-/// Writes one weapon bound into the query, dropping the whole section when
-/// the last bound clears so an empty block never serializes.
-fn set_weapon_bound(
-    query: &mut khaloni_poe2_core::trade::Query,
-    bound: khaloni_poe2::evaluate_ui::WeaponBound,
-    min: Option<f64>,
+/// Craft worker requests. Item work carries the number of the craft panel
+/// it belongs to: an answer for a panel the user has since replaced is
+/// dropped on arrival.
+enum CraftReq {
+    /// Read a copied item into the planner.
+    Open { text: String, generation: u64 },
+    /// The price of buying one (a trade search), then every strategy
+    /// costed. Runs of many seconds happen here, never on the main loop.
+    Plan {
+        generation: u64,
+        state: khaloni_poe2_core::craft::types::ItemState,
+        target: khaloni_poe2_core::craft::strategy::Target,
+    },
+    /// Gather listings of `class` for the observed model; its cost was
+    /// stated and Run pressed.
+    Calibrate { generation: u64, class: String },
+    /// Work out what scanning the profile `name` costs, for the panel to
+    /// state before anything is sent.
+    StateScan { name: String },
+    /// Run the scan of the profile `name`; its cost was stated and Run
+    /// pressed.
+    Scan { name: String },
+    /// The listings a price check fetched in `league`, for the observed
+    /// store.
+    Record { league: String, raw: Vec<Option<serde_json::Value>> },
+}
+
+/// Craft worker answers. Every request is answered, failures included.
+enum CraftDone {
+    Opened {
+        generation: u64,
+        outcome: Result<(khaloni_poe2_core::craft::types::ItemState, khaloni_poe2::craft_ui::Picker, String), String>,
+    },
+    Planned {
+        generation: u64,
+        outcome: Result<khaloni_poe2::craft_ui::PlanView, String>,
+        observed: String,
+        note: Option<String>,
+    },
+    Calibrated { generation: u64, outcome: Result<String, String>, observed: String },
+    ScanStated { name: String, outcome: Result<(String, Option<String>), String> },
+    Scanned { outcome: Result<(khaloni_poe2::craft_ui::FlipList, Vec<String>), String> },
+    /// What the worker is doing now, for the busy line of the panel of
+    /// `generation` (any panel for a scan, which belongs to none).
+    Busy { generation: Option<u64>, text: String },
+}
+
+/// The planner's data, loaded on first use and retried with a growing wait
+/// when a download is missing.
+struct CraftSources {
+    craft: khaloni_poe2::appraise::Retrying<Arc<khaloni_poe2_core::craft::data::CraftData>>,
+    ee2: khaloni_poe2::appraise::Retrying<khaloni_poe2_core::ee2::Ee2Data>,
+    stats: khaloni_poe2::appraise::Retrying<khaloni_poe2_core::trade::StatIndex>,
+    /// Trade currency id -> display name, for converting listing prices.
+    currency_names: khaloni_poe2::appraise::Retrying<std::collections::HashMap<String, String>>,
+}
+
+/// How long the price of buying one is reused for the same target: a
+/// calibration re-plans the shown target, and a second search for the same
+/// item within minutes would say nothing new.
+const BUY_REUSE: Duration = Duration::from_secs(10 * 60);
+
+/// Everything the craft worker thread owns: the planner's data, its own
+/// trade client (drawing on the process-wide limiter the price check uses),
+/// and the observed store, which only this thread writes.
+struct CraftWorker {
+    done_tx: mpsc::Sender<CraftDone>,
+    league: String,
+    current: khaloni_poe2::league::Current,
+    cache_dir: std::path::PathBuf,
+    svc: prices::PriceService,
+    cfg: Arc<std::sync::RwLock<Config>>,
+    /// Every search a calibration, a scan or a buy line sends is the
+    /// user's own and is noted here, so reward rows keep their distance.
+    budget: Arc<std::sync::Mutex<khaloni_poe2::budget::Budget>>,
+    /// The overlay's exchange answers and its background path for asking
+    /// about a currency the table lacks.
+    currency: CurrencyCache,
+    /// Names plans could not price, looked up again before each plan.
+    unpriced: std::collections::BTreeSet<String>,
+    client: khaloni_poe2::appraise::Retrying<khaloni_poe2_core::trade::TradeClient>,
+    sources: CraftSources,
+    store: khaloni_poe2::appraise::Retrying<khaloni_poe2::observed_store::ObservedStore>,
+    last_buy: Option<(String, Result<khaloni_poe2_core::craft::plan::BuyQuote, String>, std::time::Instant)>,
+    /// The panel the request being handled belongs to.
+    serving: Option<u64>,
+}
+
+impl CraftWorker {
+    fn run(mut self, rx: mpsc::Receiver<CraftReq>) {
+        for req in rx {
+            let what = match &req {
+                CraftReq::Open { .. } => "reading the item",
+                CraftReq::Plan { .. } => "planning",
+                CraftReq::Calibrate { .. } => "calibrating",
+                CraftReq::StateScan { .. } | CraftReq::Scan { .. } => "scanning",
+                CraftReq::Record { .. } => "recording listings",
+            };
+            // One bad item must not end the planner for the session.
+            let answer = craft_failure(&req);
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle(req)));
+            if let Err(panic) = ran {
+                let why = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".into());
+                eprintln!("craft worker: {what} panicked: {why}");
+                if let Some(done) = answer(format!("internal error while {what}: {why}")) {
+                    let _ = self.done_tx.send(done);
+                }
+            }
+        }
+    }
+
+    fn follow_league(&mut self) {
+        let now = self.current.name();
+        if now != self.league {
+            eprintln!("craft worker: league {} -> {now}", self.league);
+            self.league = now;
+            if let Some(c) = self.client.get_mut() {
+                c.set_league(&self.league);
+            }
+            self.last_buy = None;
+        }
+        let league = self.league.clone();
+        if let Some(store) = self.store.get_mut() {
+            if let Err(e) = store.switch_league(&league) {
+                eprintln!("observed store: {league}: {e}");
+            }
+        }
+    }
+
+    fn busy(&self, text: String) {
+        let _ = self.done_tx.send(CraftDone::Busy { generation: self.serving, text });
+    }
+
+    fn craft_data(&mut self) -> Result<Arc<khaloni_poe2_core::craft::data::CraftData>, String> {
+        let dir = self.cache_dir.clone();
+        self.sources
+            .craft
+            .get_or_load(std::time::Instant::now(), || {
+                let files = khaloni_poe2::refcache::craft_files(&dir)?;
+                khaloni_poe2_core::craft::data::CraftData::load(&files.mods, &files.bases, &files.essences).map(Arc::new)
+            })
+            .map(|d| d.clone())
+            .map_err(|e| format!("the planner's mod data is not available: {e}"))
+    }
+
+    /// The trade client, with the POESESSID saved in settings.
+    fn client(&mut self) -> Result<&mut khaloni_poe2_core::trade::TradeClient, String> {
+        let league = self.league.clone();
+        let session = self.cfg.read().unwrap_or_else(|e| e.into_inner()).poesessid.clone();
+        khaloni_poe2::appraise::session_client(&mut self.client, &session, std::time::Instant::now(), || {
+            khaloni_poe2_core::trade::TradeClient::new(khaloni_poe2_core::trade::TRADE_BASE, &league)
+                .map_err(|e| format!("trade client unavailable: {e}"))
+        })
+    }
+
+    /// The trade site's stat catalog and currency names, from the cache the
+    /// price check fills (a day old at most), downloaded when missing.
+    fn load_catalogs(&mut self) -> Result<(), String> {
+        use khaloni_poe2_core::trade::{self, TradeData};
+        let now = std::time::Instant::now();
+        let dir = self.cache_dir.clone();
+        let league = self.league.clone();
+        let client: &trade::TradeClient = self.client.get_or_load(now, || {
+            trade::TradeClient::new(trade::TRADE_BASE, &league).map_err(|e| format!("trade client unavailable: {e}"))
+        })?;
+        let fetch = |kind: TradeData, file: &str| {
+            client.cached_data(kind, &dir.join(file), CATALOG_MAX_AGE).map_err(|e| e.to_string())
+        };
+        let stats = self.sources.stats.get_or_load(now, || {
+            trade::StatIndex::from_json(&fetch(TradeData::Stats, "trade_stats.json")?).map_err(|e| e.to_string())
+        });
+        if let Err(e) = stats {
+            return Err(format!("the trade stats catalog is not available: {e}"));
+        }
+        let names = self.sources.currency_names.get_or_load(now, || {
+            let ids = trade::parse_static_currency_ids(&fetch(TradeData::Static, "trade_static.json")?);
+            Ok(ids.into_iter().map(|(name, id)| (id, name)).collect())
+        });
+        if let Err(e) = names {
+            return Err(format!("the trade currency catalog is not available: {e}"));
+        }
+        Ok(())
+    }
+
+    /// EE2's data, which reads a copied item, with the trade catalogs it
+    /// matches stat lines against.
+    fn load_ee2(&mut self) -> Result<(), String> {
+        use khaloni_poe2_core::ee2::data;
+        let dir = self.cache_dir.clone();
+        let now = std::time::Instant::now();
+        self.sources
+            .ee2
+            .get_or_load(now, || khaloni_poe2::refcache::try_ee2_data(&dir))
+            .map_err(|e| format!("EE2 reference data unavailable ({e}); the item cannot be read"))?;
+        let d = self.sources.ee2.get_mut().expect("loaded above");
+        if d.trade_stats.is_none() {
+            d.trade_stats = std::fs::read_to_string(dir.join("trade_stats.json"))
+                .ok()
+                .and_then(|body| data::TradeStatTexts::from_json(&body).ok());
+        }
+        if d.trade_items.is_none() {
+            d.trade_items = std::fs::read_to_string(dir.join("trade_items.json"))
+                .ok()
+                .and_then(|body| data::trade_item_names(&body).ok());
+        }
+        Ok(())
+    }
+
+    fn store(&mut self) -> Result<&mut khaloni_poe2::observed_store::ObservedStore, String> {
+        let league = self.league.clone();
+        let min = self.cfg.read().unwrap_or_else(|e| e.into_inner()).craft_observed_min;
+        let store = self
+            .store
+            .get_or_load(std::time::Instant::now(), || {
+                khaloni_poe2::observed_store::ObservedStore::open(&khaloni_poe2::observed_store::default_dir(), &league)
+                    .map_err(|e| format!("the observed store could not be opened: {e}"))
+            })?;
+        store.set_min_listings(min);
+        Ok(store)
+    }
+
+    fn observed_line(&mut self, class: &str) -> String {
+        match self.store() {
+            Ok(store) => khaloni_poe2::craft_flow::observed_line(store, class),
+            Err(why) => format!("observed model unavailable: {why}"),
+        }
+    }
+
+    /// The panel's units at the current exchange rate.
+    fn rates(&self) -> khaloni_poe2::craft_ui::Rates {
+        let threshold = self.cfg.read().unwrap_or_else(|e| e.into_inner()).divine_threshold;
+        khaloni_poe2::craft_flow::rates(&self.svc.snapshot().table, threshold)
+    }
+
+    /// Exchange answers the overlay holds for names the table lacks. Each
+    /// lookup goes through the overlay's own background path, which asks
+    /// the exchange (within the reward rows' budget) for a name it has no
+    /// fresh answer to.
+    fn exchange_prices(&self) -> std::collections::HashMap<String, f64> {
+        use khaloni_poe2::pricing::{CurrencyPricer, CurrencyState};
+        self.unpriced
+            .iter()
+            .filter_map(|name| match self.currency.lookup(name) {
+                Some(CurrencyState::Priced(ex)) => Some((name.clone(), ex)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Runs one search and fetches up to `listings` of its results through
+    /// the process-wide limiter. The search is the user's own.
+    fn fetch(&mut self, q: &khaloni_poe2_core::trade::Query, listings: usize) -> Result<Vec<Option<serde_json::Value>>, String> {
+        use khaloni_poe2::appraise::error_text;
+        self.budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+        let client = self.client()?;
+        let s = client.search(q).map_err(|e| error_text(&e))?;
+        let mut raw = Vec::new();
+        for range in khaloni_poe2::craft_flow::fetch_pages(s.hashes.len(), listings) {
+            raw.extend(client.fetch_counted(&s.id, &s.hashes[range]).map_err(|e| error_text(&e))?.raw);
+        }
+        eprintln!("craft search: {} listings fetched", raw.iter().flatten().count());
+        Ok(raw)
+    }
+
+    fn handle(&mut self, req: CraftReq) {
+        self.follow_league();
+        self.serving = match &req {
+            CraftReq::Open { generation, .. } | CraftReq::Plan { generation, .. } | CraftReq::Calibrate { generation, .. } => {
+                Some(*generation)
+            }
+            _ => None,
+        };
+        match req {
+            CraftReq::Record { league, raw } => {
+                // A price check from a league the store has left says
+                // nothing about this one's market.
+                if league != self.league {
+                    return;
+                }
+                let Ok(data) = self.craft_data() else { return };
+                match self.store().and_then(|s| s.record_fetch(&raw, &data).map_err(|e| e.to_string())) {
+                    Ok(r) if r.recorded > 0 => eprintln!(
+                        "observed store: {} listings recorded ({} repeated, {} unjoined modifiers)",
+                        r.recorded,
+                        r.repeated,
+                        r.unjoined.len()
+                    ),
+                    Ok(_) => {}
+                    Err(e) => eprintln!("observed store: {e}"),
+                }
+            }
+            CraftReq::Open { text, generation } => {
+                let outcome = self.open(&text);
+                let _ = self.done_tx.send(CraftDone::Opened { generation, outcome });
+            }
+            CraftReq::Plan { generation, state, target } => {
+                let (outcome, note) = match self.plan(&state, &target) {
+                    Ok((view, note)) => (Ok(view), note),
+                    Err(why) => (Err(why), None),
+                };
+                let observed = self.observed_line(&state.class);
+                let _ = self.done_tx.send(CraftDone::Planned { generation, outcome, observed, note });
+            }
+            CraftReq::Calibrate { generation, class } => {
+                let outcome = self.calibrate(&class);
+                let observed = self.observed_line(&class);
+                let _ = self.done_tx.send(CraftDone::Calibrated { generation, outcome, observed });
+            }
+            CraftReq::StateScan { name } => {
+                let outcome = self.state_scan(&name);
+                let _ = self.done_tx.send(CraftDone::ScanStated { name, outcome });
+            }
+            CraftReq::Scan { name } => {
+                let outcome = self.scan(&name);
+                let _ = self.done_tx.send(CraftDone::Scanned { outcome });
+            }
+        }
+    }
+
+    fn open(
+        &mut self,
+        text: &str,
+    ) -> Result<(khaloni_poe2_core::craft::types::ItemState, khaloni_poe2::craft_ui::Picker, String), String> {
+        let data = self.craft_data()?;
+        self.load_ee2()?;
+        let ee2 = self.sources.ee2.get().expect("loaded by load_ee2");
+        let opened = khaloni_poe2::craft_flow::read_item(text, ee2, &data)?;
+        let observed = self.observed_line(&opened.state.class);
+        Ok((opened.state, opened.picker, observed))
+    }
+
+    /// The price of buying one: a search for the finished item on the
+    /// item's base, reused for the same target for a while.
+    fn buy(
+        &mut self,
+        state: &khaloni_poe2_core::craft::types::ItemState,
+        target: &khaloni_poe2_core::craft::strategy::Target,
+        data: &khaloni_poe2_core::craft::data::CraftData,
+    ) -> Result<khaloni_poe2_core::craft::plan::BuyQuote, String> {
+        use khaloni_poe2::craft_flow;
+        let key = format!("{}|{:?}", state.base, target.wants);
+        if let Some((k, got, at)) = &self.last_buy {
+            if *k == key && at.elapsed() < BUY_REUSE {
+                return got.clone();
+            }
+        }
+        self.load_catalogs()?;
+        self.load_ee2()?;
+        let stats = &self.sources.ee2.get().expect("loaded by load_ee2").stats;
+        let catalog = self.sources.stats.get().expect("loaded by load_catalogs");
+        let (resolved, query) = craft_flow::buy_search(state, target, data, stats, catalog)?;
+        let cost = khaloni_poe2_core::flip::RequestCost::of(1);
+        craft_flow::allow(cost, craft_flow::search_window(std::time::Instant::now()))
+            .map_err(|why| format!("the finished item was not searched: {why}"))?;
+        self.busy("planning: searching for the finished item to price buying one".to_string());
+        let raw = self.fetch(&query, khaloni_poe2_core::flip::LISTINGS_PER_SEARCH as usize)?;
+        let entries: Vec<serde_json::Value> = raw.into_iter().flatten().collect();
+        let snap = self.svc.snapshot();
+        let names = self.sources.currency_names.get().expect("loaded by load_catalogs");
+        let convert = |amount: f64, currency: &str| craft_flow::listing_exalted(amount, currency, names, &snap.table);
+        let market = khaloni_poe2_core::flip::Market { convert: &convert, unit: "ex" };
+        let got = craft_flow::buy_quote(&entries, &resolved, data, &market);
+        self.last_buy = Some((key, got.clone(), std::time::Instant::now()));
+        got
+    }
+
+    fn plan(
+        &mut self,
+        state: &khaloni_poe2_core::craft::types::ItemState,
+        target: &khaloni_poe2_core::craft::strategy::Target,
+    ) -> Result<(khaloni_poe2::craft_ui::PlanView, Option<String>), String> {
+        use khaloni_poe2::craft_flow;
+        if let Some(why) = khaloni_poe2::league::not_ready(&self.svc.snapshot(), &self.league) {
+            return Err(why);
+        }
+        let data = self.craft_data()?;
+        let exchange = self.exchange_prices();
+        let buy = self.buy(state, target, &data);
+        let observed = self.store()?.model(&state.class);
+        let config = self.cfg.read().unwrap_or_else(|e| e.into_inner()).craft_sim();
+        let snap = self.svc.snapshot();
+        let prices = |name: &str| craft_flow::price_of(&snap.table, &exchange, name);
+        self.busy(format!("planning: costing every strategy on {} runs each", config.runs));
+        let started = std::time::Instant::now();
+        let plan = craft_flow::plan_item(craft_flow::PlanInputs {
+            state,
+            target,
+            data: &data,
+            observed: observed.as_ref(),
+            prices: &prices,
+            buy,
+            config: &config,
+        });
+        eprintln!("craft plan: {} strategies in {:.1}s", plan.strategies.len(), started.elapsed().as_secs_f32());
+        // What the table lacks is looked up in the overlay's exchange
+        // answers before every later plan. A price check of a stack of it
+        // puts its exchange price there; the background queue may too, when
+        // its budget has room.
+        let missing = craft_flow::missing_prices(&plan);
+        let note = (!missing.is_empty()).then(|| {
+            self.unpriced.extend(missing.iter().cloned());
+            let _ = self.exchange_prices();
+            format!(
+                "no price in the price table for {}: a price check of a stack of it prices it from the exchange, then press Plan again",
+                missing.join(", ")
+            )
+        });
+        Ok((khaloni_poe2::craft_ui::PlanView::build(&plan, &self.rates()), note))
+    }
+
+    fn calibrate(&mut self, class: &str) -> Result<String, String> {
+        use khaloni_poe2::craft_flow;
+        let data = self.craft_data()?;
+        let window = craft_flow::search_window(std::time::Instant::now());
+        self.busy(format!("calibrating {class}: 5 searches, 20 fetches"));
+        // The store and the client are both this worker's; the fetch
+        // closure borrows the client while the store is recorded into, so
+        // the store is taken out for the calibration and put back.
+        self.store()?;
+        // The price bands are set from the first search's cheapest price,
+        // converted the way the price check converts its listings.
+        self.load_catalogs()?;
+        let snap = self.svc.snapshot();
+        let names = self.sources.currency_names.get().cloned().unwrap_or_default();
+        let convert = |amount: f64, currency: &str| craft_flow::listing_exalted(amount, currency, &names, &snap.table);
+        let mut store = std::mem::take(&mut self.store);
+        let got = {
+            let store = store.get_mut().expect("opened above");
+            let mut fetch = |q: &khaloni_poe2_core::trade::Query, n: usize| {
+                match q.price_min {
+                    Some(min) => eprintln!("calibration search: {class} from {min} ex up"),
+                    None => eprintln!("calibration search: cheapest {class}"),
+                }
+                self.fetch(q, n)
+            };
+            craft_flow::calibrate(class, window, &mut fetch, store, &data, &convert)
+        };
+        self.store = store;
+        got.map(|c| c.text(class))
+    }
+
+    /// The profile `name` from the saved profiles file.
+    fn profile(&self, name: &str) -> Result<khaloni_poe2_core::flip::Profile, String> {
+        let dir = Config::path().parent().map(std::path::Path::to_path_buf).ok_or("no config directory")?;
+        let loaded = khaloni_poe2::craft_flow::load_profiles(&khaloni_poe2::craft_flow::profiles_path(&dir));
+        loaded.profiles.into_iter().find(|p| p.name == name).ok_or_else(|| {
+            let why: Vec<String> = loaded.errors.iter().map(|e| e.to_string()).collect();
+            if why.is_empty() {
+                format!("no profile named \"{name}\" in profiles.toml")
+            } else {
+                format!("no loadable profile named \"{name}\" in profiles.toml ({})", why.join("; "))
+            }
+        })
+    }
+
+    fn scan_plan(&mut self, name: &str) -> Result<khaloni_poe2::craft_flow::ScanPlan, String> {
+        let profile = self.profile(name)?;
+        let data = self.craft_data()?;
+        self.load_catalogs()?;
+        self.load_ee2()?;
+        let stats = &self.sources.ee2.get().expect("loaded by load_ee2").stats;
+        let catalog = self.sources.stats.get().expect("loaded by load_catalogs");
+        khaloni_poe2::craft_flow::scan_plan(&profile, &data, stats, catalog)
+    }
+
+    fn state_scan(&mut self, name: &str) -> Result<(String, Option<String>), String> {
+        use khaloni_poe2::craft_flow;
+        let plan = self.scan_plan(name)?;
+        let window = craft_flow::search_window(std::time::Instant::now());
+        let mut statement = craft_flow::scan_statement(&plan, window);
+        for s in &plan.relaxations.skipped {
+            statement.push_str(&format!("; {s}"));
+        }
+        Ok((statement, craft_flow::allow(plan.cost, window).err()))
+    }
+
+    fn scan(&mut self, name: &str) -> Result<(khaloni_poe2::craft_ui::FlipList, Vec<String>), String> {
+        use khaloni_poe2::craft_flow;
+        if let Some(why) = khaloni_poe2::league::not_ready(&self.svc.snapshot(), &self.league) {
+            return Err(why);
+        }
+        let plan = self.scan_plan(name)?;
+        let data = self.craft_data()?;
+        let window = craft_flow::search_window(std::time::Instant::now());
+        let statement = craft_flow::scan_statement(&plan, window);
+        let observed = self.store()?.model(&plan.resolved.profile.class);
+        let mut config = self.cfg.read().unwrap_or_else(|e| e.into_inner()).craft_sim();
+        config.runs = config.runs.min(craft_flow::SCAN_RUNS);
+        let snap = self.svc.snapshot();
+        let exchange = self.exchange_prices();
+        let prices = |item: &str| craft_flow::price_of(&snap.table, &exchange, item);
+        let names = self.sources.currency_names.get().cloned().unwrap_or_default();
+        let convert = |amount: f64, currency: &str| craft_flow::listing_exalted(amount, currency, &names, &snap.table);
+        let market = khaloni_poe2_core::flip::Market { convert: &convert, unit: "ex" };
+        let planner = khaloni_poe2_core::flip::Planner {
+            pool: data.as_ref(),
+            observed: observed.as_ref(),
+            prices: &prices,
+            config: &config,
+        };
+        let rates = self.rates();
+        let league = self.league.clone();
+        let inputs = craft_flow::ScanInputs { data: &data, planner: &planner, market: &market, rates: &rates, league: &league, statement };
+        self.busy(format!("scanning {name}: {} searches, then costing each candidate", plan.cost.searches));
+        let mut fetch = |q: &khaloni_poe2_core::trade::Query, n: usize| self.fetch(q, n);
+        craft_flow::run_scan(&plan, window, &mut fetch, &inputs).map(|s| (s.list, s.notes))
+    }
+}
+
+/// How a request that failed outright is answered, worked out before it
+/// runs so a panic can still be answered.
+fn craft_failure(req: &CraftReq) -> Box<dyn Fn(String) -> Option<CraftDone>> {
+    match req {
+        CraftReq::Open { generation, .. } => {
+            let generation = *generation;
+            Box::new(move |why| Some(CraftDone::Opened { generation, outcome: Err(why) }))
+        }
+        CraftReq::Plan { generation, .. } => {
+            let generation = *generation;
+            Box::new(move |why| Some(CraftDone::Planned { generation, outcome: Err(why), observed: String::new(), note: None }))
+        }
+        CraftReq::Calibrate { generation, .. } => {
+            let generation = *generation;
+            Box::new(move |why| Some(CraftDone::Calibrated { generation, outcome: Err(why), observed: String::new() }))
+        }
+        CraftReq::StateScan { name } => {
+            let name = name.clone();
+            Box::new(move |why| Some(CraftDone::ScanStated { name: name.clone(), outcome: Err(why) }))
+        }
+        CraftReq::Scan { .. } => Box::new(|why| Some(CraftDone::Scanned { outcome: Err(why) })),
+        CraftReq::Record { .. } => Box::new(|_| None),
+    }
+}
+
+/// A reward row whose trade lookup failed retries by itself every half
+/// minute; the reason is put on screen this often at most, every failure
+/// goes to the log.
+const ROW_ERROR_NOTE_GAP: Duration = Duration::from_secs(120);
+
+/// How long a price check waits for the copy's reply before the key is
+/// given back. The slowest honest copy is the modifier-release wait (1.5s)
+/// plus the clipboard windows and a read that times out (about 2s more), so
+/// anything past this is a reply that is not coming.
+const COPY_REPLY_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// The Evaluate panel as the main loop holds it: the model, the query its
+/// checkboxes edit, and its placed top-left (global logical px).
+type EvalPanel = (khaloni_poe2::evaluate_ui::Panel, khaloni_poe2_core::trade::Query, (i32, i32));
+
+/// An in-progress panel drag: (grab point in surface px, the panel's global
+/// position when the grab began).
+type PanelDrag = ((i32, i32), (i32, i32));
+
+/// Where the craft panel opens: left of the game's centre, below the top
+/// bar.
+fn craft_pos(game: Rect) -> (i32, i32) {
+    (game.x + game.w as i32 / 2 - 320, game.y + 90)
+}
+
+/// The craft panel's price line: whose prices, and whether some are old.
+fn craft_prices_line(snap: &prices::Snapshot) -> String {
+    let old = if snap.stale { " (some are old)" } else { "" };
+    format!("prices: poe.ninja, {}{old}", snap.league)
+}
+
+/// Carries out a craft panel action on the panel of `item`: the planner and
+/// every request run on the craft worker; a calibration first states its
+/// cost and runs only on Run.
+fn craft_run(
+    action: &khaloni_poe2::craft_ui::Action,
+    p: &mut khaloni_poe2::craft_ui::Panel,
+    item: &khaloni_poe2_core::craft::types::ItemState,
+    generation: u64,
+    tx: &mpsc::Sender<CraftReq>,
 ) {
-    use khaloni_poe2::evaluate_ui::WeaponBound as B;
-    let w = query.weapon.get_or_insert_with(Default::default);
-    *match bound {
-        B::Dps => &mut w.dps,
-        B::Pdps => &mut w.pdps,
-        B::Edps => &mut w.edps,
-        B::Crit => &mut w.crit,
-        B::Aps => &mut w.aps,
-    } = min;
-    if w.is_empty() {
-        query.weapon = None;
+    use khaloni_poe2::craft_flow;
+    use khaloni_poe2::craft_ui::{apply, Action, Ask, PlanState, Prompt};
+    match action {
+        Action::Plan => {
+            // Only a press that moved the panel to its waiting state sends:
+            // a second press while planning does nothing.
+            if apply(p, action) {
+                p.note = None;
+                if tx.send(CraftReq::Plan { generation, state: item.clone(), target: p.target() }).is_err() {
+                    p.plan = PlanState::None;
+                    p.note = Some("the craft planner is not running: restart the overlay".to_string());
+                }
+            }
+        }
+        Action::Calibrate => {
+            if p.can_calibrate() {
+                let class = p.picker.class.clone();
+                let window = craft_flow::search_window(std::time::Instant::now());
+                p.ask(Prompt {
+                    ask: Ask::Calibrate,
+                    statement: craft_flow::calibration_statement(&class, window),
+                    refused: craft_flow::allow(craft_flow::calibration_cost(), window).err(),
+                });
+            }
+        }
+        Action::Run => match p.prompt.take() {
+            Some(Prompt { ask: Ask::Calibrate, refused: None, .. }) => {
+                let class = p.picker.class.clone();
+                p.busy = Some(format!("calibrating {class}"));
+                if tx.send(CraftReq::Calibrate { generation, class }).is_err() {
+                    p.busy = None;
+                    p.note = Some("the craft planner is not running: restart the overlay".to_string());
+                }
+            }
+            other => craft_run_scan(other, p, tx),
+        },
+        _ => craft_run_without_item(action, p, tx),
+    }
+}
+
+/// The craft panel actions that need no item: running a stated scan,
+/// opening a candidate's listing, and the panel's own navigation.
+fn craft_run_without_item(action: &khaloni_poe2::craft_ui::Action, p: &mut khaloni_poe2::craft_ui::Panel, tx: &mpsc::Sender<CraftReq>) {
+    use khaloni_poe2::craft_ui::{apply, Action};
+    match action {
+        Action::Run => {
+            let prompt = p.prompt.take();
+            craft_run_scan(prompt, p, tx);
+        }
+        Action::OpenSite(url) => {
+            p.note = Some(match open_url(url) {
+                Ok(()) => "opened in the browser".to_string(),
+                Err(e) => e,
+            });
+        }
+        // Planning and calibrating act on an item; this panel has none.
+        Action::Plan | Action::Calibrate => {}
+        other => {
+            apply(p, other);
+        }
+    }
+}
+
+/// Sends the scan the prompt stated, when the budget allowed it; any other
+/// prompt goes back on the panel unchanged.
+fn craft_run_scan(
+    prompt: Option<khaloni_poe2::craft_ui::Prompt>,
+    p: &mut khaloni_poe2::craft_ui::Panel,
+    tx: &mpsc::Sender<CraftReq>,
+) {
+    use khaloni_poe2::craft_ui::{Ask, Prompt};
+    match prompt {
+        Some(Prompt { ask: Ask::Scan(name), refused: None, .. }) => {
+            p.busy = Some(format!("scanning {name}"));
+            if tx.send(CraftReq::Scan { name }).is_err() {
+                p.busy = None;
+                p.note = Some("the craft planner is not running: restart the overlay".to_string());
+            }
+        }
+        other => p.prompt = other,
+    }
+}
+
+/// Closes the Evaluate panel together with everything that only means
+/// something while it is open: the box being typed into, its text, a drag,
+/// and the record of what its listings came from. Every path that takes the
+/// panel goes through here; an `editing` left behind by one that did not
+/// kept the keyboard grabbed with no box to type into. True when a panel
+/// was open. The caller settles keyboard and input region afterwards.
+fn close_eval(
+    apanel: &mut Option<EvalPanel>,
+    editing: &mut Option<(usize, khaloni_poe2::evaluate_ui::Field)>,
+    edit_buf: &mut String,
+    panel_drag: &mut Option<PanelDrag>,
+    searched: &mut Option<Searched>,
+) -> bool {
+    *editing = None;
+    edit_buf.clear();
+    *panel_drag = None;
+    *searched = None;
+    apanel.take().is_some()
+}
+
+/// True when `point` (global logical px) lies outside the output a surface
+/// of `size` at `output_pos` covers: the game has moved to another monitor
+/// and the overlay has to follow it. A surface that has no size yet has not
+/// been configured, which says nothing about where the game is.
+fn off_output(point: (i32, i32), output_pos: (i32, i32), size: (u32, u32)) -> bool {
+    if size.0 == 0 || size.1 == 0 {
+        return false;
+    }
+    let (x, y) = (point.0 - output_pos.0, point.1 - output_pos.1);
+    x < 0 || y < 0 || x >= size.0 as i32 || y >= size.1 as i32
+}
+
+/// The Evaluate card for a freshly built query: one row per filter, led by
+/// the item's computed figures, closed by the lines that cannot be searched.
+fn build_panel(
+    title: String,
+    query: &khaloni_poe2_core::trade::Query,
+    labels: &[khaloni_poe2_core::trade::FilterLabel],
+    facts: Option<ItemFacts>,
+    unsearchable: Vec<String>,
+    extra: &[khaloni_poe2_core::ee2::request::ExtraRow],
+    reference: Option<&khaloni_poe2::refcache::Reference>,
+) -> khaloni_poe2::evaluate_ui::Panel {
+    // Affix index once per panel, not once per row: it is a map over the
+    // whole affix export (tens of thousands of entries) and every row looks
+    // into the same one.
+    let affix_ix = reference.map(|r| khaloni_poe2_core::refdata::affix_index(&r.affixes));
+    // A miss, or an affix with no ladder joined to it, gets no badge and no
+    // score. An unknown roll is shown as unknown; it is never approximated.
+    let grade = |text: &str, rolled: Option<f64>| {
+        let affix = affix_ix
+            .as_ref()
+            .and_then(|ix| ix.get(&khaloni_poe2_core::refdata::normalize_mod_text(text)))
+            .filter(|a| !a.tiers.is_empty());
+        let badge = affix.zip(rolled).and_then(|(a, rolled)| {
+            khaloni_poe2_core::rollquality::tier_of(&a.tiers, rolled)
+                .map(|tier| khaloni_poe2::evaluate_ui::TierBadge { kind: ui_affix_kind(a.kind), tier })
+        });
+        let score =
+            affix.zip(rolled).and_then(|(a, rolled)| khaloni_poe2_core::rollquality::score(&a.tiers, rolled));
+        (badge, score)
+    };
+    let mut rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = labels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            let f = query.filters.get(i)?;
+            // The filter's min is the SEARCH floor (the tier's low end on
+            // advanced-format text); the roll the item actually has travels
+            // in the label, and that is what the tier ladder and the score
+            // are read against. The floor is only a fallback for a line
+            // that carried no number at all.
+            let rolled = l.rolled.or(f.value.min).or(f.value.max);
+            let (badge, score) = grade(&l.text, rolled);
+            Some(khaloni_poe2::evaluate_ui::StatRow {
+                label: l.text.clone(),
+                badge,
+                score,
+                // No lower bound in the filter is an empty box on the card.
+                min: f.value.min,
+                max: f.value.max,
+                enabled: !f.disabled,
+                target: Some(khaloni_poe2::evaluate_ui::Target::Stat(i)),
+                // A total that is not searched repeats mods already listed,
+                // so it collapses behind "Show N more" until asked for.
+                hidden: l.hidden,
+                group: khaloni_poe2::evaluate_ui::group_of(l.tag),
+                note: None,
+            })
+        })
+        .collect();
+    // Every line EE2 gives no row of its own (one a figure or a total
+    // counted, one it cannot search): a row with its tier, unticked, so the
+    // search stays EE2's until the user adds it.
+    let mut extras = Vec::new();
+    rows.extend(khaloni_poe2::evaluate_ui::extra_rows(extra, &mut extras).into_iter().zip(extra).map(|(row, x)| {
+        let (badge, score) = grade(&x.text, x.rolled);
+        khaloni_poe2::evaluate_ui::StatRow { badge, score, ..row }
+    }));
+    // The item's computed figures lead the card the way the tooltip's own
+    // property block does; each is searchable as an equipment_filters
+    // minimum.
+    if let Some(f) = facts.as_ref() {
+        rows.splice(0..0, khaloni_poe2::evaluate_ui::property_rows(&f.props, f.chaos_dps));
+    }
+    rows.extend(unsearchable.into_iter().map(|text| khaloni_poe2::evaluate_ui::StatRow {
+        label: format!("{text} (not searchable)"),
+        badge: None,
+        score: None,
+        min: None,
+        max: None,
+        enabled: false,
+        target: None,
+        hidden: false,
+        group: khaloni_poe2::evaluate_ui::RowGroup::Explicit,
+        note: None,
+    }));
+    rows.sort_by_key(|r| r.group);
+    // Gear carries a category toggle. Switched off, a price check searches
+    // the item's exact base instead, the way EE2 does (see
+    // `Query::category_replaces_type`); items with no category to search by
+    // get no toggle.
+    let base = query.category.as_deref().map(|c| khaloni_poe2::evaluate_ui::BaseToggle {
+        label: format!("Category: {}", pretty_category(c)),
+        enabled: query.category_enabled,
+    });
+    khaloni_poe2::evaluate_ui::Panel {
+        header: khaloni_poe2::evaluate_ui::ItemHeader {
+            name: title,
+            // Rare is the fallback only when the response carried no facts
+            // at all (a check that failed before the item was read); the
+            // rest stay absent when absent.
+            rarity: facts.as_ref().map(|f| f.rarity.clone()).unwrap_or_else(|| "Rare".to_string()),
+            item_level: facts.as_ref().and_then(|f| f.item_level),
+            requires_level: facts.as_ref().and_then(|f| f.requires_level),
+            base,
+        },
+        rows,
+        extras,
+        // The worker follows every seed with a result, so a search is
+        // running from the moment the card opens.
+        status: "searching...".to_string(),
+        searching: true,
+        ..khaloni_poe2::evaluate_ui::Panel::default()
+    }
+}
+
+/// Puts a search's answer on the panel: every block under the card, the
+/// budget line, and the status. What the search did not find is cleared,
+/// so nothing of an earlier search is read as this one's.
+fn show_search(panel: &mut khaloni_poe2::evaluate_ui::Panel, done: &SearchDone) {
+    let b = &done.blocks;
+    panel.listings = b.listings.clone();
+    panel.hover = None;
+    panel.ladder = b.ladder.clone();
+    panel.price_fixed = b.price_fixed.clone();
+    panel.closest = b.closest.clone();
+    panel.attribution.clear();
+    // The poe.ninja line belongs to the item, not to one search: a Search
+    // press without a checked item behind it keeps the line it had.
+    if done.ninja.is_some() {
+        panel.ninja = done.ninja.clone();
+    }
+    panel.bulk = done.bulk.clone();
+    panel.stack_value = done.stack_value.clone();
+    panel.budget_text = done.budget.0.clone();
+    panel.budget_low = done.budget.1;
+    panel.attribute_enabled = done.attribute_enabled;
+}
+
+/// Takes a search's blocks off the panel after a failed one: the reason
+/// stays on the status line, and the listings of an earlier search do
+/// not, since they no longer answer what the boxes now say.
+fn clear_search(panel: &mut khaloni_poe2::evaluate_ui::Panel) {
+    panel.listings.clear();
+    panel.hover = None;
+    panel.ladder.clear();
+    panel.price_fixed = None;
+    panel.closest = None;
+    panel.attribution.clear();
+    panel.bulk = None;
+    panel.stack_value = None;
+}
+
+/// Keeps a checked item's clipboard text, named by a hash of the text so
+/// the same item checked twice is one file, and prunes the directory to the
+/// newest `KEEP`. Best-effort: a failed write must never get in the way of
+/// a price check.
+fn dump_item_text(text: &str) {
+    use std::hash::{Hash, Hasher};
+    const KEEP: usize = 200;
+    let dir = match std::env::var_os("KHALONI_ITEM_DUMP") {
+        Some(d) => std::path::PathBuf::from(d),
+        None => match directories::ProjectDirs::from("", "", "khaloni-poe2") {
+            Some(d) => d.cache_dir().join("checked-items"),
+            None => return,
+        },
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    let _ = std::fs::write(dir.join(format!("item-{:016x}.txt", h.finish())), text);
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    files.sort();
+    for (_, old) in files.iter().rev().skip(KEEP) {
+        let _ = std::fs::remove_file(old);
     }
 }
 
@@ -777,14 +2906,41 @@ fn overlay_mode(
     let boot = std::time::Instant::now();
     let phase = move |name: &str| eprintln!("t+{:>5}ms {}", boot.elapsed().as_millis(), name);
     let mut cfg = Config::load()?;
+    // Things the user has to be told once the overlay can draw: a migrated
+    // setting, a hotkey that lost its key, a capture that stopped.
+    let mut notices: std::collections::VecDeque<String> = cfg.notices.drain(..).collect();
+    // The league everything is priced in. It follows the config as a
+    // whole or not at all; see `league`.
+    let current_league = khaloni_poe2::league::Current::new(&cfg.league);
+    let mut league_announcer = khaloni_poe2::league::Announcer::default();
 
     let cache = directories::ProjectDirs::from("", "", "khaloni-poe2").unwrap().cache_dir().to_path_buf();
+    // Everything stderr gets from here on is kept in overlay.log in the
+    // cache dir: a trade ban is only explainable from the request lines
+    // that led up to it, and the journal is not where the owner looks.
+    if let Err(e) = khaloni_poe2::applog::install(&cache) {
+        eprintln!("log file: {e}");
+    }
+    // Every trade request and the server's counters go through stderr
+    // (and so into the log); the panel reads its budget line off them.
+    khaloni_poe2_core::trade::set_request_logger(Box::new(|line: &str| {
+        khaloni_poe2::appraise::note_request_line(line);
+        khaloni_poe2::craft_flow::note_request_line(line);
+        eprintln!("{line}");
+    }));
     // Before any thread reads the cache: a release that bumped the pinned
     // reference data must not serve the previous patch's files.
     khaloni_poe2::refcache::sync_pin(&cache);
+    // Files only a removed feature read (the leveling guide's route and its
+    // ticked steps) go, once; nothing else in either directory is touched.
+    if let Some(config_dir) = Config::path().parent() {
+        for gone in khaloni_poe2::refcache::remove_obsolete_files(&cache, config_dir) {
+            eprintln!("removed a file only a removed feature used: {}", gone.display());
+        }
+    }
     let svc = prices::PriceService::start_with_interval(
         NinjaClient::new(cache.clone()),
-        khaloni_poe2_core::scout::ScoutClient::new(cache),
+        khaloni_poe2_core::scout::ScoutClient::new(cache.clone()),
         cfg.league.clone(),
         std::time::Duration::from_secs(cfg.refresh_minutes * 60),
     )?;
@@ -792,27 +2948,53 @@ fn overlay_mode(
     phase("price service up");
     let kwin = khaloni_poe2::platform::gamewin::start()?;
     phase("window tracker up");
-    // First geometry fixes the output; 0,0,0,0 means no game yet.
-    let mut game = Rect { x: 2560, y: 0, w: 2560, h: 1440 };
-    let geometry_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let remaining = geometry_deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            // Deadline expired with no Geometry event seen; keep the fallback rect.
-            break;
-        }
-        match kwin.rx.recv_timeout(remaining) {
-            Ok(khaloni_poe2::platform::GameWindowEvent::Geometry(g)) => {
-                game = g;
-                break;
-            }
-            Ok(_) => continue, // ignore Active/GameGone while waiting for the real geometry
-            Err(_) => break,   // channel closed or timed out
-        }
-    }
-
-    phase("game geometry known");
     let rt = tokio::runtime::Runtime::new()?;
+    // A killed process never runs Drop, and KWin keeps a script loaded until
+    // told otherwise: SIGTERM/SIGINT/SIGHUP take the same exit as the tray's
+    // Quit, and stop the script right away in case the loop is stuck.
+    let quit = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        let quit = quit.clone();
+        let stop = kwin.shutdown_handle();
+        rt.spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+                signal(SignalKind::hangup()),
+            ) else {
+                eprintln!("signal handlers unavailable; a kill will leave the KWin script loaded");
+                return;
+            };
+            tokio::select! {
+                _ = term.recv() => {}
+                _ = int.recv() => {}
+                _ = hup.recv() => {}
+            }
+            eprintln!("signal received; shutting down");
+            quit.store(true, Ordering::Relaxed);
+            let _ = tokio::task::spawn_blocking(move || stop.shutdown()).await;
+            // The main loop leaves within a tick. If it is wedged, leave
+            // anyway: the script is stopped, nothing else needs unwinding.
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            std::process::exit(0);
+        });
+    }
+    let leaving = {
+        let (quit, game_over) = (quit.clone(), game_over.clone());
+        move || quit.load(Ordering::Relaxed) || game_over.as_ref().is_some_and(|f| f.load(Ordering::Relaxed))
+    };
+    // The feed's first burst, folded in whole: it reports focus and
+    // visibility only on change, so an event dropped here would stay wrong
+    // until the user alt-tabs. There is no waiting for a game window: under
+    // Proton it appears well after the overlay starts, and the overlay
+    // surface is created when the first real geometry arrives.
+    let mut win = khaloni_poe2::platform::GameWindowState::wait_for_geometry(
+        &kwin.rx,
+        std::time::Duration::from_millis(500),
+    );
+    phase("window feed read");
     // Identify ourselves to xdg-desktop-portal BEFORE any other portal call.
     // ashpd shares one session-bus connection across all its proxies, and the
     // FIRST portal request (ScreenCast below) permanently binds that
@@ -833,73 +3015,67 @@ fn overlay_mode(
         }
     });
     phase("app id registered");
-    let start = rt.block_on(capture::portal_session(cfg.restore_token.as_deref()))?;
+    // The portal may sit on a permission dialog for as long as the user
+    // leaves it there; the game exiting or a signal ends the wait.
+    let token_store = khaloni_poe2::config::RestoreToken::new();
+    let saved_token = token_store.load();
+    let start = rt.block_on(async {
+        let gone = async {
+            while !leaving() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        };
+        tokio::select! {
+            r = capture::portal_session(saved_token.as_deref()) => Some(r),
+            _ = gone => None,
+        }
+    });
+    let Some(start) = start else {
+        eprintln!("asked to leave during startup");
+        return Ok(());
+    };
+    let start = start?;
     phase("capture session ready");
     if let Some(tok) = &start.new_token {
-        cfg.restore_token = Some(tok.clone());
-        cfg.save()?;
+        if let Err(e) = token_store.save(tok) {
+            eprintln!("capture: restore token not saved: {e}");
+            notices.push_back("capture permission could not be saved: it will be asked again next start".into());
+        }
     }
+    // Hotkeys. `bound` is the binding set in force with the action behind
+    // each id; a fired id is looked up there, never in the live config.
     let (hk_tx, hk_rx) = mpsc::channel();
+    let (hk_status_tx, hk_status_rx) = mpsc::channel::<String>();
+    let mut bound = khaloni_poe2::bindings::resolve(&cfg);
+    for c in &bound.conflicts {
+        eprintln!("hotkey conflict: {}", c.message);
+        notices.push_back(c.message.clone());
+    }
+    let rebind = khaloni_poe2::platform::HotkeyRebind::new();
+    // What a restarted listener binds: always the newest set.
+    let wanted_bindings = Arc::new(std::sync::Mutex::new(bound.bindings.clone()));
     {
-        let (check, overlay) = (cfg.hotkey_price_check.clone(), cfg.hotkey_overlay.clone());
-        // (id, trigger) for every dynamic action: chat macros as "macro-N",
-        // resource shortcuts as "url-N". The main loop routes by id prefix.
-        let mut extra: Vec<(String, String)> = cfg
-            .macros
-            .iter()
-            .enumerate()
-            .map(|(i, m)| (format!("macro-{i}"), m.key.clone()))
-            .collect();
-        extra.extend(
-            cfg.resource_shortcuts
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (format!("url-{i}"), s.key.clone())),
-        );
-        // The settings window opens on its own shortcut (id "settings"); the
-        // reference and leveling panels toggle on theirs.
-        if !cfg.hotkey_settings.is_empty() {
-            extra.push(("settings".to_string(), cfg.hotkey_settings.clone()));
-        }
-        if !cfg.hotkey_reference.is_empty() {
-            extra.push(("reference".to_string(), cfg.hotkey_reference.clone()));
-        }
-        if !cfg.hotkey_leveling.is_empty() {
-            extra.push(("leveling".to_string(), cfg.hotkey_leveling.clone()));
-        }
-        if !cfg.hotkey_upgrade.is_empty() {
-            extra.push(("upgrade".to_string(), cfg.hotkey_upgrade.clone()));
-        }
-        // One trigger, one action (see triggers::dedupe): the built-ins claim
-        // first, in this order, then panels, macros, and shortcuts; a loser
-        // is unbound (empty trigger, which listen() skips) and named in the
-        // log so the collision is visible.
-        let (check, overlay, extra) = {
-            let mut all = vec![
-                ("price-check".to_string(), check),
-                ("overlay-toggle".to_string(), overlay),
-            ];
-            all.extend(extra);
-            let (kept, conflicts) = khaloni_poe2::platform::triggers::dedupe(all);
-            for line in conflicts {
-                eprintln!("{line}");
-            }
-            let mut check = String::new();
-            let mut overlay = String::new();
-            let mut extra = Vec::new();
-            for (id, trigger) in kept {
-                match id.as_str() {
-                    "price-check" => check = trigger,
-                    "overlay-toggle" => overlay = trigger,
-                    _ => extra.push((id, trigger)),
-                }
-            }
-            (check, overlay, extra)
-        };
-        let hk_tx = hk_tx.clone();
+        let (hk_tx, rebind, wanted) = (hk_tx.clone(), rebind.clone(), wanted_bindings.clone());
         rt.spawn(async move {
-            if let Err(e) = khaloni_poe2::platform::hotkeys::listen(hk_tx, check, overlay, extra).await {
-                eprintln!("hotkeys unavailable: {e}");
+            // `listen_with` returns only when the hotkeys are dead. Say so,
+            // and bind again: a portal hiccup must not cost every hotkey
+            // for the rest of the session.
+            let mut wait = Duration::from_secs(5);
+            loop {
+                let bindings = wanted.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let began = std::time::Instant::now();
+                let end = khaloni_poe2::platform::hotkeys::listen_with(hk_tx.clone(), bindings, rebind.clone()).await;
+                let why = match end {
+                    Ok(()) => "the listener ended".to_string(),
+                    Err(e) => e.to_string(),
+                };
+                eprintln!("hotkeys stopped: {why}");
+                if began.elapsed() > Duration::from_secs(60) {
+                    wait = Duration::from_secs(5);
+                }
+                let _ = hk_status_tx.send(format!("hotkeys stopped ({why}); binding again in {}s", wait.as_secs()));
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(Duration::from_secs(120));
             }
         });
     }
@@ -911,15 +3087,26 @@ fn overlay_mode(
         eprintln!("tray unavailable: {e}");
     }
 
-    // Game-log tail: zone events drive the F10 leveling auto-advance. A
-    // missing Client.txt just means the feature stays dormant (the tail
-    // retries the open forever).
-    let (log_tx, log_rx) = mpsc::channel();
+    // Game-log tail: it feeds the run tracker behind the market panel's
+    // "My runs" tab, which also reads the maps played before this start. A
+    // missing Client.txt just means the tab stays empty (the tail retries
+    // the open forever).
+    let runs_hub = khaloni_poe2::myruns::Hub::new();
     match cfg.client_log_path.as_ref().map(std::path::PathBuf::from).or_else(khaloni_poe2::gamelog_tail::default_log_path) {
         Some(p) => {
-            khaloni_poe2::gamelog_tail::spawn(p, log_tx);
+            khaloni_poe2::gamelog_tail::spawn_with_runs(p, runs_hub.clone());
         }
-        None => eprintln!("game log not found; leveling auto-advance off (set client_log_path)"),
+        None => {
+            runs_hub.set_log_missing();
+            eprintln!("game log not found; run tracking off (set client_log_path)");
+        }
+    }
+    {
+        // The stash tracker starts with these credentials, so they are
+        // what decides whether income can be shown.
+        let access = khaloni_poe2_core::income::StashAccess::from_credentials(&cfg.account_name, &cfg.poesessid);
+        let league = current_league.clone();
+        khaloni_poe2::myruns::spawn_view_worker(runs_hub.clone(), move || (league.name(), access.clone()));
     }
     // Update check: report-only, background, silent on failure.
     let (update_tx, update_rx) = mpsc::channel();
@@ -935,10 +3122,10 @@ fn overlay_mode(
         let (wealth_tx, _wealth_rx) = mpsc::channel();
         khaloni_poe2::wealth::spawn(
             cfg.account_name.clone(),
-            cfg.league.clone(),
             cfg.poesessid.clone(),
             svc.clone(),
             wealth_tx,
+            runs_hub.clone(),
         );
     }
 
@@ -951,12 +3138,15 @@ fn overlay_mode(
         Ok(i) => Some(i),
         Err(e) => {
             eprintln!("price check unavailable: {e}");
+            notices.push_back(format!("price check unavailable: {e}"));
             None
         }
     };
     // Set true while a price check is running on the injector thread so a
-    // second F7 does not queue another; reset when its result is drained.
+    // second F7 does not queue another; reset when its result is drained,
+    // or by `COPY_REPLY_TIMEOUT` when the reply never comes.
     let price_check_in_flight = Arc::new(AtomicBool::new(false));
+    let mut price_check_started: Option<std::time::Instant> = None;
     let (clip_tx, clip_rx) = mpsc::channel::<anyhow::Result<String>>();
     // Copy-hovered actions that are not price checks (resource shortcuts,
     // map analysis) share one reply channel; `pending_action` says what the
@@ -966,282 +3156,76 @@ fn overlay_mode(
     // Map-mod rules: built-in seed plus any config-added needles. Rebuilt
     // on config hot-reload so settings edits apply without a relaunch.
     let mut map_rules = build_map_rules(&cfg);
-    // Reference data for the in-overlay panels loads (cached, fetched once)
-    // on a background thread so a cold fetch never blocks startup; the
-    // panels show a loading row until the OnceLock fills.
+    // Reference data for the price card's tier badges loads (cached,
+    // fetched once) on a background thread so a cold fetch never blocks
+    // startup.
     let reference: std::sync::Arc<std::sync::OnceLock<khaloni_poe2::refcache::Reference>> =
         std::sync::Arc::new(std::sync::OnceLock::new());
     {
         let reference = reference.clone();
-        std::thread::spawn(move || {
-            let cache = directories::ProjectDirs::from("", "", "khaloni-poe2")
-                .map(|d| d.cache_dir().to_path_buf())
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let cache = cache.clone();
+        std::thread::Builder::new().name("reference-data".into()).spawn(move || {
             let r = khaloni_poe2::refcache::reference_data(&cache);
-            eprintln!(
-                "reference data ready: {} affixes, {} items, {} uniques",
-                r.affixes.len(),
-                r.items.len(),
-                r.uniques.len()
-            );
+            eprintln!("reference data ready: {} affixes, {} items", r.affixes.len(), r.items.len());
             let _ = reference.set(r);
-        });
+        })?;
     }
+    // The config as the settings window last saved it, shared with the
+    // trade worker and the OCR thread: a clone taken at startup priced the
+    // rows by the old tier and divine thresholds while the popup already
+    // used the new ones.
+    let live_cfg = Arc::new(std::sync::RwLock::new(cfg.clone()));
+    // The request budget: what the reward rows may spend on the trade
+    // site behind the user's back. Every request the user makes is noted
+    // here, and the rows keep a minute's distance from it.
+    let budget: Arc<std::sync::Mutex<khaloni_poe2::budget::Budget>> = Arc::default();
+    // The craft planner's worker (started once the exchange path it prices
+    // through exists, below); the trade worker hands it every price
+    // check's listings from the start.
+    let (craft_req_tx, craft_req_rx) = mpsc::channel::<CraftReq>();
+    let (craft_done_tx, craft_done_rx) = mpsc::channel::<CraftDone>();
     // Trade appraisal worker: rare items parsed from the clipboard get a
     // background search+fetch against the official trade API (strictly
     // rate limited inside TradeClient); results return on this channel.
     let (appraise_tx, appraise_rx) = mpsc::channel::<AppraiseDone>();
-    let (appraise_req_tx, appraise_req_rx) = mpsc::channel::<AppraiseReq>();
-    // Currency-exchange results: (display name, price in exalted or None).
-    let (exch_tx, exch_rx) = mpsc::channel::<(String, Option<f64>, bool)>();
+    // Two queues into the worker: the user's own checks are served before
+    // anything a reward-row scan asked for.
+    let (appraise_req_tx, appraise_req_rx) = khaloni_poe2::appraise::priority_channel::<AppraiseReq>();
+    let (exch_tx, exch_rx) = mpsc::channel::<ExchangeDone>();
     // Exchange-catalog display names, published by the trade worker once the
     // static list arrives; the OCR worker extends its match vocab with them.
     let exch_names: std::sync::Arc<std::sync::OnceLock<Vec<String>>> =
         std::sync::Arc::new(std::sync::OnceLock::new());
-    // name -> async exchange price state for reward rows (GemCache's sibling).
-    let currency_map: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, khaloni_poe2::pricing::CurrencyState>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let currency_map: CurrencyMap = Arc::default();
     // Specific-gem price cache, shared with the OCR pricer.
-    let gem_map: GemMap = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let gem_map: GemMap = Arc::default();
+    // Number of the newest item check; see `AppraiseReq`.
+    let check_generation = Arc::new(std::sync::atomic::AtomicU64::new(0));
     {
-        let tx = appraise_tx.clone();
-        let exch_tx = exch_tx.clone();
-        let league = cfg.league.clone();
-        let gem_map = gem_map.clone();
-        let svc_gem = svc.clone();
-        let exch_names_pub = exch_names.clone();
-        let reference_worker = reference.clone();
-        std::thread::spawn(move || {
-            let stats_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
-                .map(|d| d.cache_dir().join("trade_stats.json"));
-            let mut client = match khaloni_poe2_core::trade::TradeClient::new("https://www.pathofexile.com", &league) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("trade client unavailable: {e}");
-                    return;
-                }
-            };
-            // Stats index: disk cache first, else fetched once, cached.
-            let stats_json: Option<String> = stats_path
-                .as_deref()
-                .and_then(|p| std::fs::read_to_string(p).ok())
-                .or_else(|| {
-                    let got = khaloni_poe2_core::trade::fetch_stats_json().ok()?;
-                    if let Some(p) = stats_path.as_deref() {
-                        if let Some(dir) = p.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        let _ = std::fs::write(p, &got);
-                    }
-                    Some(got)
-                });
-            let stats = stats_json.and_then(|j| khaloni_poe2_core::trade::StatIndex::from_json(&j).ok());
-            let Some(stats) = stats else {
-                eprintln!("trade stats index unavailable; rare appraisal disabled");
-                return;
-            };
-            // Currency name -> trade exchange id (for pricing omens etc. that
-            // poe.ninja doesn't track). Best-effort; empty disables exchange.
-            let currency_ids = client.static_currency_ids().unwrap_or_default();
-            let _ = exch_names_pub.set(currency_ids.keys().cloned().collect());
-            // Reverse map (trade currency id -> display name), for converting a
-            // gem listing's price currency to exalted via the poe.ninja table.
-            let cur_id_to_name: std::collections::HashMap<String, String> =
-                currency_ids.iter().map(|(name, id)| (id.clone(), name.clone())).collect();
-            // Exact gem base-type names, for resolving OCR'd skill names.
-            let gem_types = client.gem_types().unwrap_or_default();
-            for req in appraise_req_rx {
-                // Currency exchange is priced separately from item search.
-                if let AppraiseReq::Currency { name, for_row } = &req {
-                    let rate = currency_ids
-                        .get(&name.to_lowercase())
-                        .and_then(|id| client.exchange(id, "exalted").ok().flatten());
-                    let _ = exch_tx.send((name.clone(), rate, *for_row));
-                    continue;
-                }
-                // Specific cut skill gem: resolve name, item-search by level,
-                // convert the cheapest listing to exalted, write the cache.
-                if let AppraiseReq::Gem { skill, level } = &req {
-                    let state = price_one_gem(
-                        &mut client,
-                        skill,
-                        *level,
-                        &gem_types,
-                        &cur_id_to_name,
-                        &svc_gem.snapshot().table,
-                    );
-                    if let Ok(mut m) = gem_map.lock() {
-                        m.insert((skill.clone(), *level), state);
-                    }
-                    continue;
-                }
-                // `relaxed` picks the search style (drop weakest filters on
-                // zero hits); `seeds_panel` says whether the response opens a
-                // fresh panel - Exact responses update the one already open.
-                let (title, q, labels, facts, relaxed, seeds_panel) = match req {
-                    AppraiseReq::Auto(mut item) => {
-                        // Magic items copy as one name line, so their base is
-                        // recovered from the catalog (the same way EE2 does)
-                        // before the query is built; a base that cannot be
-                        // recovered leaves a mods-only search, never a guess.
-                        if item.base_type.is_none()
-                            && matches!(item.rarity, khaloni_poe2_core::item::Rarity::Magic | khaloni_poe2_core::item::Rarity::Normal)
-                        {
-                            if let Some(r) = reference_worker.get() {
-                                item.base_type =
-                                    khaloni_poe2_core::refdata::magic_base(&r.items, &item.name).map(str::to_string);
-                            }
-                        }
-                        let title = if item.name.is_empty() {
-                            item.base_type.clone().unwrap_or_default()
-                        } else {
-                            item.name.clone()
-                        };
-                        let (mut q, labels) =
-                            khaloni_poe2_core::trade::build_query_with_labels(&item, &stats);
-                        // Pseudo totals ride along as DISABLED filters: a
-                        // pseudo aggregates mods the query already filters
-                        // individually, and sending both over-constrains.
-                        // The user opts in from the panel.
-                        let pseudo = khaloni_poe2_core::derived::pseudo_totals(&item);
-                        let mut pseudo_rows = Vec::new();
-                        for (id, label, total) in [
-                            ("pseudo.pseudo_total_life", "Total Life", pseudo.total_life),
-                            (
-                                "pseudo.pseudo_total_energy_shield",
-                                "Total Energy Shield",
-                                pseudo.total_es,
-                            ),
-                            (
-                                "pseudo.pseudo_total_elemental_resistance",
-                                "Total Elemental Resistance",
-                                pseudo.total_elemental_resistance,
-                            ),
-                            (
-                                "pseudo.pseudo_total_attributes",
-                                "Total Attributes",
-                                pseudo.total_attributes,
-                            ),
-                        ] {
-                            if total <= 0.0 {
-                                continue;
-                            }
-                            if let Some(mut f) =
-                                khaloni_poe2_core::trade::pseudo_filter(&stats, id, total)
-                            {
-                                f.disabled = true;
-                                q.filters.push(f);
-                                pseudo_rows.push((label.to_string(), total, q.filters.len() - 1));
-                            }
-                        }
-                        // Header facts are read here, while the parsed item
-                        // still exists; the main loop never sees it.
-                        let facts = ItemFacts {
-                            rarity: rarity_label(&item.rarity),
-                            item_level: item.item_level,
-                            requires_level: requires_level(&item),
-                            weapon: khaloni_poe2_core::derived::weapon_stats(&item),
-                            pseudo_rows,
-                        };
-                        (title, q, labels, Some(facts), true, true)
-                    }
-                    AppraiseReq::Exact { title, query } => {
-                        (title, query, Vec::new(), None, false, false)
-                    }
-                    AppraiseReq::Upgrade(item) => {
-                        let (q, labels) =
-                            khaloni_poe2_core::trade::build_upgrade_query_with_labels(&item, &stats);
-                        let title = khaloni_poe2_core::trade::upgrade_title(&item);
-                        // The panel seeds from this response like an Auto
-                        // one; without the query the result was silently
-                        // dropped on arrival and the hotkey looked dead.
-                        let facts = ItemFacts {
-                            rarity: rarity_label(&item.rarity),
-                            item_level: item.item_level,
-                            requires_level: requires_level(&item),
-                            weapon: khaloni_poe2_core::derived::weapon_stats(&item),
-                            pseudo_rows: Vec::new(),
-                        };
-                        (title, q, labels, Some(facts), false, true)
-                    }
-                    AppraiseReq::Currency { .. } | AppraiseReq::Gem { .. } => continue, // handled above
-                };
-                // The panel opens now, with every row, before the search:
-                // the user reads and adjusts the selection while the
-                // listings are fetched instead of waiting on the request to
-                // see the mods at all.
-                if seeds_panel {
-                    let _ = tx.send(AppraiseDone::Seed {
-                        title: title.clone(),
-                        query: q.clone(),
-                        labels,
-                        facts,
-                    });
-                }
-                // The listings must travel with the query they came from: a
-                // relaxed search that dropped filters to find them reports
-                // how many it kept, and the dropped ones are switched off
-                // here too. Otherwise the checkboxes claim a narrower search
-                // than the results.
-                let (searched, q) = if relaxed {
-                    match client.search_relaxed(&q) {
-                        Ok((s, kept)) if kept > 0 => (Ok(s), q.keep_strongest(kept)),
-                        Ok((s, _)) => (Ok(s), q),
-                        Err(e) => (Err(e), q),
-                    }
-                } else {
-                    (client.search(&q), q)
-                };
-                let mut search_id = None;
-                let outcome = searched.and_then(|s| {
-                    search_id = Some(s.id.clone());
-                    // Empty even after relaxing to the strongest mod:
-                    // fetching an empty id list 404s, so report none.
-                    let take = s.hashes.len().min(10);
-                    if take == 0 {
-                        Ok(Vec::new())
-                    } else {
-                        client.fetch(&s.id, &s.hashes[..take])
-                    }
-                });
-                // Cooldown gets a human line with whole seconds instead
-                // of the Debug duration ("rate limited; retry in
-                // 32.847s"); other errors keep their Display text.
-                let outcome = outcome.map_err(|e| match e {
-                    khaloni_poe2_core::trade::TradeError::Cooldown(d) => {
-                        format!("trade cooldown, retry in {}s", d.as_secs().max(1))
-                    }
-                    other => other.to_string(),
-                });
-                // Normalize every listing to exalted before estimating;
-                // listings priced in a currency the table does not carry
-                // are dropped rather than guessed at.
-                let estimate = outcome.as_ref().ok().and_then(|ls| {
-                    let table = &svc_gem.snapshot().table;
-                    let ex: Vec<f64> = ls
-                        .iter()
-                        .filter_map(|l| {
-                            if l.price_currency == "exalted" {
-                                Some(l.price_amount)
-                            } else {
-                                cur_id_to_name
-                                    .get(&l.price_currency)
-                                    .and_then(|n| table.lookup(n))
-                                    .map(|p| l.price_amount * p.exalted)
-                            }
-                        })
-                        .collect();
-                    khaloni_poe2_core::estimate::estimate(&ex)
-                });
-                let _ = tx.send(AppraiseDone::Result {
-                    title,
-                    outcome,
-                    search_id,
-                    estimate,
-                    searched: seeds_panel.then_some(q),
-                });
-            }
-        });
+        let worker = TradeWorker {
+            done_tx: appraise_tx.clone(),
+            exch_tx: exch_tx.clone(),
+            league: cfg.league.clone(),
+            current: current_league.clone(),
+            cache_dir: cache.clone(),
+            gem_map: gem_map.clone(),
+            svc: svc.clone(),
+            exch_names: exch_names.clone(),
+            reference: reference.clone(),
+            generation: check_generation.clone(),
+            client: Default::default(),
+            catalogs: Catalogs {
+                stats: Default::default(),
+                currencies: Default::default(),
+                items: Default::default(),
+            },
+            ee2: Default::default(),
+            last_search: khaloni_poe2::appraise::ReuseSlot::new(khaloni_poe2::appraise::REUSE_TTL),
+            last_check: None,
+            cfg: live_cfg.clone(),
+            craft_tx: craft_req_tx.clone(),
+        };
+        std::thread::Builder::new().name("trade-worker".into()).spawn(move || worker.run(appraise_req_rx))?;
     }
 
     // Zero calibration: the reward-panel region is DETECTED on the full
@@ -1268,19 +3252,32 @@ fn overlay_mode(
     // the simplest correct way to move this one bit across the thread
     // boundary without a second channel (see capture::consume's doc comment).
     let panel_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let panel_open_capture = panel_open.clone();
-    std::thread::spawn(move || {
-        let _ = capture::consume(start, region_rx, region, ftx, panel_open_capture, Some(full_tx));
-    });
+    // Set by the main loop while nothing is being priced (game hidden or
+    // unattended, user pause): the capture then drops frames
+    // before any pixel work instead of converting them for nobody.
+    let capture_paused = Arc::new(AtomicBool::new(false));
+    let cap_ev_rx = spawn_capture(
+        &rt,
+        start,
+        region_rx,
+        region,
+        ftx,
+        panel_open.clone(),
+        full_tx,
+        capture_paused.clone(),
+    )?;
 
-    // OCR worker: frames in, priced rows out. `pipeline_paused` is toggled by the
-    // main loop on focus loss / scan toggle, so we stop feeding tesseract without
-    // touching the capture thread (which keeps running regardless, now that it
-    // emits every throttle tick rather than only on pixel change).
+    // OCR worker: frames in, priced rows out. `pipeline_paused` follows the
+    // scan policy every tick (focus loss, occlusion, the tray pause), so
+    // tesseract is not fed; `capture_paused` follows it too, so the capture
+    // thread stops converting frames while still dequeuing them.
     let pipeline_paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (rows_tx, rows_rx) = mpsc::channel();
+    // Priced rows travel with the league they were priced in: a scan that
+    // was under way during a league change arrives after the stabilizer was
+    // cleared, and is told apart by that name.
+    let (rows_tx, rows_rx) = mpsc::channel::<(Option<String>, khaloni_poe2::stabilize::ScanResult)>();
     let svc_ocr = svc.clone();
-    let ocr_cfg = cfg.clone();
+    let ocr_cfg = live_cfg.clone();
     // Full frames feed two consumers with very different costs: region
     // detection (pure math, ~40ms) and rumour OCR (seconds when any
     // parchment-like blob — including combat explosions — is on screen).
@@ -1290,18 +3287,18 @@ fn overlay_mode(
     // each ~8MB frame once per 700ms — noise next to one OCR pass.
     let (det_tx, det_rx) = mpsc::sync_channel::<image::GrayImage>(1);
     let (rum_tx, rum_rx) = mpsc::sync_channel::<image::GrayImage>(1);
-    std::thread::spawn(move || {
+    std::thread::Builder::new().name("frame-fanout".into()).spawn(move || {
         for frame in full_rx {
             let _ = det_tx.try_send(frame.clone());
             let _ = rum_tx.try_send(frame);
         }
-    });
+    })?;
     // Region-detection worker: always fast, never blocked by OCR.
     {
         let scan_geom = scan_geom.clone();
         let region_ready = region_ready.clone();
         let panel_open_det = panel_open.clone();
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("region-detect".into()).spawn(move || {
             let dbg = std::env::var("KHALONI_DEBUG").is_ok();
             let mut last_region: Option<Rect> = None;
             for frame in det_rx {
@@ -1314,15 +3311,22 @@ fn overlay_mode(
                 if std::env::var("KHALONI_REGION_DUMP").is_ok() {
                     let _ = frame.save(std::env::temp_dir().join("khaloni-frame.png"));
                 }
-                let mut geom = scan_geom.lock().unwrap();
-                geom.0 = Some((frame.width(), frame.height()));
-                if !panel_open_det.load(Ordering::Relaxed) {
-                    let found = khaloni_poe2::autoregion::detect_reward_region(&frame).map(|r| Rect {
+                // Detection runs with the lock free: it takes ~40ms, and the
+                // paint path reads this geometry every 16ms tick.
+                let detect = !panel_open_det.load(Ordering::Relaxed);
+                let found = if detect {
+                    khaloni_poe2::autoregion::detect_reward_region(&frame).map(|r| Rect {
                         x: r.x0 as i32,
                         y: r.y0 as i32,
                         w: r.x1 - r.x0,
                         h: r.y1 - r.y0,
-                    });
+                    })
+                } else {
+                    None
+                };
+                let mut geom = scan_geom.lock().unwrap_or_else(|e| e.into_inner());
+                geom.0 = Some((frame.width(), frame.height()));
+                if detect {
                     if dbg && found != last_region {
                         eprintln!("auto-region: {found:?}");
                     }
@@ -1339,15 +3343,18 @@ fn overlay_mode(
                     // same spot (the common case) instant.
                 }
             }
-        });
+        })?;
     }
     // Rumour recognizer worker: OCR-heavy, allowed to lag; latest-only
     // channels mean it just skips to the newest frame when it falls behind.
     {
         let rumour_csv = Config::path().parent().map(|d| d.join("rumours.csv"));
         let paused_rumour = pipeline_paused.clone();
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("rumour-ocr".into()).spawn(move || {
             let dbg = std::env::var("KHALONI_DEBUG").is_ok();
+            // Remembers the last panel it read: an unchanged tooltip costs
+            // no tesseract passes (see rumours::RumourScanner).
+            let mut scanner = khaloni_poe2::rumours::RumourScanner::default();
             let idx = rumour_csv
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .map(|csv| {
@@ -1384,12 +3391,15 @@ fn overlay_mode(
                 if std::env::var("KHALONI_RUMOUR_DUMP").is_ok()
                     && khaloni_poe2::rumours::find_panel(&frame).is_some()
                 {
-                    let _ = frame.save("/tmp/poe2-live-frame.png");
+                    let _ = frame.save(std::env::temp_dir().join("poe2-live-frame.png"));
                 }
-                let hits = khaloni_poe2::rumours::recognize(engine, &frame, idx);
-                if !hits.is_empty() {
+                let passes_before = scanner.ocr_passes;
+                let hits = scanner.recognize(engine, &frame, idx);
+                let passes = scanner.ocr_passes - passes_before;
+                // A remembered panel is not news; log what was read anew.
+                if !hits.is_empty() && passes > 0 {
                     eprintln!(
-                        "RUMOURS {} in {}ms: {}",
+                        "RUMOURS {} in {}ms ({passes} ocr passes): {}",
                         hits.len(),
                         t.elapsed().as_millis(),
                         hits.iter()
@@ -1402,9 +3412,10 @@ fn overlay_mode(
                     );
                 } else if dbg {
                     eprintln!(
-                        "rumour scan: {}x{} none in {}ms",
+                        "rumour scan: {}x{} {} hits, {passes} ocr passes in {}ms",
                         frame.width(),
                         frame.height(),
+                        hits.len(),
                         t.elapsed().as_millis()
                     );
                 }
@@ -1414,330 +3425,133 @@ fn overlay_mode(
                     break; // main loop gone
                 }
             }
-        });
+        })?;
     }
 
     let paused_ocr = pipeline_paused.clone();
-    // The reward-panel pricer's handle to the specific-gem cache + trade worker.
-    let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone() };
-    let currency_cache = CurrencyCache { map: currency_map.clone(), req_tx: appraise_req_tx.clone() };
-    let exch_names_ocr = exch_names.clone();
-    let region_ready_ocr = region_ready.clone();
-    std::thread::spawn(move || {
-        let dbg = std::env::var("KHALONI_DEBUG").is_ok();
-        let t0 = std::time::Instant::now();
-        // Match vocab = price-table names + exchange catalog (async-published);
-        // rebuilt only when either side actually changes.
-        let mut vocab_ext: Option<pricing::Vocab> = None;
-        let mut vocab_key: (usize, usize) = (0, 0);
-        let Ok(mut engine) = ocr::OcrEngine::new() else {
-            eprintln!("tesseract init failed; OCR disabled");
-            return;
+    // The reward-panel pricer's handle to the specific-gem cache + trade
+    // worker, through the budget: a row's request goes only while the
+    // user's own checks keep their room.
+    let row_gate = RowGate {
+        budget: budget.clone(),
+        limiters: khaloni_poe2_core::trade::Limiters::global(),
+        cfg: live_cfg.clone(),
+        last_refusal_logged: Arc::default(),
+    };
+    let gem_cache = GemCache { map: gem_map.clone(), req_tx: appraise_req_tx.clone(), gate: row_gate.clone() };
+    {
+        let worker = CraftWorker {
+            done_tx: craft_done_tx,
+            league: cfg.league.clone(),
+            current: current_league.clone(),
+            cache_dir: cache.clone(),
+            svc: svc.clone(),
+            cfg: live_cfg.clone(),
+            budget: budget.clone(),
+            currency: CurrencyCache { map: currency_map.clone(), req_tx: appraise_req_tx.clone(), gate: row_gate.clone() },
+            unpriced: Default::default(),
+            client: Default::default(),
+            sources: CraftSources {
+                craft: Default::default(),
+                ee2: Default::default(),
+                stats: Default::default(),
+                currency_names: Default::default(),
+            },
+            store: Default::default(),
+            last_buy: None,
+            serving: None,
         };
-        let mut last_profile: Option<Vec<u16>> = None;
-        let mut post_scroll_fast = false;
-        // Tesseract cadence floor: at 16ms capture the per-frame work is
-        // profile+templates only; the expensive OCR paths keep the old
-        // 120ms rhythm regardless of capture rate.
-        let mut last_heavy = std::time::Instant::now() - Duration::from_secs(1);
-        let mut gate = khaloni_poe2::gate::PanelGate::new();
-        // What tesseract already read, by pixel content: an unchanged
-        // panel costs no OCR at all (see ocr::ScanCache).
-        let mut scan_cache = ocr::ScanCache::default();
-        // Learned-template store: identifies previously seen reward bands
-        // in well under a millisecond, bypassing tesseract; OCR remains
-        // the teacher for first encounters. Persisted across sessions.
-        // Rumour annotations: optional dataset at config_dir/rumours.csv
-        // (community sheet snapshot). Absent file = feature off; rumour
-        // lines then render nothing, exactly as before the wiring.
-        let rumours = Config::path()
-            .parent()
-            .map(|d| d.join("rumours.csv"))
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|csv| {
-                let idx = khaloni_poe2_core::rumour::RumourIndex::new(
-                    khaloni_poe2_core::rumour::parse_csv(&csv),
-                );
-                eprintln!("rumour dataset loaded: {} entries", idx.len());
-                idx
-            });
-        if rumours.is_none() {
-            eprintln!("no rumours.csv in config dir; rumour annotations off");
-        }
-        let tpl_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
-            .map(|d| d.cache_dir().join("templates.bin"));
-        let mut tstore = tpl_path
-            .as_deref()
-            .map(khaloni_poe2::template::TemplateStore::load)
-            .unwrap_or_default();
-        let mut tpl_saved_at = std::time::Instant::now();
-        // The frame channel is capacity-1 with try_send-and-drop on the
-        // capture side (see capture::consume), so a backlog here is
-        // structurally impossible: this is always the latest frame, and a
-        // plain blocking recv (via the Receiver iterator) is enough.
-        for frame in frx {
-            // Until the detector has found a reward region, capture is
-            // cropping the startup dummy rect — never OCR that.
-            if !region_ready_ocr.load(std::sync::atomic::Ordering::Relaxed) {
-                continue;
-            }
-            if paused_ocr.load(std::sync::atomic::Ordering::Relaxed) {
-                // Drop the frame cheaply; no OCR/pricing work while paused.
-                continue;
-            }
-            let t_frame = std::time::Instant::now();
-            // Presence first: the signature bars in the region are the
-            // only evidence of a reward panel (tests/bars.rs), and they
-            // cost a row profile plus a few column sums per frame.
-            let profile = ocr::row_profile(&frame.gray);
-            let bands = ocr::reward_bars(&frame.gray, &profile);
-            let motion = match last_profile.replace(profile.clone()) {
-                Some(prev) => ocr::track_motion(&prev, &profile),
-                None => ocr::Motion::Still,
-            };
-            // Mid-scroll frames blur the bars' edges; they hold the gate
-            // rather than feeding it a miss.
-            let open = match motion {
-                ocr::Motion::Still => gate.observe(!bands.is_empty()),
-                _ => gate.is_open(),
-            };
-            panel_open.store(open, std::sync::atomic::Ordering::Relaxed);
-            if dbg {
-                eprintln!(
-                    "TRACE {:>8.2}s bars={} gate_open={open}",
-                    t0.elapsed().as_secs_f32(),
-                    bands.len()
-                );
-            }
-            if !open {
-                // Gate closed: no reward rows on screen (game world, or a
-                // region that outlived its panel). Skip tesseract entirely
-                // and report gated-empty so the overlay drops stale rows
-                // instead of holding them.
-                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::GateEmpty);
-                continue;
-            }
-            match motion {
-                ocr::Motion::Scrolled(dy) => {
-                    // Content is scrolling: move labels instantly and
-                    // skip OCR (mid-scroll frames are motion blur);
-                    // the next stable frame rescans normally.
-                    let dy_pre = i64::from(dy) * i64::from(ocr::UPSCALE);
-                    post_scroll_fast = true;
-                    let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Scrolled(dy_pre));
-                    if dbg {
-                        eprintln!("TRACE {:>8.2}s scroll dy={dy}", t0.elapsed().as_secs_f32());
-                    }
-                    continue;
-                }
-                ocr::Motion::Lost => {
-                    // Flick faster than correlation can follow, or a
-                    // panel-scale change mid-scroll: the stabilizer
-                    // hides rather than showing prices on rows they no
-                    // longer belong to. Skip OCR on this frame (it is
-                    // blur/transition); the next Still frame re-anchors
-                    // everything from scratch.
-                    post_scroll_fast = true;
-                    let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::TrackingLost);
-                    if dbg {
-                        eprintln!("TRACE {:>8.2}s tracking lost", t0.elapsed().as_secs_f32());
-                    }
-                    continue;
-                }
-                ocr::Motion::Still => {}
-            }
-            // Fast-close: a band-less frame IS the close signal; skip all
-            // OCR (band detection costs ~2 ms) so the hide confirmation
-            // arrives at capture cadence, not OCR cadence. Live-verified:
-            // 114/116 panel scans banded (no under-threshold panel seen);
-            // if a panel style ever defeats band detection, this is the
-            // line to revisit.
-            if bands.is_empty() {
-                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::NoBands);
-                continue;
-            }
-            // Template pass first: every band already learned resolves in
-            // ~0.7 ms (measured on the live corpus) with no tesseract.
-            let snap = svc_ocr.snapshot();
-            let mut resolved: Vec<pricing::Priced> = Vec::new();
-            let mut any_unresolved = false;
-            for &(y0, y1) in &bands {
-                let row = ocr::band_crop(&frame.gray, y0, y1)
-                    .and_then(|crop| {
-                        tstore.match_band(&crop).map(|(hit, _)| {
-                            (hit.item_key.clone(), hit.count, hit.count_explicit)
-                        })
-                    })
-                    .and_then(|(key, count, explicit)| {
-                        pricing::price_resolved(
-                            &snap.table,
-                            &key,
-                            count,
-                            explicit,
-                            y0 * ocr::UPSCALE,
-                            (y1 - y0) * ocr::UPSCALE,
-                            &ocr_cfg,
-                        )
-                    });
-                match row {
-                    Some(r) => resolved.push(r),
-                    None => any_unresolved = true,
-                }
-            }
-            if !any_unresolved && !resolved.is_empty() {
-                if dbg {
-                    eprintln!(
-                        "TRACE {:>8.2}s tpl_done in {:?}: {} rows",
-                        t0.elapsed().as_secs_f32(),
-                        t_frame.elapsed(),
-                        resolved.len()
-                    );
-                }
-                let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Rows(resolved, snap.stale));
-                continue;
-            }
-            // Unresolved bands wait for the next tesseract slot (120ms
-            // rhythm); nothing is sent for a gated frame, so slot
-            // miss-counting does not advance and the next slot's scan
-            // sees a fresher frame anyway.
-            if last_heavy.elapsed() < Duration::from_millis(120) {
-                continue;
-            }
-            last_heavy = std::time::Instant::now();
-            // First scan after a scroll burst: bands only, no whole-panel
-            // union pass, so newly revealed rows appear ~3x sooner; the
-            // union tops up on the following scan.
-            let runs_before = scan_cache.ocr_runs;
-            let with_whole = !std::mem::take(&mut post_scroll_fast);
-            let lines = scan_cache.scan(&mut engine, &frame.gray, &bands, with_whole);
-            if dbg {
-                eprintln!(
-                    "TRACE {:>8.2}s ocr passes={} lines={}",
-                    t0.elapsed().as_secs_f32(),
-                    scan_cache.ocr_runs - runs_before,
-                    lines.len()
-                );
-            }
-            if dbg {
-                let d = std::path::Path::new("/tmp/khalonipoe2-frames");
-                let _ = std::fs::create_dir_all(d);
-                let _ = frame.gray.save(d.join(format!(
-                    "t{:06.2}_bands{}_lines{}.png",
-                    t0.elapsed().as_secs_f32(),
-                    bands.len(),
-                    lines.len()
-                )));
-            }
-            let extra = exch_names_ocr.get().map(|v| v.as_slice()).unwrap_or(&[]);
-            let key = (snap.table.len(), extra.len());
-            if vocab_ext.is_none() || vocab_key != key {
-                vocab_ext = Some(pricing::build_vocab_with(&snap.table, extra));
-                vocab_key = key;
-            }
-            let out = pricing::price_lines_with_rumours(
-                &snap.table,
-                vocab_ext.as_ref().unwrap_or(&snap.vocab),
-                &lines,
-                &ocr_cfg,
-                rumours.as_ref(),
-                Some(&gem_cache),
-                Some(&currency_cache),
-            );
-            // Teach the template store from confidently identified OCR
-            // rows aligned to a band (OCR-taught templates then take over
-            // for every later encounter of the same reward).
-            for r in &out.0 {
-                if !r.locks_in_one
-                    || r.item_key == "unpriceable"
-                    || r.item_key == "ambiguous"
-                    || r.item_key.starts_with("gem-unleveled")
-                    // Specific gems are priced asynchronously via trade and
-                    // must re-OCR each scan to pick up the arriving price, so
-                    // they are never templated (a template would freeze the
-                    // provisional "…" or an early price).
-                    || r.item_key.starts_with("gemx:")
-                {
-                    continue;
-                }
-                if let Some(&(y0, y1)) = bands
-                    .iter()
-                    .find(|&&(y0, _)| y0 * ocr::UPSCALE == r.y_top)
-                {
-                    if let Some(crop) = ocr::band_crop(&frame.gray, y0, y1) {
-                        tstore.learn(&r.item_key, r.count, r.count_explicit, &crop);
-                    }
-                }
-            }
-            if tstore.dirty && tpl_saved_at.elapsed().as_secs() >= 30 {
-                if let Some(p) = tpl_path.as_deref() {
-                    let _ = tstore.save(p);
-                }
-                tpl_saved_at = std::time::Instant::now();
-            }
-            // Merge template-resolved rows with the OCR pass: a resolved
-            // row wins over any OCR row overlapping its y range.
-            let mut merged = resolved;
-            for r in out.0 {
-                let clash = merged.iter().any(|m| {
-                    let (a0, a1) = (i64::from(m.y_top), i64::from(m.y_top) + i64::from(m.height));
-                    let (b0, b1) = (i64::from(r.y_top), i64::from(r.y_top) + i64::from(r.height));
-                    a0.max(b0) < a1.min(b1)
+        std::thread::Builder::new().name("craft-worker".into()).spawn(move || worker.run(craft_req_rx))?;
+    }
+    let currency_cache = CurrencyCache { map: currency_map.clone(), req_tx: appraise_req_tx.clone(), gate: row_gate };
+    let region_ready_ocr = region_ready.clone();
+    let scan_geom_ocr = scan_geom.clone();
+    // Reward rows: motion, the bar gate, band detection and template hits
+    // run on every captured frame on one thread; tesseract runs on its
+    // own, on the newest frame that needs it (see reward_pipeline).
+    match ocr::OcrEngine::new() {
+        Err(_) => eprintln!("tesseract init failed; OCR disabled"),
+        Ok(engine) => {
+            // Learned-template store: identifies previously seen reward
+            // bands in well under a millisecond, bypassing tesseract; OCR
+            // remains the teacher for first encounters. Persisted across
+            // sessions. Looked up by the tracking thread, taught by the
+            // reading one.
+            let tpl_path = directories::ProjectDirs::from("", "", "khaloni-poe2")
+                .map(|d| d.cache_dir().join("templates.bin"));
+            let tstore = Arc::new(std::sync::Mutex::new(
+                tpl_path.as_deref().map(khaloni_poe2::template::TemplateStore::load).unwrap_or_default(),
+            ));
+            // Rumour annotations: optional dataset at config_dir/rumours.csv
+            // (community sheet snapshot). Absent file = feature off; rumour
+            // lines then render nothing, exactly as before the wiring.
+            let rumours = Config::path()
+                .parent()
+                .map(|d| d.join("rumours.csv"))
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .map(|csv| {
+                    let idx = khaloni_poe2_core::rumour::RumourIndex::new(khaloni_poe2_core::rumour::parse_csv(&csv));
+                    eprintln!("rumour dataset loaded: {} entries", idx.len());
+                    idx
                 });
-                if !clash {
-                    merged.push(r);
+            if rumours.is_none() {
+                eprintln!("no rumours.csv in config dir; rumour annotations off");
+            }
+            let resolver = TemplateResolver { tstore: tstore.clone(), svc: svc_ocr.clone(), cfg: ocr_cfg.clone() };
+            let reader = RewardReader {
+                engine,
+                scan_cache: ocr::ScanCache::default(),
+                tstore,
+                tpl_path,
+                tpl_saved_at: std::time::Instant::now(),
+                svc: svc_ocr,
+                cfg: ocr_cfg,
+                exch_names: exch_names.clone(),
+                vocab: None,
+                rumours,
+                gem_cache,
+                currency_cache,
+                dbg: std::env::var("KHALONI_DEBUG").is_ok(),
+                t0: std::time::Instant::now(),
+            };
+            let frames = frx.into_iter().filter_map(move |frame: khaloni_poe2::platform::RegionFrame| {
+                // Until the detector has found a reward region, capture is
+                // cropping the startup dummy rect: never scan that. While
+                // paused, frames are dropped before any pixel work.
+                if !region_ready_ocr.load(Ordering::Relaxed) || paused_ocr.load(Ordering::Relaxed) {
+                    return None;
                 }
-            }
-            merged.sort_by_key(|r| r.y_top);
-            let out = (merged, out.1);
-            // Bands were present but nothing priced (tooltip occlusion,
-            // mid-transition frame): plain empty Rows, which the
-            // stabilizer rides out with its occlusion tolerance. The
-            // band-less case already exited above.
-            if dbg {
-                eprintln!(
-                    "TRACE {:>8.2}s ocr_done in {:?}: {} lines -> {} rows [{}]",
-                    t0.elapsed().as_secs_f32(),
-                    t_frame.elapsed(),
-                    lines.len(),
-                    out.0.len(),
-                    out.0.iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>().join(", ")
-                );
-            }
-            let _ = rows_tx.send(khaloni_poe2::stabilize::ScanResult::Rows(out.0, snap.stale));
+                // The game UI scales with the height of the whole frame;
+                // the region crop in hand says nothing about it.
+                let full_h = scan_geom_ocr.lock().unwrap_or_else(|e| e.into_inner()).0.map_or(0, |(_, h)| h);
+                Some(khaloni_poe2::reward_pipeline::Frame { gray: frame.gray, scale: ocr::UiScale::from_frame_height(full_h) })
+            });
+            khaloni_poe2::reward_pipeline::spawn(frames, resolver, reader, rows_tx, panel_open.clone())?;
         }
-    });
+    }
 
-    let center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
-    let mut overlay = khaloni_poe2::platform::overlay::Overlay::new(center)?;
-    // The window feed hands focus back to the game once the overlay stops
-    // wanting the keyboard (KWin never does that on its own).
-    overlay.bind_keyboard_flag(kwin.keyboard_wanted.clone());
-    phase("overlay surface up");
+    // The overlay surface lives on the output the game is on, so it is
+    // created when the feed first reports a game window, and again whenever
+    // the compositor closes it or the game moves to another output. Until
+    // there is one, nothing is drawn and no hotkey types anything.
+    let mut overlay_slot: Option<khaloni_poe2::platform::overlay::Overlay> = None;
+    let mut overlay_retry_at = std::time::Instant::now();
     let mut first_present_logged = false;
     // Overlay opacity live-applies from config; a change must force a
     // repaint because an idle overlay keeps its last presented buffer.
     let mut last_opacity = f64::NAN;
     let renderer = khaloni_poe2::render::Renderer::new()?;
 
-    let mut scanning = true;
-    // Who holds focus (from the window feed). `game_focused` is the strict
-    // form injection needs; scanning and drawing go through `scanpolicy`,
-    // which also accepts focus on our own overlay.
-    let mut focus = khaloni_poe2::platform::Focus::Game;
-    let mut game_focused = true;
-    // On-screen state from the tracker (minimized/covered detection);
-    // optimistic until the first Visible event arrives.
-    let mut game_visible = true;
-    let mut game_present = true;
+    // The tray's "Pause Pricing"; an input to `scanpolicy`.
+    let mut user_paused = false;
+    // Last known game rect. Only read once an overlay exists, which takes a
+    // reported geometry; the feed state `win` says whether it is current.
+    let mut game = win.rect.unwrap_or(Rect { x: 0, y: 0, w: 0, h: 0 });
     let mut stabilizer = khaloni_poe2::stabilize::Stabilizer::new();
     let mut hover = hover::HoverState::default();
     // A price check pressed while another window has focus: the game is
     // focused first and the copy waits for the feed to confirm it.
     let mut focus_gate = khaloni_poe2::pricecheck::FocusGate::default();
-    let mut game_pos = (game.x, game.y);
-    // Live pointer position (global logical), fed by the KWin script's
-    // cursor timer. Falls back to the game center until the first move.
-    let mut cursor_pos = center;
     // Where the cursor was when the current popup fired, and the placed
     // popup rect: move-away dismissal measures against these. None while
     // no popup is up.
@@ -1745,32 +3559,34 @@ fn overlay_mode(
     // Interactive Evaluate panel: model + the query its checkboxes edit
     // + placed top-left (global logical). While Some, the overlay's input
     // region covers the panel and clicks resolve through evaluate_ui.
-    let mut apanel: Option<(
-        khaloni_poe2::evaluate_ui::Panel,
-        khaloni_poe2_core::trade::Query,
-        (i32, i32),
-    )> = None;
-    // The query the open panel was seeded with, so a late auto result can
-    // tell an untouched panel (take the searched query) from one the user
-    // has already edited (keep their selection).
-    let mut seeded_query: Option<khaloni_poe2_core::trade::Query> = None;
+    let mut apanel: Option<EvalPanel> = None;
+    // What the open panel's listings came from; "Open site" opens this.
+    let mut searched: Option<Searched> = None;
+    // The item text of the check the open panel belongs to, so the same
+    // item checked again while its search runs is not queued twice.
+    let mut check_in_flight: Option<String> = None;
+    // A hover currency check waiting on an exchange request a reward row
+    // had already queued for the same name: (name, hovered stack).
+    let mut awaiting_exchange: Option<(String, u32)> = None;
     // Which value box is being typed into (index into `panel.rows`, which is
     // what evaluate_ui's actions carry), and the digits typed so far.
     let mut editing: Option<(usize, khaloni_poe2::evaluate_ui::Field)> = None;
     let mut edit_buf = String::new();
-    // In-overlay reference search panel (F9) and leveling checklist (F10),
-    // each with its placed top-left in global logical coordinates. While
-    // open they join the overlay's input region and take keyboard focus
-    // for search typing / scrolling.
-    let mut ref_panel: Option<(khaloni_poe2::reference_ui::Panel, (i32, i32))> = None;
-    let mut lvl_panel: Option<(khaloni_poe2::leveling_ui::Panel, (i32, i32))> = None;
-    // Last zone seen in the game log, applied when the leveling panel opens
-    // so it comes up already pointing at where the player is.
-    let mut last_zone: Option<String> = None;
+    // The market panel, with its placed top-left in global logical
+    // coordinates, joins the input region like the Evaluate panel but never
+    // asks for the keyboard: everything in it is a click.
+    let mut mkt_panel: Option<(khaloni_poe2::market_ui::Panel, (i32, i32))> = None;
+    let mut mkt_feed = khaloni_poe2::market_ui::Feed::default();
+    // The craft planner joins the input region the same way and is all
+    // clicks too. `craft_item` is the item it was opened on; answers for a
+    // panel older than `craft_generation` are dropped.
+    let mut craft_panel: Option<CraftPanel> = None;
+    let mut craft_item: Option<khaloni_poe2_core::craft::types::ItemState> = None;
+    let mut craft_generation: u64 = 0;
     // An in-progress panel drag: (grab point in surface px, panel's global
     // position when the grab began). Deliberately NOT persisted anywhere, so
     // each new price check reopens the panel at its freshly-placed spot.
-    let mut panel_drag: Option<((i32, i32), (i32, i32))> = None;
+    let mut panel_drag: Option<PanelDrag> = None;
     let mut pixmap: Option<tiny_skia::Pixmap> = None;
     // What was actually drawn+presented last tick: `Some((placed, stale,
     // popup))` while visible, `None` while hidden/blank. Compared each tick
@@ -1784,15 +3600,162 @@ fn overlay_mode(
     // Latest rumours from the recognizer worker (capture-physical px boxes).
     let mut latest_rumours: Vec<khaloni_poe2::rumours::RumourHit> = Vec::new();
     let dbg = std::env::var("KHALONI_DEBUG").is_ok();
-    // Live config reload: the web control panel writes config.toml; polling its
-    // mtime (once a second) lets main-loop-read settings (pause-when-unfocused,
-    // divine threshold) take effect without a relaunch. Worker-thread settings
-    // still need a restart (they hold clones), as the panel notes.
+    // Live config reload: the settings window writes config.toml; polling
+    // its mtime (once a second) applies the change to this loop, to the OCR
+    // thread (through `live_cfg`) and to the hotkeys (through `rebind`).
+    // A changed league moves everything priced at once; see `league`.
     let mut cfg_mtime = std::fs::metadata(Config::path()).and_then(|m| m.modified()).ok();
     let mut last_cfg_poll = std::time::Instant::now();
+    // Row-request failures are worth one note, not one per scan.
+    let mut last_row_error_note = std::time::Instant::now() - Duration::from_secs(3600);
+    let mut capture_lost = false;
+    // The price snapshot the row caches last saw; a new one (a refresh, a
+    // league change) lets requests the site refused be asked again.
+    let mut last_inputs: Option<Arc<prices::Snapshot>> = None;
 
     loop {
+        if leaving() {
+            eprintln!("closing: the game exited or a signal arrived");
+            return Ok(());
+        }
+        let snap = svc.snapshot();
+        if !last_inputs.as_ref().is_some_and(|s| Arc::ptr_eq(s, &snap)) {
+            currency_map.lock().unwrap_or_else(|e| e.into_inner()).inputs_changed();
+            gem_map.lock().unwrap_or_else(|e| e.into_inner()).inputs_changed();
+            last_inputs = Some(snap);
+        }
+
+        // Window feed first: everything below acts on the state it leaves.
+        let mut game_went = false;
+        let mut game_took_focus = false;
+        while let Ok(ev) = kwin.rx.try_recv() {
+            match ev {
+                khaloni_poe2::platform::GameWindowEvent::GameGone => game_went = true,
+                khaloni_poe2::platform::GameWindowEvent::Active(khaloni_poe2::platform::Focus::Game) => {
+                    game_took_focus = true;
+                }
+                _ => {}
+            }
+            win.apply(ev);
+        }
+        // The scan region is capture-space and auto-detected, so a window
+        // move needs no region update; label placement reads the live game
+        // position every paint.
+        if let Some(r) = win.rect {
+            game = r;
+        }
+        let game_present = win.present();
+        let game_visible = win.visible;
+        let focus = win.focus;
+        // The strict form injection needs; scanning and drawing go through
+        // `scanpolicy`, which also accepts focus on our own overlay.
+        let game_focused = win.game_focused();
+        let game_pos = (game.x, game.y);
+        let game_center = (game.x + game.w as i32 / 2, game.y + game.h as i32 / 2);
+        // Live pointer position (global logical), fed by the KWin script's
+        // cursor timer; the game center until the first move.
+        let cursor_pos = win.cursor.unwrap_or(game_center);
+
+        // (Re)create the overlay surface: none yet, the compositor closed
+        // it (output switched off or replugged), or the game now sits on
+        // another output than the surface.
+        let stale_surface = overlay_slot.as_ref().is_some_and(|o| {
+            o.is_closed() || (game_present && off_output(game_center, o.output_pos(), o.size()))
+        });
+        if (overlay_slot.is_none() || stale_surface)
+            && game_present
+            && std::time::Instant::now() >= overlay_retry_at
+        {
+            overlay_retry_at = std::time::Instant::now() + Duration::from_secs(1);
+            let first = !OVERLAY_RUNNING.load(Ordering::Relaxed);
+            let opened = if first {
+                // Startup flavour: a compositor without layer-shell is a
+                // reason not to start at all.
+                khaloni_poe2::platform::overlay::Overlay::new(game_center).map_err(|e| {
+                    match e.downcast::<khaloni_poe2::platform::OverlayError>() {
+                        Ok(oe) => oe,
+                        Err(other) => khaloni_poe2::platform::OverlayError::Startup(other.to_string()),
+                    }
+                })
+            } else {
+                khaloni_poe2::platform::overlay::Overlay::open(game_center)
+            };
+            match opened {
+                Ok(mut o) => {
+                    // The window feed hands focus back to the game once the
+                    // overlay stops wanting the keyboard (KWin never does
+                    // that on its own).
+                    o.bind_keyboard_flag(kwin.keyboard_wanted.clone());
+                    o.set_opacity(cfg.overlay_opacity.max(0.1));
+                    last_opacity = cfg.overlay_opacity;
+                    // A new surface starts from defaults: no keyboard, no
+                    // input region, no buffer.
+                    o.set_keyboard(editing.is_some())?;
+                    sync_input_region(&mut o, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                    pixmap = None;
+                    last_frame = None;
+                    panel_drag = None;
+                    overlay_slot = Some(o);
+                    if first {
+                        OVERLAY_RUNNING.store(true, Ordering::Relaxed);
+                        phase("overlay surface up");
+                    } else {
+                        eprintln!("overlay surface rebuilt on the game's output");
+                    }
+                }
+                // All monitors off: keep asking until one is back.
+                Err(khaloni_poe2::platform::OverlayError::NoOutput) => {
+                    if stale_surface {
+                        overlay_slot = None;
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        let Some(overlay) = overlay_slot.as_mut() else {
+            // No surface: nothing can be shown, so nothing is priced and no
+            // hotkey acts. A press now is dropped, not queued to fire later
+            // into whatever has focus by then. The settings window and the
+            // tray's Quit need no surface and keep working.
+            pipeline_paused.store(true, Ordering::Relaxed);
+            capture_paused.store(true, Ordering::Relaxed);
+            while rows_rx.try_recv().is_ok() {}
+            while rumour_rx.try_recv().is_ok() {}
+            let mut wants_settings = false;
+            while let Ok(hk) = hk_rx.try_recv() {
+                if let khaloni_poe2::platform::Hotkey::Extra(id) = hk {
+                    wants_settings |= bound.actions.get(&id) == Some(&khaloni_poe2::bindings::Action::Settings);
+                }
+            }
+            while let Ok(ev) = tray_rx.try_recv() {
+                match ev {
+                    khaloni_poe2::tray::TrayEvent::Quit => return Ok(()),
+                    khaloni_poe2::tray::TrayEvent::OpenSettings => wants_settings = true,
+                    _ => {}
+                }
+            }
+            if wants_settings {
+                if let Err(e) = open_settings() {
+                    eprintln!("{e}");
+                    notices.push_back(e);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        };
+        // A broken Wayland connection is the one overlay error nothing
+        // here can recover (see `OverlayError`).
         overlay.pump()?;
+
+        let game_rect = Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
+        // Where a popup shown this tick goes: beside the cursor.
+        let anchor = |hover: &hover::HoverState| {
+            hover.current.as_ref().map(|p| {
+                let size = renderer.popup_size(p);
+                let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
+                (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
+            })
+        };
 
         // Exact != on purpose: both sides come from the same config value,
         // and the NAN sentinel compares unequal to everything, so the first
@@ -1807,14 +3770,98 @@ fn overlay_mode(
         }
         if last_cfg_poll.elapsed() >= Duration::from_secs(1) {
             last_cfg_poll = std::time::Instant::now();
+            // "league: X" once X's prices are in, or why they are not.
+            if let Some(n) = league_announcer.poll(&svc.snapshot()) {
+                notices.push_back(n);
+            }
             if let Ok(m) = std::fs::metadata(Config::path()).and_then(|md| md.modified()) {
                 if cfg_mtime != Some(m) {
                     cfg_mtime = Some(m);
-                    if let Ok(new_cfg) = Config::load() {
-                        cfg = new_cfg;
-                        map_rules = build_map_rules(&cfg);
+                    match Config::load() {
+                        Ok(mut new_cfg) => {
+                            notices.extend(new_cfg.notices.drain(..));
+                            let priced = khaloni_poe2::league::Priced {
+                                currency: &currency_map,
+                                gems: &gem_map,
+                                stabilizer: &mut stabilizer,
+                                hover: &mut hover,
+                                awaiting_exchange: &mut awaiting_exchange,
+                            };
+                            if let Some(sw) = khaloni_poe2::league::switch(
+                                &current_league,
+                                priced,
+                                &svc,
+                                &mut league_announcer,
+                                &new_cfg.league,
+                            ) {
+                                eprintln!("league: {} -> {}", sw.from, sw.to);
+                                // Rows priced in the old league may still be
+                                // on their way from the scan thread; they
+                                // carry its name and are refused below.
+                                popup_at = None;
+                                last_frame = None;
+                                // The market rows are the old league's; the
+                                // feed brings the new league's when they land.
+                                mkt_feed = khaloni_poe2::market_ui::Feed::default();
+                                if let Some((p, _)) = mkt_panel.as_mut() {
+                                    *p = khaloni_poe2::market_ui::Panel::loading(&sw.to);
+                                }
+                                // A plan's prices and a scan's listings are
+                                // the old league's; the next press uses the
+                                // new one.
+                                if let Some((p, _)) = craft_panel.as_mut() {
+                                    p.note = Some(format!(
+                                        "the league changed to {}: plans and scans shown are the old league's; press Plan or Run again",
+                                        sw.to
+                                    ));
+                                }
+                                notices.push_back(khaloni_poe2::league::loading_text(&sw.to));
+                                // A card that is open keeps its listings and
+                                // says whose they are.
+                                if let (Some(p), Some(done)) = (apanel.as_mut(), searched.as_ref()) {
+                                    p.0.status = khaloni_poe2::league::old_league_status(&done.league, &p.0.status);
+                                }
+                            }
+                            let new_bound = khaloni_poe2::bindings::resolve(&new_cfg);
+                            if new_bound.bindings != bound.bindings {
+                                *wanted_bindings.lock().unwrap_or_else(|e| e.into_inner()) =
+                                    new_bound.bindings.clone();
+                                rebind.rebind(new_bound.bindings.clone());
+                                eprintln!("hotkeys: binding the changed set");
+                            }
+                            for c in new_bound.conflicts.iter().filter(|c| !bound.conflicts.contains(c)) {
+                                notices.push_back(c.message.clone());
+                            }
+                            bound = new_bound;
+                            map_rules = build_map_rules(&new_cfg);
+                            *live_cfg.write().unwrap_or_else(|e| e.into_inner()) = new_cfg.clone();
+                            cfg = new_cfg;
+                        }
+                        // The old settings stay in force, and the user is
+                        // told their edit did not take.
+                        Err(e) => {
+                            eprintln!("config reload failed: {e:#}");
+                            notices.push_back(format!("settings not applied: config.toml does not parse ({e})"));
+                        }
                     }
                 }
+            }
+            // A scan the settings window asked for: the panel states its
+            // cost and waits for Run; nothing is sent from here.
+            if let Some(name) = Config::path().parent().and_then(khaloni_poe2::craft_flow::take_scan_request) {
+                let snap = svc.snapshot();
+                let panel = craft_panel.get_or_insert_with(|| {
+                    let rates = khaloni_poe2::craft_flow::rates(&snap.table, cfg.divine_threshold);
+                    (khaloni_poe2::craft_flow::empty_panel(rates, craft_prices_line(&snap)), craft_pos(game_rect))
+                });
+                let p = &mut panel.0;
+                p.view = khaloni_poe2::craft_ui::View::Flips;
+                p.busy = Some(format!("working out what scanning \"{name}\" costs"));
+                if craft_req_tx.send(CraftReq::StateScan { name }).is_err() {
+                    p.busy = None;
+                    p.note = Some("the craft planner is not running: restart the overlay".to_string());
+                }
+                sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
             }
         }
 
@@ -1823,284 +3870,289 @@ fn overlay_mode(
             latest_rumours = r;
         }
 
-        while let Ok(ev) = kwin.rx.try_recv() {
+        // The focus a price check asked for has landed: copy now.
+        if game_took_focus && game_focused && focus_gate.focused(std::time::Instant::now()) {
+            if let Some(inj) = &injector {
+                if !price_check_in_flight.swap(true, Ordering::AcqRel) {
+                    price_check_started = Some(std::time::Instant::now());
+                    inj.submit(clip_tx.clone(), 0, cfg.advanced_copy);
+                }
+            }
+        }
+        if game_went {
+            stabilizer.clear();
+            let had_panel = close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched)
+                | mkt_panel.take().is_some()
+                | craft_panel.take().is_some();
+            if had_panel {
+                overlay.set_keyboard(false)?;
+                overlay.set_interactive(None)?;
+            }
+            overlay.hide()?;
+            last_frame = None;
+        }
+        while let Ok(why) = hk_status_rx.try_recv() {
+            notices.push_back(why);
+        }
+        while let Ok(ev) = cap_ev_rx.try_recv() {
+            use khaloni_poe2::platform::CaptureEvent;
             match ev {
-                khaloni_poe2::platform::GameWindowEvent::Geometry(g) => {
-                    // The scan region is capture-space and auto-detected, so
-                    // a window move needs no region update; label placement
-                    // reads the live game position every paint.
-                    game_pos = (g.x, g.y);
-                    game = g;
-                    game_present = true;
-                }
-                khaloni_poe2::platform::GameWindowEvent::Active(who) => {
-                    focus = who;
-                    game_focused = who == khaloni_poe2::platform::Focus::Game;
-                    // The focus a price check asked for has landed: copy now.
-                    if game_focused && focus_gate.focused(std::time::Instant::now()) {
-                        if let Some(inj) = &injector {
-                            if !price_check_in_flight.swap(true, Ordering::AcqRel) {
-                                inj.submit(clip_tx.clone(), 0);
-                            }
-                        }
+                CaptureEvent::Streaming => {
+                    if std::mem::take(&mut capture_lost) {
+                        notices.push_back("screen capture is back".into());
                     }
                 }
-                khaloni_poe2::platform::GameWindowEvent::Visible(v) => game_visible = v,
-                khaloni_poe2::platform::GameWindowEvent::GameGone => {
-                    stabilizer.clear();
-                    game_present = false;
-                    let any_panel = apanel.take().is_some()
-                        | ref_panel.take().is_some()
-                        | lvl_panel.take().is_some();
-                    if any_panel {
-                        overlay.set_keyboard(false)?;
-                        overlay.set_interactive(None)?;
-                    }
-                    overlay.hide()?;
+                CaptureEvent::Lost(why) => {
+                    capture_lost = true;
+                    notices.push_back(format!("screen capture lost ({why}): reconnecting, reward prices are off"));
                 }
-                khaloni_poe2::platform::GameWindowEvent::Cursor(x, y) => cursor_pos = (x, y),
+                CaptureEvent::NewToken(tok) => {
+                    if let Err(e) = token_store.save(&tok) {
+                        eprintln!("capture: restore token not saved: {e}");
+                    }
+                }
+                CaptureEvent::GaveUp(why) => {
+                    notices.push_back(format!("screen capture stopped ({why}): restart the overlay for reward prices"));
+                }
             }
         }
         // Tray menu actions reuse the hotkey paths where one exists, so the
         // two entry points cannot drift apart.
-        // --launch wrapper: the game's exit is the overlay's cue to leave.
-        if game_over.as_ref().is_some_and(|f| f.load(Ordering::Relaxed)) {
-            eprintln!("game exited; closing the overlay with it");
-            return Ok(());
-        }
         while let Ok(ev) = tray_rx.try_recv() {
             match ev {
-                khaloni_poe2::tray::TrayEvent::OpenSettings => open_settings(),
-                khaloni_poe2::tray::TrayEvent::ToggleOverlay => {
-                    let _ = hk_tx.send(khaloni_poe2::platform::Hotkey::OverlayToggle);
-                }
-                khaloni_poe2::tray::TrayEvent::TogglePause => {
-                    let v = !pipeline_paused.load(Ordering::Relaxed);
-                    pipeline_paused.store(v, Ordering::Relaxed);
-                    hover.show_note(if v { "pricing paused" } else { "pricing resumed" });
-                }
-                khaloni_poe2::tray::TrayEvent::Quit => return Ok(()),
-            }
-        }
-        // Zone changes advance the leveling panel (open now, or on next
-        // open via last_zone). Whispers/joins go unused — the whisper
-        // queue was deliberately cut.
-        while let Ok(ev) = log_rx.try_recv() {
-            if let khaloni_poe2_core::gamelog::LogEvent::ZoneEnter(zone) = ev {
-                if let Some((p, _)) = lvl_panel.as_mut() {
-                    if khaloni_poe2::leveling_ui::advance_to_zone(p, &zone) {
-                        if let Some(dir) = Config::path().parent() {
-                            let _ = khaloni_poe2::leveling_ui::save_done(dir, &p.done);
-                        }
+                khaloni_poe2::tray::TrayEvent::OpenSettings => {
+                    if let Err(e) = open_settings() {
+                        notices.push_back(e);
                     }
                 }
-                last_zone = Some(zone);
+                khaloni_poe2::tray::TrayEvent::TogglePause => {
+                    // Kept as the user's own state: the pause flag the
+                    // workers read is recomputed from it every tick (see
+                    // `scanpolicy`), so writing that flag here did nothing.
+                    user_paused = !user_paused;
+                    if user_paused {
+                        stabilizer.clear();
+                    }
+                    hover.show_note(if user_paused { "pricing paused" } else { "pricing resumed" });
+                    popup_at = anchor(&hover);
+                }
+                khaloni_poe2::tray::TrayEvent::Quit => return Ok(()),
             }
         }
         while let Ok(u) = update_rx.try_recv() {
             // One passive note; installing lives in the settings window so
             // an update never interrupts play.
-            hover.show_note(&format!("{} available — see Settings", u.version));
+            notices.push_back(format!("{} available — see Settings", u.version));
         }
         while let Ok(alert) = alert_rx.try_recv() {
             let khaloni_poe2::livesearch::Alert::NewListings { search, count } = alert;
             hover.show_note(&format!("{search}: {count} new listing(s)"));
+            popup_at = anchor(&hover);
         }
         while let Ok(hk) = hk_rx.try_recv() {
-            match hk {
-                khaloni_poe2::platform::Hotkey::OverlayToggle => {
-                    scanning = !scanning;
-                    if !scanning {
-                        stabilizer.clear();
+            use khaloni_poe2::bindings::Action as Bound;
+            // Price check arrives as its own variant; everything else is
+            // looked up in the set that was bound, so an id from a list the
+            // user has since edited fires what it was bound to or nothing at
+            // all.
+            let action = match hk {
+                khaloni_poe2::platform::Hotkey::PriceCheck => Bound::PriceCheck,
+                khaloni_poe2::platform::Hotkey::Extra(id) => match bound.actions.get(&id) {
+                    Some(a) => a.clone(),
+                    None => {
+                        eprintln!("hotkey {id} is not in the current binding set; ignored");
+                        continue;
                     }
-                    // No forced rescan needed either way: capture emits a
-                    // frame on every throttle tick regardless of pause
-                    // state, so toggling back on picks up the next one
-                    // within one tick on its own.
-                    eprintln!("overlay toggled {}", if scanning { "on" } else { "off" });
-                    let any_panel = apanel.take().is_some()
-                        | ref_panel.take().is_some()
-                        | lvl_panel.take().is_some();
-                    if any_panel {
-                        editing = None;
-                        overlay.set_keyboard(false)?;
-                        overlay.set_interactive(None)?;
-                    }
-                    hover.show_note(if scanning { "overlay on" } else { "overlay off" });
-                    let game_rect =
-                        Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
-                    popup_at = hover.current.as_ref().map(|p| {
-                        let size = renderer.popup_size(p);
-                        let (px, py) =
-                            khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
-                        (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
-                    });
-                }
-                khaloni_poe2::platform::Hotkey::PriceCheck => {
+                },
+            };
+            match action {
+                Bound::PriceCheck => {
                     // The gate decides: copy now (game focused), focus the
                     // game first (pointer over it, another window focused;
                     // the copy follows on the feed's Active event), or a
                     // note. A press never sends Ctrl+C into some other
                     // window. The swap keeps a second press from queueing
                     // another copy while one runs on the injector thread.
+                    let Some(inj) = &injector else {
+                        hover.show_note("price check unavailable: no access to /dev/uinput");
+                        popup_at = anchor(&hover);
+                        continue;
+                    };
+                    let press = if price_check_in_flight.load(Ordering::Acquire) {
+                        khaloni_poe2::pricecheck::Press::Ignore
+                    } else {
+                        focus_gate.press(
+                            std::time::Instant::now(),
+                            game_focused,
+                            game_present,
+                            cursor_pos,
+                            game_rect,
+                        )
+                    };
+                    match press {
+                        khaloni_poe2::pricecheck::Press::Copy => {
+                            if !price_check_in_flight.swap(true, Ordering::AcqRel) {
+                                price_check_started = Some(std::time::Instant::now());
+                                inj.submit(clip_tx.clone(), 0, cfg.advanced_copy);
+                            }
+                        }
+                        khaloni_poe2::pricecheck::Press::FocusGame => {
+                            eprintln!("price check: focusing the game first");
+                            kwin.focus_game();
+                        }
+                        khaloni_poe2::pricecheck::Press::Note(text) => {
+                            hover.show_note(text);
+                            popup_at = anchor(&hover);
+                        }
+                        khaloni_poe2::pricecheck::Press::Ignore => {}
+                    }
+                }
+                // The settings hotkey opens the native settings window in
+                // its own process. No focus gate: it's an out-of-game
+                // window; config changes flow back via the mtime watcher.
+                Bound::Settings => {
+                    if let Err(e) = open_settings() {
+                        notices.push_back(e);
+                    }
+                }
+                Bound::Market => {
+                    if mkt_panel.take().is_none() {
+                        let pos = (game_pos.0 + (game.w as i32) / 2 - 520, game_pos.1 + 120);
+                        mkt_panel = Some((khaloni_poe2::market_ui::Panel::loading(&current_league.name()), pos));
+                    }
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                }
+                // The rest type or copy, so they only act while the game is
+                // focused, never into another window.
+                Bound::Macro(_) | Bound::Shortcut(_) | Bound::Upgrade | Bound::Craft if !game_focused => {}
+                Bound::Macro(message) => {
                     if let Some(inj) = &injector {
-                        let game_rect =
-                            Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
-                        let press = if price_check_in_flight.load(Ordering::Acquire) {
-                            khaloni_poe2::pricecheck::Press::Ignore
-                        } else {
-                            focus_gate.press(
-                                std::time::Instant::now(),
-                                game_focused,
-                                game_present,
-                                cursor_pos,
-                                game_rect,
-                            )
-                        };
-                        match press {
-                            khaloni_poe2::pricecheck::Press::Copy => {
-                                if !price_check_in_flight.swap(true, Ordering::AcqRel) {
-                                    inj.submit(clip_tx.clone(), 0);
-                                }
-                            }
-                            khaloni_poe2::pricecheck::Press::FocusGame => {
-                                eprintln!("price check: focusing the game first");
-                                kwin.focus_game();
-                            }
-                            khaloni_poe2::pricecheck::Press::Note(text) => {
-                                hover.show_note(text);
-                                popup_at = hover.current.as_ref().map(|p| {
-                                    let size = renderer.popup_size(p);
-                                    let (px, py) =
-                                        khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
-                                    (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
-                                });
-                            }
-                            khaloni_poe2::pricecheck::Press::Ignore => {}
+                        inj.type_text(message, cfg.macro_open_delay_ms);
+                    }
+                }
+                Bound::Shortcut(url) => {
+                    if let Some(inj) = &injector {
+                        if pending_action.is_none() {
+                            pending_action = Some(PendingAction::Shortcut(url));
+                            inj.submit(action_tx.clone(), 300, cfg.advanced_copy);
                         }
                     }
                 }
-                khaloni_poe2::platform::Hotkey::Extra(id) => {
-                    // The settings hotkey opens the native settings window in
-                    // its own process. No focus gate: it's an out-of-game
-                    // window; config changes flow back via the mtime watcher.
-                    if id == "settings" {
-                        open_settings();
-                        continue;
-                    }
-                    // Reference and leveling panels toggle without a focus
-                    // gate: consulting them from the game menus is the point.
-                    if id == "reference" {
-                        if ref_panel.take().is_none() {
-                            let mut p = khaloni_poe2::reference_ui::Panel::default();
-                            if let Some(r) = reference.get() {
-                                khaloni_poe2::reference_ui::refresh(&mut p, r);
-                            }
-                            let pos = (game_pos.0 + (game.w as i32) / 2 - 300, game_pos.1 + 140);
-                            ref_panel = Some((p, pos));
-                        }
-                        overlay.set_keyboard(
-                            editing.is_some() || ref_panel.is_some() || lvl_panel.is_some(),
-                        )?;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                        continue;
-                    }
-                    if id == "leveling" {
-                        if lvl_panel.take().is_none() {
-                            let acts = reference.get().map(|r| r.leveling.clone()).unwrap_or_default();
-                            let done = Config::path()
-                                .parent()
-                                .map(khaloni_poe2::leveling_ui::load_done)
-                                .unwrap_or_default();
-                            let mut p = khaloni_poe2::leveling_ui::Panel { acts, act: 0, done, scroll: 0 };
-                            if let Some(z) = &last_zone {
-                                let _ = khaloni_poe2::leveling_ui::advance_to_zone(&mut p, z);
-                            }
-                            let pos = (game_pos.0 + (game.w as i32) / 2 + 40, game_pos.1 + 140);
-                            lvl_panel = Some((p, pos));
-                        }
-                        overlay.set_keyboard(
-                            editing.is_some() || ref_panel.is_some() || lvl_panel.is_some(),
-                        )?;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                        continue;
-                    }
-                    // Only act while the game is focused, never into another
-                    // window. "macro-N" types a chat message; "url-N" copies
-                    // the hovered item and opens it in a browser.
-                    if !game_focused {
-                        continue;
-                    }
-                    if let Some(i) = id.strip_prefix("macro-").and_then(|n| n.parse::<usize>().ok()) {
-                        if let (Some(inj), Some(m)) = (&injector, cfg.macros.get(i)) {
-                            inj.type_text(m.message.clone(), cfg.macro_open_delay_ms);
-                        }
-                    } else if let Some(i) =
-                        id.strip_prefix("url-").and_then(|n| n.parse::<usize>().ok())
-                    {
-                        if let Some(inj) = &injector {
-                            if i < cfg.resource_shortcuts.len() && pending_action.is_none() {
-                                pending_action = Some(PendingAction::Shortcut(i));
-                                inj.submit(action_tx.clone(), 300);
-                            }
-                        }
-                    } else if id == "upgrade" {
-                        if let Some(inj) = &injector {
-                            if pending_action.is_none() {
-                                pending_action = Some(PendingAction::UpgradeCheck);
-                                inj.submit(action_tx.clone(), 300);
-                            }
+                Bound::Upgrade => {
+                    if let Some(inj) = &injector {
+                        if pending_action.is_none() {
+                            pending_action = Some(PendingAction::UpgradeCheck);
+                            inj.submit(action_tx.clone(), 300, cfg.advanced_copy);
                         }
                     }
                 }
+                // The planner reads the item from its copy, like a price
+                // check; the reading happens on the craft worker.
+                Bound::Craft => match &injector {
+                    Some(inj) => {
+                        if pending_action.is_none() {
+                            pending_action = Some(PendingAction::Craft);
+                            inj.submit(action_tx.clone(), 300, cfg.advanced_copy);
+                        }
+                    }
+                    None => {
+                        hover.show_note("craft planner unavailable: no access to /dev/uinput");
+                        popup_at = anchor(&hover);
+                    }
+                },
             }
         }
 
-        // Drain copy-hovered action results (resource shortcuts, map analysis).
+        // Drain copy-hovered action results (resource shortcuts, upgrades).
         while let Ok(result) = action_rx.try_recv() {
             let action = pending_action.take();
             match (action, result) {
-                (Some(PendingAction::Shortcut(i)), Ok(text)) => {
-                    if let Some(sc) = cfg.resource_shortcuts.get(i) {
-                        open_resource(&sc.url, &text);
+                (Some(PendingAction::Shortcut(url)), Ok(text)) => {
+                    if let Err(e) = open_resource(&url, &text) {
+                        hover.show_note(&e);
+                        popup_at = anchor(&hover);
                     }
                 }
                 (Some(PendingAction::UpgradeCheck), Ok(text)) => {
                     match khaloni_poe2_core::item::parse_item(&text) {
                         Ok(item) => {
-                            hover.show_note("searching upgrades...");
-                            let _ = appraise_req_tx.send(AppraiseReq::Upgrade(item));
+                            let generation = check_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                            budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+                            if appraise_req_tx.send_user(AppraiseReq::Upgrade { item, generation }).is_ok() {
+                                hover.show_note("searching upgrades...");
+                            } else {
+                                hover.show_notice("trade search is not running: restart the overlay");
+                            }
                         }
                         Err(_) => hover.show_note("hover an equipped item first"),
                     }
+                    popup_at = anchor(&hover);
                 }
-                _ => {}
+                (Some(PendingAction::Craft), Ok(text)) => {
+                    craft_generation += 1;
+                    if craft_req_tx.send(CraftReq::Open { text, generation: craft_generation }).is_ok() {
+                        hover.show_note("reading the item for the craft planner...");
+                    } else {
+                        hover.show_notice("the craft planner is not running: restart the overlay");
+                    }
+                    popup_at = anchor(&hover);
+                }
+                // The copy failed: say why (no wl-paste, a clipboard that
+                // does not answer, modifier keys still held).
+                (Some(_), Err(e)) => {
+                    eprintln!("copy for a hotkey action: {e}");
+                    hover.show_note(&e.to_string());
+                    popup_at = anchor(&hover);
+                }
+                (None, _) => {}
             }
         }
 
-        // Drain injected clipboard text: reprice against whatever the price
-        // table looks like right now (not at the moment F7 was pressed).
-        let game_rect = Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h };
         // A focus request the compositor never answered: say so, rather
         // than leaving the press looking dead.
         if focus_gate.timed_out(std::time::Instant::now()) {
             eprintln!("price check: the game did not take focus");
             hover.show_note("could not focus the game");
-            popup_at = hover.current.as_ref().map(|p| {
-                let size = renderer.popup_size(p);
-                let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
-                (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
-            });
+            popup_at = anchor(&hover);
         }
+        // A copy whose reply never came (the injector thread wedged or
+        // died mid-request) must not leave F7 ignored for the session.
+        if price_check_started.is_some_and(|t| t.elapsed() >= COPY_REPLY_TIMEOUT)
+            && price_check_in_flight.swap(false, Ordering::AcqRel)
+        {
+            price_check_started = None;
+            eprintln!("price check: no reply from the copy within {COPY_REPLY_TIMEOUT:?}");
+            hover.show_note("price check got no answer from the clipboard; try again");
+            popup_at = anchor(&hover);
+        }
+        // Drain injected clipboard text: reprice against whatever the price
+        // table looks like right now (not at the moment F7 was pressed).
         while let Ok(result) = clip_rx.try_recv() {
             price_check_in_flight.store(false, Ordering::Release);
+            price_check_started = None;
             match result {
                 Ok(text) if text.trim().is_empty() => {
                     hover.show_no_item();
                 }
                 Ok(text) => {
                     let snap = svc.snapshot();
-                    hover.trigger(&text, &snap.table, &snap.uniques, cfg.divine_threshold);
+                    let fresh = hover::Freshness { table_stale: snap.stale, uniques_stale: snap.uniques_stale };
+                    // Every checked item's text is kept (newest 200, in the
+                    // cache dir, or in KHALONI_ITEM_DUMP when set): a price
+                    // that looks wrong can then be replayed through
+                    // `tools/ee2-parity` against Exiled Exchange 2 instead
+                    // of being argued from memory.
+                    dump_item_text(&text);
+                    match khaloni_poe2::league::not_ready(&snap, &current_league.name()) {
+                        // Nothing is looked up in a table that is not this
+                        // league's yet; an empty one would call every
+                        // currency unknown and send it to the exchange.
+                        Some(why) => {
+                            hover.last_error = Some(why.clone());
+                            hover.current = None;
+                        }
+                        None => hover.trigger_priced(&text, &snap.table, &snap.uniques, cfg.divine_threshold, fresh),
+                    }
                     // One line per check: what was read and where it went.
                     // Cheap, and the only evidence a "nothing showed" report
                     // can be diagnosed from after the fact.
@@ -2119,6 +4171,8 @@ fn overlay_mode(
                         );
                     } else if let Some(e) = &hover.last_error {
                         eprintln!("price check: {e}");
+                        let e = e.clone();
+                        hover.show_note(&e);
                     }
                     // Waystone hovered: flag dangerous and rewarding mods in
                     // the overlay popup itself (a desktop notification is
@@ -2152,166 +4206,140 @@ fn overlay_mode(
                         }
                     }
                     if let Some(item) = hover.pending_appraisal.take() {
-                        // A fresh check replaces any open panel.
-                        if apanel.take().is_some() {
-                            overlay.set_interactive(None)?;
+                        let same_running =
+                            check_in_flight.as_deref() == Some(item.raw.as_str()) && apanel.is_some();
+                        if same_running {
+                            // This very item's search is still running and
+                            // its card is open: a second copy of it would
+                            // only queue behind the first.
+                            hover.show_note("already searching this item");
+                        } else {
+                            // A fresh check replaces any open panel.
+                            if close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched) {
+                                overlay.set_keyboard(false)?;
+                                sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                            }
+                            let generation = check_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                            check_in_flight = Some(item.raw.clone());
+                            budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+                            if appraise_req_tx.send_user(AppraiseReq::Auto { item, generation }).is_err() {
+                                check_in_flight = None;
+                                hover.show_notice("trade search is not running: restart the overlay");
+                            }
                         }
-                        let _ = appraise_req_tx.send(AppraiseReq::Auto(item));
                     }
-                    if let Some(name) = hover.pending_currency.take() {
-                        let _ = appraise_req_tx.send(AppraiseReq::Currency { name, for_row: false });
+                    if let Some((name, stack)) = hover.pending_currency.take() {
+                        // A recent answer for this name is the answer; the
+                        // exchange is only asked when there is none, or it
+                        // has aged out.
+                        let found = currency_map
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .lookup(&name, std::time::Instant::now());
+                        if let (Some(price), false) = (found.value, found.request) {
+                            hover.show_exchange(&name, &Ok(price), None, stack, &snap.table, cfg.divine_threshold, fresh);
+                        } else if let Some(why) = found.error {
+                            hover.show_exchange(&name, &Err(why), None, stack, &snap.table, cfg.divine_threshold, fresh);
+                        } else if found.request {
+                            budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+                            if appraise_req_tx
+                                .send_user(AppraiseReq::Currency { name: name.clone(), hover_stack: Some(stack) })
+                                .is_err()
+                            {
+                                currency_map.lock().unwrap_or_else(|e| e.into_inner()).unsent(&name);
+                                hover.show_notice("trade search is not running: restart the overlay");
+                            }
+                        } else {
+                            // A row's request for the same name is already
+                            // queued; its answer is shown when it lands.
+                            awaiting_exchange = Some((name, stack));
+                        }
                     }
                 }
-                Err(e) => eprintln!("price check: {e}"),
+                // The copy failed, and the reason is the user's to fix:
+                // wl-paste missing, a clipboard that does not answer,
+                // modifier keys still held.
+                Err(e) => {
+                    eprintln!("price check: {e}");
+                    hover.show_note(&e.to_string());
+                }
             }
             // A fresh popup anchors at the cursor that triggered it.
-            popup_at = hover.current.as_ref().map(|p| {
-                let size = renderer.popup_size(p);
-                let (px, py) = khaloni_poe2::popup_pos::place(cursor_pos, size, game_rect);
-                (cursor_pos, Rect { x: px, y: py, w: size.0 as u32, h: size.1 as u32 })
-            });
+            popup_at = anchor(&hover);
         }
-        // Currency-exchange results replace the "checking exchange..." popup
-        // in place (the anchor from the F7 press still applies).
-        while let Ok((name, rate, for_row)) = exch_rx.try_recv() {
-            let state = match rate {
-                Some(ex) => khaloni_poe2::pricing::CurrencyState::Priced(ex),
-                None => khaloni_poe2::pricing::CurrencyState::Unpriced,
-            };
-            currency_map.lock().unwrap().insert(name.clone(), state);
-            if !for_row {
-                hover.show_exchange(&name, rate);
+        // Currency-exchange results. A hover check's answer replaces the
+        // "checking exchange..." popup; by now that popup may have expired
+        // or been walked away from, so the answer is anchored afresh at the
+        // cursor instead of being set on a popup nobody draws.
+        while let Ok(done) = exch_rx.try_recv() {
+            let now = std::time::Instant::now();
+            if !current_league.is(&done.league) {
+                // Asked in a league the overlay has left. The name is freed
+                // so the next look asks again, in the league it is in now.
+                currency_map.lock().unwrap_or_else(|e| e.into_inner()).unsent(&done.name);
+                continue;
+            }
+            currency_map.lock().unwrap_or_else(|e| e.into_inner()).store(done.name.clone(), done.outcome.clone(), now);
+            let waited_for = awaiting_exchange.as_ref().is_some_and(|(n, _)| *n == done.name);
+            match (done.hover_stack, waited_for) {
+                // The user's own check of a stack: its card carries the
+                // answer (the offers, the stack's worth, or the reason);
+                // the cache learned it above, like a row's.
+                (Some(_), _) => {}
+                // A hover check was waiting on a row's request for the
+                // same name: the answer goes on the popup, with how many
+                // offers stood behind it when the body was read.
+                (None, true) => {
+                    let stack = awaiting_exchange.take().map(|(_, stack)| stack).unwrap_or(1);
+                    let snap = svc.snapshot();
+                    let fresh = hover::Freshness { table_stale: snap.stale, uniques_stale: snap.uniques_stale };
+                    let outcome = done.outcome.map_err(|(why, _)| why);
+                    hover.show_exchange(&done.name, &outcome, done.offers, stack, &snap.table, cfg.divine_threshold, fresh);
+                    popup_at = anchor(&hover);
+                }
+                // A reward row's lookup failed: the row shows "..." and
+                // retries by itself, and the reason is said once.
+                (None, false) => {
+                    if let Err((why, _)) = &done.outcome {
+                        eprintln!("exchange price for {}: {why}", done.name);
+                        if last_row_error_note.elapsed() >= ROW_ERROR_NOTE_GAP {
+                            last_row_error_note = now;
+                            notices.push_back(format!("{} not priced yet: {why}", done.name));
+                        }
+                    }
+                }
             }
         }
         while let Ok(done) = appraise_rx.try_recv() {
-            let listings_of = |outcome: &Result<Vec<khaloni_poe2_core::trade::Listing>, String>| match outcome {
-                Ok(ls) if ls.is_empty() => (vec![], "no online matches".to_string()),
-                Ok(ls) => (
-                    ls.iter()
-                        .take(8)
-                        .map(|l| format!("{} {} ({})", l.price_amount, l.price_currency, l.account))
-                        .collect(),
-                    format!("{} shown", ls.len().min(8)),
-                ),
-                Err(e) => (vec![], e.clone()),
-            };
             match done {
+                AppraiseDone::Note(text) => {
+                    eprintln!("{text}");
+                    if last_row_error_note.elapsed() >= ROW_ERROR_NOTE_GAP {
+                        last_row_error_note = std::time::Instant::now();
+                        notices.push_back(text);
+                    }
+                }
+                AppraiseDone::Attributed { title, outcome } => {
+                    let Some((panel, _, _)) = apanel.as_mut() else { continue };
+                    if panel.header.name != title {
+                        continue;
+                    }
+                    panel.searching = false;
+                    match outcome {
+                        Ok(rows) => {
+                            panel.status = format!("{} mods priced", rows.len());
+                            panel.attribution = rows;
+                        }
+                        Err(why) => panel.status = why,
+                    }
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                }
                 // Seed: open the interactive panel where the "searching
                 // trade..." popup was anchored, with every row and no
                 // listings yet.
-                AppraiseDone::Seed { title, query, labels, facts } => {
-                    let listings = Vec::new();
-                    let status = "searching...".to_string();
-                    // Affix index once per panel, not once per row: it is a
-                    // map over the whole affix export (tens of thousands of
-                    // entries) and every row looks into the same one.
-                    let affix_ix = reference
-                        .get()
-                        .map(|r| khaloni_poe2_core::refdata::affix_index(&r.affixes));
-                    let mut rows: Vec<khaloni_poe2::evaluate_ui::StatRow> = labels
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, l)| {
-                            let f = query.filters.get(i)?;
-                            // The filter's min is the SEARCH floor (the tier's
-                            // low end on advanced-format text); the roll the
-                            // item actually has travels in the label, and that
-                            // is what the tier ladder and the score are read
-                            // against. The floor is only a fallback for a line
-                            // that carried no number at all.
-                            let rolled = l.rolled.unwrap_or(f.value.min);
-                            // A miss, or an affix with no ladder joined to it,
-                            // gets no badge and no score. An unknown roll is
-                            // shown as unknown; it is never approximated.
-                            let affix = affix_ix
-                                .as_ref()
-                                .and_then(|ix| {
-                                    ix.get(&khaloni_poe2_core::refdata::normalize_mod_text(&l.text))
-                                })
-                                .filter(|a| !a.tiers.is_empty());
-                            let badge = affix.and_then(|a| {
-                                khaloni_poe2_core::rollquality::tier_of(&a.tiers, rolled).map(
-                                    |tier| khaloni_poe2::evaluate_ui::TierBadge {
-                                        kind: ui_affix_kind(a.kind),
-                                        tier,
-                                    },
-                                )
-                            });
-                            let score = affix
-                                .and_then(|a| khaloni_poe2_core::rollquality::score(&a.tiers, rolled));
-                            Some(khaloni_poe2::evaluate_ui::StatRow {
-                                label: l.text.clone(),
-                                badge,
-                                score,
-                                min: f.value.min,
-                                max: f.value.max,
-                                enabled: !f.disabled,
-                                target: Some(khaloni_poe2::evaluate_ui::Target::Stat(i)),
-                                hidden: false,
-                                group: match l.tag {
-                                    "implicit" => khaloni_poe2::evaluate_ui::RowGroup::Implicit,
-                                    "map" => khaloni_poe2::evaluate_ui::RowGroup::Property,
-                                    _ => khaloni_poe2::evaluate_ui::RowGroup::Explicit,
-                                },
-                            })
-                        })
-                        .collect();
-                    // Gear carries a base-type toggle so the user can search
-                    // mods-only; items priced by their base (waystones, whose
-                    // category is None) get no toggle.
-                    // Weapon figures lead the card the way the tooltip's own
-                    // property block does; each is searchable as an
-                    // equipment_filters minimum, off until the user opts in.
-                    if let Some(w) = facts.as_ref().and_then(|f| f.weapon) {
-                        rows.splice(0..0, khaloni_poe2::evaluate_ui::weapon_rows(&w));
-                    }
-                    // Pseudo totals collapse behind "Show N more": they
-                    // duplicate mods already listed, so they earn a line
-                    // only when the user asks for them.
-                    for (label, total, fi) in
-                        facts.as_ref().map(|f| f.pseudo_rows.as_slice()).unwrap_or_default()
-                    {
-                        rows.push(khaloni_poe2::evaluate_ui::StatRow {
-                            label: label.clone(),
-                            badge: None,
-                            score: None,
-                            min: *total,
-                            max: None,
-                            enabled: false,
-                            target: Some(khaloni_poe2::evaluate_ui::Target::Stat(*fi)),
-                            hidden: true,
-                            group: khaloni_poe2::evaluate_ui::RowGroup::Explicit,
-                        });
-                    }
-                    rows.sort_by_key(|r| r.group);
-                    let base = query.category.as_deref().map(|c| {
-                        khaloni_poe2::evaluate_ui::BaseToggle {
-                            label: format!("Base: {}", pretty_category(c)),
-                            enabled: query.category_enabled,
-                        }
-                    });
-                    let panel = khaloni_poe2::evaluate_ui::Panel {
-                        header: khaloni_poe2::evaluate_ui::ItemHeader {
-                            name: title,
-                            // Rare is the fallback only when the response
-                            // carried no facts at all (it always does for an
-                            // Auto search); the rest stay absent when absent.
-                            rarity: facts
-                                .as_ref()
-                                .map(|f| f.rarity.clone())
-                                .unwrap_or_else(|| "Rare".to_string()),
-                            item_level: facts.as_ref().and_then(|f| f.item_level),
-                            requires_level: facts.as_ref().and_then(|f| f.requires_level),
-                            base,
-                        },
-                        rows,
-                        show_hidden: false,
-                        strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
-                        listings,
-                        estimate: None,
-                        status,
-                        search_id: None,
-                    };
+                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra } => {
+                    let panel =
+                        build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get());
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)
@@ -2319,70 +4347,189 @@ fn overlay_mode(
                     let pos = khaloni_poe2::popup_pos::place(origin, lay.size, game_rect);
                     hover.current = None;
                     popup_at = None;
-                    let out_pos = overlay.output_pos();
-                    overlay.set_interactive(Some((
-                        pos.0 - out_pos.0,
-                        pos.1 - out_pos.1,
-                        lay.size.0 as u32,
-                        lay.size.1 as u32,
-                    )))?;
                     // Fresh check: forget any earlier drag so the panel opens
                     // at its placed position, never where it was last dragged.
-                    panel_drag = None;
-                    editing = None;
+                    close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
+                    let mut panel = panel;
+                    panel.screen_right = Some(overlay.output_pos().0 + overlay.size().0 as i32 - pos.0);
+                    apanel = Some((panel, *query, pos));
                     overlay.set_keyboard(false)?;
-                    seeded_query = Some(query.clone());
-                    apanel = Some((panel, query, pos));
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
                 // Result: listings for the open panel, from the auto search
                 // or a Search press. A panel closed (or replaced) while the
                 // search ran drops the result.
-                AppraiseDone::Result { title, outcome, search_id, estimate, searched } => {
-                    let Some((panel, query, _)) = apanel.as_mut() else { continue };
+                AppraiseDone::Result { title, outcome, strictness } => {
+                    let Some((panel, _, _)) = apanel.as_mut() else { continue };
                     if panel.header.name != title {
                         continue;
                     }
-                    let (listings, mut status) = listings_of(&outcome);
-                    if let Some(searched) = searched {
-                        // The checkboxes must say what the listings came
-                        // from. Untouched since the seed, they take the
-                        // searched query (filters the relaxed search dropped
-                        // switch off). Edited meanwhile, the user's
-                        // selection stands and the status names the
-                        // difference; their own Search replaces these.
-                        if seeded_query.as_ref() == Some(&*query) {
-                            *query = searched;
-                            for row in &mut panel.rows {
-                                if let Some(khaloni_poe2::evaluate_ui::Target::Stat(i)) = row.target {
-                                    if let Some(f) = query.filters.get(i) {
-                                        row.enabled = !f.disabled;
+                    check_in_flight = None;
+                    panel.searching = false;
+                    let snap = svc.snapshot();
+                    // An answer from the league the overlay has left is
+                    // not shown: its exalted figures would be put into
+                    // divines at the new league's rate right here.
+                    let outcome = outcome.and_then(|done| {
+                        if current_league.is(&done.league) {
+                            Ok(done)
+                        } else {
+                            Err(format!("the league changed to {}: search again", current_league.name()))
+                        }
+                    });
+                    match outcome {
+                        Ok(done) => {
+                            show_search(panel, &done);
+                            let mut status = if let Some(b) = &done.bulk {
+                                format!("{} exchange offers", b.offers.len())
+                            } else if done.blocks.shown == 0 {
+                                match strictness {
+                                    khaloni_poe2::evaluate_ui::Strictness::Quick => "no online matches".to_string(),
+                                    khaloni_poe2::evaluate_ui::Strictness::Broad => {
+                                        "Broad search, bounds -10%: no online matches".to_string()
                                     }
                                 }
+                            } else {
+                                khaloni_poe2::evaluate_ui::result_status(done.blocks.shown, done.blocks.total, strictness)
+                            };
+                            if snap.stale {
+                                status.push_str(" - exchange rates are old");
                             }
-                            seeded_query = Some(query.clone());
-                        } else {
-                            status.push_str(" (initial search)");
+                            if let Some(age) = done.reused_age {
+                                status.push_str(&format!(" (same search {}s ago)", age.as_secs()));
+                            }
+                            let previous = searched.as_ref().map(|s| s.league.as_str());
+                            panel.status = khaloni_poe2::league::searched_status(&status, previous, &done.league);
+                            panel.search_id = done.search_id;
+                            searched = Some(Searched {
+                                query: done.searched,
+                                league: done.league,
+                                cheapest: done.blocks.cheapest,
+                                unit: done.blocks.unit,
+                                unit_per_exalted: done.blocks.unit_per_exalted,
+                            });
+                        }
+                        Err(why) => {
+                            clear_search(panel);
+                            panel.status = why;
                         }
                     }
-                    panel.listings = listings;
-                    panel.estimate =
-                        estimate.as_ref().map(|e| estimate_view(e, &svc.snapshot().table, &cfg));
-                    panel.status = status;
-                    if search_id.is_some() {
-                        panel.search_id = search_id;
-                    }
-                    // Listings and the value box grow the card downwards, so
-                    // the buttons under them move: without this the region
-                    // still describes the pre-search panel and the Search
-                    // button stops answering after the first search.
-                    sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                    // The blocks grow the card downwards, so the buttons
+                    // under them move: without this the region still
+                    // describes the pre-search panel and the Search button
+                    // stops answering after the first search.
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
             }
+        }
+        while let Ok(done) = craft_done_rx.try_recv() {
+            let snap = svc.snapshot();
+            match done {
+                CraftDone::Busy { generation, text } => {
+                    if let Some((p, _)) = craft_panel.as_mut().filter(|_| generation.is_none_or(|g| g == craft_generation)) {
+                        p.busy = Some(text);
+                    }
+                }
+                CraftDone::Opened { generation, outcome } => {
+                    if generation != craft_generation {
+                        continue;
+                    }
+                    match outcome {
+                        Ok((state, picker, observed)) => {
+                            let rates = khaloni_poe2::craft_flow::rates(&snap.table, cfg.divine_threshold);
+                            let opened = khaloni_poe2::craft_flow::Opened { state: state.clone(), picker };
+                            let mut panel = khaloni_poe2::craft_flow::open_panel(&opened, rates, craft_prices_line(&snap), observed);
+                            // A new item keeps the last scan's list and the
+                            // panel where the user left it.
+                            let (flips, pos) = match craft_panel.take() {
+                                Some((old, pos)) => (old.flips, pos),
+                                None => (None, craft_pos(game_rect)),
+                            };
+                            panel.flips = flips;
+                            craft_panel = Some((panel, pos));
+                            craft_item = Some(state);
+                            hover.current = None;
+                            popup_at = None;
+                        }
+                        Err(why) => {
+                            eprintln!("craft planner: {why}");
+                            hover.show_note(&why);
+                            popup_at = anchor(&hover);
+                        }
+                    }
+                }
+                CraftDone::Planned { generation, outcome, observed, note } => {
+                    let Some((p, _)) = craft_panel.as_mut().filter(|_| generation == craft_generation) else { continue };
+                    p.busy = None;
+                    if !observed.is_empty() {
+                        p.observed = observed;
+                    }
+                    match outcome {
+                        Ok(view) => {
+                            p.model = view.model.clone();
+                            p.set_plan(view);
+                            p.note = note;
+                        }
+                        Err(why) => {
+                            p.plan = khaloni_poe2::craft_ui::PlanState::None;
+                            p.note = Some(format!("not planned: {why}"));
+                        }
+                    }
+                }
+                CraftDone::Calibrated { generation, outcome, observed } => {
+                    let Some((p, _)) = craft_panel.as_mut().filter(|_| generation == craft_generation) else { continue };
+                    p.busy = None;
+                    if !observed.is_empty() {
+                        p.observed = observed;
+                    }
+                    match outcome {
+                        Ok(text) => {
+                            p.note = Some(text);
+                            // The plan shown is costed again on the new
+                            // sample; its buy line is reused, not searched.
+                            if matches!(p.plan, khaloni_poe2::craft_ui::PlanState::Ready(_)) {
+                                if let Some(state) = &craft_item {
+                                    craft_run(&khaloni_poe2::craft_ui::Action::Plan, p, state, craft_generation, &craft_req_tx);
+                                }
+                            }
+                        }
+                        Err(why) => p.note = Some(format!("calibration not run: {why}")),
+                    }
+                }
+                CraftDone::ScanStated { name, outcome } => {
+                    let Some((p, _)) = craft_panel.as_mut() else { continue };
+                    p.busy = None;
+                    match outcome {
+                        Ok((statement, refused)) => p.ask(khaloni_poe2::craft_ui::Prompt {
+                            ask: khaloni_poe2::craft_ui::Ask::Scan(name),
+                            statement,
+                            refused,
+                        }),
+                        Err(why) => {
+                            p.view = khaloni_poe2::craft_ui::View::Flips;
+                            p.note = Some(why);
+                        }
+                    }
+                }
+                CraftDone::Scanned { outcome } => {
+                    let Some((p, _)) = craft_panel.as_mut() else { continue };
+                    p.busy = None;
+                    match outcome {
+                        Ok((list, notes)) => {
+                            p.view = khaloni_poe2::craft_ui::View::Flips;
+                            p.set_flips(list);
+                            p.note = (!notes.is_empty()).then(|| notes.join("; "));
+                        }
+                        Err(why) => p.note = Some(format!("scan not run: {why}")),
+                    }
+                }
+            }
+            sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
         }
         // Panel clicks: geometry from the same layout the renderer drew.
         // The Evaluate panel gets first claim on each click (preserving its
         // drag-grab semantics); clicks outside it spill into
-        // `leftover_clicks` for the reference/leveling panels below.
+        // `leftover_clicks` for the craft and market panels below.
         let out_pos = overlay.output_pos();
         let (sw, sh) = overlay.size();
         let mut leftover_clicks: Vec<(i32, i32)> = Vec::new();
@@ -2402,30 +4549,26 @@ fn overlay_mode(
                     leftover_clicks.push((cx, cy));
                     continue;
                 }
-                match khaloni_poe2::evaluate_ui::hit(panel, &lay, local.0, local.1) {
+                let action = khaloni_poe2::evaluate_ui::hit(panel, &lay, local.0, local.1);
+                // Any click takes focus away from a box being typed into,
+                // and what was typed counts: it is committed exactly as
+                // Enter would, before the click acts. A Search pressed with
+                // a box still open used to search the old number while the
+                // box showed the new one.
+                if let Some((row_i, field)) = editing.take() {
+                    khaloni_poe2::evaluate_ui::commit_edit(panel, query, row_i, field, &edit_buf);
+                    edit_buf.clear();
+                }
+                match action {
                     // Row indices, not filter indices: evaluate_ui's actions
                     // address `panel.rows`, and the filter behind a row is
-                    // whatever that row's `filter_index` names.
+                    // whatever that row's target names.
                     Some(khaloni_poe2::evaluate_ui::Action::ToggleRow(i)) => {
-                        if let Some(row) = panel.rows.get_mut(i) {
-                            row.enabled = !row.enabled;
-                            // The row's checkbox and the query are one state
-                            // shown twice; they are written together so they
-                            // cannot disagree about what gets searched.
-                            match row.target {
-                                Some(khaloni_poe2::evaluate_ui::Target::Stat(fi)) => {
-                                    if let Some(f) = query.filters.get_mut(fi) {
-                                        f.disabled = !row.enabled;
-                                    }
-                                }
-                                Some(khaloni_poe2::evaluate_ui::Target::Weapon(b)) => {
-                                    set_weapon_bound(query, b, row.enabled.then_some(row.min));
-                                }
-                                None => {}
-                            }
-                        }
+                        khaloni_poe2::evaluate_ui::toggle_row(panel, query, i);
                     }
-                    // Dropping the base searches the mods across every base.
+                    // Off, the search runs on the exact base instead of
+                    // the category (an upgrade search has no base and runs
+                    // across every category).
                     Some(khaloni_poe2::evaluate_ui::Action::ToggleBase) => {
                         query.category_enabled = !query.category_enabled;
                         if let Some(b) = panel.header.base.as_mut() {
@@ -2435,8 +4578,6 @@ fn overlay_mode(
                     // Clicking a value box focuses it for keyboard entry.
                     Some(khaloni_poe2::evaluate_ui::Action::Edit(i, field)) => {
                         editing = Some((i, field));
-                        edit_buf.clear();
-                        overlay.set_keyboard(true)?;
                     }
                     Some(khaloni_poe2::evaluate_ui::Action::SetStrictness(s)) => {
                         panel.strictness = s;
@@ -2445,50 +4586,120 @@ fn overlay_mode(
                     // so the input region has to follow it.
                     Some(khaloni_poe2::evaluate_ui::Action::ToggleHidden) => {
                         panel.show_hidden = !panel.show_hidden;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
                     }
-                    Some(khaloni_poe2::evaluate_ui::Action::Search) => {
-                        panel.status = "searching...".into();
-                        // From here the panel shows the user's search; an
-                        // auto result still in flight must not reset the
-                        // checkboxes to what it searched.
-                        seeded_query = None;
-                        // Broad relaxes every kept minimum by 10% before the
-                        // search runs; Quick sends the user's own numbers
-                        // verbatim, since their toggles ARE the intent.
+                    // A click on a listing row opens its card, as pointing
+                    // at it does.
+                    Some(khaloni_poe2::evaluate_ui::Action::HoverRow(i)) => {
+                        panel.hover = Some(i);
+                    }
+                    // One search at a time: a press while one runs is not
+                    // sent (the button is drawn switched off meanwhile).
+                    Some(
+                        khaloni_poe2::evaluate_ui::Action::Search
+                        | khaloni_poe2::evaluate_ui::Action::PriceFixedFilter
+                        | khaloni_poe2::evaluate_ui::Action::Attribute,
+                    ) if panel.searching => {}
+                    Some(
+                        action @ (khaloni_poe2::evaluate_ui::Action::Search
+                        | khaloni_poe2::evaluate_ui::Action::PriceFixedFilter),
+                    ) => {
+                        // The price-fixed button keeps the search but
+                        // admits only listings priced in exalted or divine;
+                        // the option stays on the query, so the next
+                        // Search and "Open site" carry it too.
+                        if action == khaloni_poe2::evaluate_ui::Action::PriceFixedFilter {
+                            *query = khaloni_poe2::appraise::price_fixed_query(query);
+                        }
+                        // The ticked extra rows join EE2's query here, and
+                        // Broad relaxes every kept bound, theirs included, by
+                        // 10% before the search runs; Quick sends the user's
+                        // own numbers verbatim, since their toggles ARE the
+                        // intent.
+                        let full = khaloni_poe2::evaluate_ui::search_query(panel, query);
                         let q = match panel.strictness {
                             khaloni_poe2::evaluate_ui::Strictness::Broad => {
-                                khaloni_poe2_core::trade::relax_query(query, 0.10)
+                                khaloni_poe2_core::trade::relax_query(&full, 0.10)
                             }
-                            khaloni_poe2::evaluate_ui::Strictness::Quick => query.clone(),
+                            khaloni_poe2::evaluate_ui::Strictness::Quick => full,
                         };
-                        let _ = appraise_req_tx.send(AppraiseReq::Exact {
+                        budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+                        let sent = appraise_req_tx.send_user(AppraiseReq::Exact {
                             title: panel.header.name.clone(),
                             query: q,
+                            strictness: panel.strictness,
                         });
+                        match sent {
+                            Ok(()) => {
+                                panel.status = "searching...".into();
+                                panel.searching = true;
+                            }
+                            Err(_) => panel.status = "trade search is not running: restart the overlay".into(),
+                        }
+                    }
+                    // What each mod is worth: on request, and only while
+                    // the budget has the room the button was drawn with.
+                    Some(khaloni_poe2::evaluate_ui::Action::Attribute) => {
+                        let baseline = searched.as_ref().and_then(|s| s.cheapest.clone().map(|c| (c, s)));
+                        match baseline {
+                            _ if !panel.attribute_enabled => {
+                                panel.status = format!(
+                                    "what each mod is worth needs {} free search slots",
+                                    khaloni_poe2::appraise::ATTRIBUTE_MIN_FREE
+                                );
+                            }
+                            None => panel.status = "run a search with listings first".into(),
+                            Some((cheapest, s)) => {
+                                // Every "without" search is the one on the
+                                // card, ticked lines included, less one mod.
+                                let mods =
+                                    khaloni_poe2::appraise::strongest_mods(panel, &s.query, query.filters.len());
+                                budget.lock().unwrap_or_else(|e| e.into_inner()).note_user(std::time::Instant::now());
+                                let sent = appraise_req_tx.send_user(AppraiseReq::Attribute {
+                                    title: panel.header.name.clone(),
+                                    mods,
+                                    baseline: cheapest,
+                                    unit: s.unit.clone(),
+                                    unit_per_exalted: s.unit_per_exalted,
+                                });
+                                match sent {
+                                    Ok(()) => {
+                                        panel.status = "pricing each mod...".into();
+                                        panel.searching = true;
+                                    }
+                                    Err(_) => panel.status = "trade search is not running: restart the overlay".into(),
+                                }
+                            }
+                        }
                     }
                     Some(khaloni_poe2::evaluate_ui::Action::OpenSite) => {
                         // Feedback in the status line, since opening the browser
                         // gives no in-overlay cue on its own.
-                        match &panel.search_id {
-                            Some(id) => {
-                                let url = format!(
-                                    "https://www.pathofexile.com/trade2/search/poe2/{}/{}",
-                                    cfg.league.replace(' ', "%20"),
-                                    id
-                                );
-                                open_url(&url);
-                                panel.status = "opened in browser".into();
+                        match &searched {
+                            // A stack's card came from the exchange: there
+                            // is no search behind it to open.
+                            Some(_) if panel.search_id.is_none() => panel.status = "no search to open".into(),
+                            Some(done) => {
+                                // The link carries the query itself, the
+                                // way Exiled Exchange 2's does. A search
+                                // made without a login now returns an id
+                                // that is only the compressed query, and
+                                // the site's /search/<league>/<id> address
+                                // answers "Resource not found" for it
+                                // (checked live 2026-09-19). It is the
+                                // query the listings came from - Broad's
+                                // relaxed bounds included - in the league
+                                // they were searched in.
+                                let url = site_search_url(&done.league, &done.query);
+                                panel.status = match open_url(&url) {
+                                    Ok(()) => "opened in browser".into(),
+                                    Err(e) => e,
+                                };
                             }
                             None => panel.status = "run a search first".into(),
                         }
                     }
                     Some(khaloni_poe2::evaluate_ui::Action::Close) => {
-                        apanel = None;
-                        editing = None;
-                        panel_drag = None;
-                        overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                        close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
                     }
                     // A press on a non-interactive part of the panel (title
                     // bar, gaps between controls) grabs it for dragging. Widen
@@ -2499,8 +4710,16 @@ fn overlay_mode(
                     // (bounds were checked before the hit test).
                     None => {
                         panel_drag = Some(((cx, cy), *pos));
-                        overlay.set_interactive(Some((0, 0, sw, sh)))?;
                     }
+                }
+                // Every click can change who wants the keyboard (a box
+                // opened or committed, the panel closed) and how tall the
+                // card is; both follow from the state left behind.
+                overlay.set_keyboard(editing.is_some())?;
+                if panel_drag.is_some() {
+                    overlay.set_interactive(Some((0, 0, sw, sh)))?;
+                } else {
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
             }
             // Advance or finish an in-progress drag.
@@ -2512,230 +4731,116 @@ fn overlay_mode(
                     }
                 } else {
                     panel_drag = None;
-                    sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                }
+            }
+            // The row under the pointer gets its card beside the panel.
+            // The cursor comes from the window feed (global), which keeps
+            // reporting outside the input region, so leaving the table
+            // takes the card away; pointing at the card itself keeps it,
+            // so it can be read. A changed row changes the region: the
+            // card is part of it.
+            if let Some((p, _, pos)) = apanel.as_mut() {
+                p.screen_right = Some(out_pos.0 + sw as i32 - pos.0);
+                let lay = khaloni_poe2::evaluate_ui::layout(p, &|s| renderer.evaluate_label_width(s));
+                let local = (cursor_pos.0 - pos.0, cursor_pos.1 - pos.1);
+                let over_card = lay.card.as_ref().is_some_and(|c| {
+                    local.0 >= c.rect.x
+                        && local.0 < c.rect.x + c.rect.w as i32
+                        && local.1 >= c.rect.y
+                        && local.1 < c.rect.y + c.rect.h as i32
+                });
+                let hover = match khaloni_poe2::evaluate_ui::hover_hit(&lay, local.0, local.1) {
+                    Some(i) => Some(i),
+                    None if over_card => p.hover,
+                    None => None,
+                };
+                if hover != p.hover {
+                    p.hover = hover;
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
             }
         } else {
             leftover_clicks = overlay.take_clicks();
         }
-        // Reference/leveling panel clicks: whatever the Evaluate panel did
-        // not claim, in priority order reference then leveling.
+        // Craft and market panel clicks: whatever the Evaluate panel did
+        // not claim, in priority order craft then market.
         for (cx, cy) in leftover_clicks {
-            if let Some((p, pos)) = ref_panel.as_mut() {
-                let lay = khaloni_poe2::reference_ui::layout(p, &|s| renderer.evaluate_label_width(s));
+            if let Some((p, pos)) = craft_panel.as_mut() {
+                let lay = khaloni_poe2::craft_ui::layout(p, &|s| renderer.evaluate_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
-                    match khaloni_poe2::reference_ui::hit(p, &lay, local.0, local.1) {
-                        Some(khaloni_poe2::reference_ui::Action::Close) => {
-                            ref_panel = None;
-                            overlay.set_keyboard(editing.is_some() || lvl_panel.is_some())?;
-                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                        }
-                        Some(khaloni_poe2::reference_ui::Action::FocusSearch) => p.focused = true,
-                        Some(khaloni_poe2::reference_ui::Action::SetCat(c)) => {
-                            p.cat = c;
-                            if let Some(r) = reference.get() {
-                                khaloni_poe2::reference_ui::refresh(p, r);
-                            }
-                            // Result width can change with the category.
-                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                        }
-                        Some(khaloni_poe2::reference_ui::Action::ScrollUp) => {
-                            p.scroll = p.scroll.saturating_sub(1);
-                        }
-                        Some(khaloni_poe2::reference_ui::Action::ScrollDown) => {
-                            p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
-                        }
+                    match khaloni_poe2::craft_ui::hit(&lay, local.0, local.1) {
+                        Some(khaloni_poe2::craft_ui::Action::Close) => craft_panel = None,
+                        Some(action) => match &craft_item {
+                            Some(state) => craft_run(&action, p, state, craft_generation, &craft_req_tx),
+                            // A panel opened for a scan has no item: the
+                            // picker's actions have nothing to act on.
+                            None => craft_run_without_item(&action, p, &craft_req_tx),
+                        },
                         None => {}
                     }
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                     continue;
                 }
             }
-            if let Some((p, pos)) = lvl_panel.as_mut() {
-                let lay = khaloni_poe2::leveling_ui::layout(p, &|s| renderer.evaluate_label_width(s));
+            if let Some((p, pos)) = mkt_panel.as_mut() {
+                let lay = khaloni_poe2::market_ui::layout(p, &|s| renderer.evaluate_label_width(s));
                 let local = (cx - (pos.0 - out_pos.0), cy - (pos.1 - out_pos.1));
                 if local.0 >= 0 && local.0 < lay.w && local.1 >= 0 && local.1 < lay.h {
-                    match khaloni_poe2::leveling_ui::hit(p, &lay, local.0, local.1) {
-                        Some(khaloni_poe2::leveling_ui::Action::Close) => {
-                            lvl_panel = None;
-                            overlay.set_keyboard(editing.is_some() || ref_panel.is_some())?;
-                            sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                        }
-                        Some(khaloni_poe2::leveling_ui::Action::PrevAct) => {
-                            p.act = p.act.saturating_sub(1);
-                            p.scroll = 0;
-                        }
-                        Some(khaloni_poe2::leveling_ui::Action::NextAct) => {
-                            if p.act + 1 < p.acts.len() {
-                                p.act += 1;
-                                p.scroll = 0;
-                            }
-                        }
-                        Some(khaloni_poe2::leveling_ui::Action::ToggleStep(id)) => {
-                            if !p.done.remove(&id) {
-                                p.done.insert(id);
-                            }
-                            if let Some(dir) = Config::path().parent() {
-                                if let Err(e) = khaloni_poe2::leveling_ui::save_done(dir, &p.done) {
-                                    eprintln!("leveling: save failed: {e}");
-                                }
-                            }
-                        }
-                        Some(khaloni_poe2::leveling_ui::Action::ScrollUp) => {
-                            p.scroll = p.scroll.saturating_sub(1);
-                        }
-                        Some(khaloni_poe2::leveling_ui::Action::ScrollDown) => {
-                            p.scroll += 1; // layout clamps via the visible window
+                    match khaloni_poe2::market_ui::hit(&lay, local.0, local.1) {
+                        Some(khaloni_poe2::market_ui::Action::Close) => mkt_panel = None,
+                        Some(action) => {
+                            khaloni_poe2::market_ui::apply(p, &action);
                         }
                         None => {}
                     }
+                    // Every action changes the panel's size.
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                    continue;
                 }
             }
         }
-        // Typed digits into a focused value box (EE2-style numeric entry):
-        // digits append, Backspace deletes, Enter commits the parsed number
-        // to both the query filter and the panel row, Escape cancels.
+        // Typing into a focused value box (EE2-style numeric entry): digits,
+        // one '.', a leading '-', Backspace; Enter commits the parsed
+        // number to both the query filter and the panel row, Escape cancels.
         if editing.is_some() {
             for key in overlay.take_keys() {
+                use khaloni_poe2::evaluate_ui::EditKey;
                 let Some((row_i, field)) = editing else { break };
                 let Some((panel, query, _)) = apanel.as_mut() else {
                     editing = None;
-                    overlay.set_keyboard(false)?;
+                    edit_buf.clear();
                     break;
                 };
                 match key {
                     khaloni_poe2::platform::Key::Digit(c) => {
-                        if edit_buf.len() < 8 {
-                            edit_buf.push(c);
-                        }
+                        khaloni_poe2::evaluate_ui::edit_key(&mut edit_buf, EditKey::Digit(c));
                     }
-                    // One decimal point, so values like 3.5 are typeable.
                     khaloni_poe2::platform::Key::Dot => {
-                        if edit_buf.len() < 8 && !edit_buf.contains('.') {
-                            if edit_buf.is_empty() {
-                                edit_buf.push('0');
-                            }
-                            edit_buf.push('.');
-                        }
+                        khaloni_poe2::evaluate_ui::edit_key(&mut edit_buf, EditKey::Dot);
+                    }
+                    khaloni_poe2::platform::Key::Char('-') => {
+                        khaloni_poe2::evaluate_ui::edit_key(&mut edit_buf, EditKey::Minus);
                     }
                     khaloni_poe2::platform::Key::Backspace => {
-                        edit_buf.pop();
+                        khaloni_poe2::evaluate_ui::edit_key(&mut edit_buf, EditKey::Backspace);
                     }
                     khaloni_poe2::platform::Key::Enter => {
-                        // Trailing "." (e.g. "3.") parses fine after trimming.
-                        let cleaned = edit_buf.trim_end_matches('.');
-                        let parsed: Option<f64> = if cleaned.is_empty() {
-                            None
-                        } else {
-                            cleaned.parse().ok()
-                        };
-                        // The row is what was clicked; the filter behind it is
-                        // what gets searched. Both are written from the one
-                        // parse so the drawn box and the query cannot differ.
-                        let target = panel.rows.get(row_i).and_then(|r| r.target);
-                        if let Some(row) = panel.rows.get_mut(row_i) {
-                            match field {
-                                khaloni_poe2::evaluate_ui::Field::Min => {
-                                    row.min = parsed.unwrap_or(0.0)
-                                }
-                                khaloni_poe2::evaluate_ui::Field::Max => row.max = parsed,
-                            }
-                        }
-                        match target {
-                            Some(khaloni_poe2::evaluate_ui::Target::Stat(fi)) => {
-                                if let Some(f) = query.filters.get_mut(fi) {
-                                    match field {
-                                        khaloni_poe2::evaluate_ui::Field::Min => {
-                                            f.value.min = parsed.unwrap_or(0.0);
-                                        }
-                                        khaloni_poe2::evaluate_ui::Field::Max => {
-                                            f.value.max = parsed;
-                                        }
-                                    }
-                                }
-                            }
-                            // Weapon bounds are minimums only (hit() never
-                            // yields a Max edit for them), and only a row
-                            // that is switched on has a live bound.
-                            Some(khaloni_poe2::evaluate_ui::Target::Weapon(b)) => {
-                                if let Some(row) = panel.rows.get(row_i) {
-                                    if row.enabled {
-                                        set_weapon_bound(query, b, Some(row.min));
-                                    }
-                                }
-                            }
-                            None => {}
-                        }
+                        khaloni_poe2::evaluate_ui::commit_edit(panel, query, row_i, field, &edit_buf);
                         editing = None;
                         edit_buf.clear();
-                        overlay.set_keyboard(false)?;
                     }
                     khaloni_poe2::platform::Key::Escape => {
                         editing = None;
                         edit_buf.clear();
-                        overlay.set_keyboard(ref_panel.is_some() || lvl_panel.is_some())?;
                     }
-                    // Text and arrow keys have no meaning in a numeric value
-                    // box; they exist for the reference/leveling panels.
-                    khaloni_poe2::platform::Key::Char(_)
-                    | khaloni_poe2::platform::Key::Up
-                    | khaloni_poe2::platform::Key::Down => {}
+                    // Other text has no meaning in a numeric value box.
+                    khaloni_poe2::platform::Key::Char(_) => {}
                 }
             }
-        } else if ref_panel.is_some() {
-            // Search typing: every edit re-runs the category search so the
-            // list live-filters; panel width can change with the results.
-            let mut changed = false;
-            for key in overlay.take_keys() {
-                let Some((p, _)) = ref_panel.as_mut() else { break };
-                match key {
-                    khaloni_poe2::platform::Key::Char(c) => {
-                        p.query.push(c);
-                        changed = true;
-                    }
-                    khaloni_poe2::platform::Key::Digit(c) => {
-                        p.query.push(c);
-                        changed = true;
-                    }
-                    khaloni_poe2::platform::Key::Dot => {
-                        p.query.push('.');
-                        changed = true;
-                    }
-                    khaloni_poe2::platform::Key::Backspace => {
-                        p.query.pop();
-                        changed = true;
-                    }
-                    khaloni_poe2::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    khaloni_poe2::platform::Key::Down => {
-                        p.scroll = (p.scroll + 1).min(p.rows.len().saturating_sub(1));
-                    }
-                    khaloni_poe2::platform::Key::Escape => {
-                        ref_panel = None;
-                        overlay.set_keyboard(lvl_panel.is_some())?;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                    }
-                    khaloni_poe2::platform::Key::Enter => {}
-                }
-            }
-            if changed {
-                if let (Some((p, _)), Some(r)) = (ref_panel.as_mut(), reference.get()) {
-                    khaloni_poe2::reference_ui::refresh(p, r);
-                }
-                sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-            }
-        } else if lvl_panel.is_some() {
-            for key in overlay.take_keys() {
-                let Some((p, _)) = lvl_panel.as_mut() else { break };
-                match key {
-                    khaloni_poe2::platform::Key::Up => p.scroll = p.scroll.saturating_sub(1),
-                    khaloni_poe2::platform::Key::Down => p.scroll += 1,
-                    khaloni_poe2::platform::Key::Escape => {
-                        lvl_panel = None;
-                        overlay.set_keyboard(false)?;
-                        sync_input_region(&mut overlay, &renderer, &apanel, &ref_panel, &lvl_panel)?;
-                    }
-                    _ => {}
-                }
+            if editing.is_none() {
+                overlay.set_keyboard(false)?;
             }
         }
         // The panel is a deliberate, sticky action: it stays put until the
@@ -2744,17 +4849,23 @@ fn overlay_mode(
         // without it vanishing. Only a fully-gone game tears it down, since
         // then the overlay hides and its input region must not linger.
         if apanel.is_some() && !game_present {
-            apanel = None;
-            editing = None;
-            panel_drag = None;
+            close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
             overlay.set_keyboard(false)?;
-            overlay.set_interactive(None)?;
+            sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
         }
 
         hover.tick();
+        // The next thing the user has to be told, once nothing else is up
+        // and there is a game on screen to show it over.
+        if hover.current.is_none() && game_present {
+            if let Some(text) = notices.pop_front() {
+                hover.show_notice(&text);
+                popup_at = anchor(&hover);
+            }
+        }
         match (&hover.current, popup_at) {
             (Some(_), Some((origin, rect))) => {
-                if khaloni_poe2::popup_pos::should_dismiss(origin, cursor_pos, rect) {
+                if !hover.sticky && khaloni_poe2::popup_pos::should_dismiss(origin, cursor_pos, rect) {
                     hover.current = None;
                     popup_at = None;
                 }
@@ -2764,21 +4875,27 @@ fn overlay_mode(
         }
 
         let policy = khaloni_poe2::scanpolicy::decide(khaloni_poe2::scanpolicy::Inputs {
-            scanning,
             game_present,
             game_visible,
             focus,
             pause_when_hidden: cfg.pause_when_hidden,
+            user_paused,
         });
         let paused = policy.paused;
         pipeline_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+        // The capture stops converting frames for as long as nobody reads
+        // them (it keeps dequeuing, so the stream stays alive).
+        capture_paused.store(paused, std::sync::atomic::Ordering::Relaxed);
         // A paused rumour worker sends nothing, so badges from before the
         // pause would come back stale on resume; drop them now.
         if paused {
             latest_rumours.clear();
         }
 
-        while let Ok(msg) = rows_rx.try_recv() {
+        while let Ok((priced_in, msg)) = rows_rx.try_recv() {
+            if priced_in.is_some_and(|l| !current_league.is(&l)) {
+                continue;
+            }
             if dbg {
                 match &msg {
                     khaloni_poe2::stabilize::ScanResult::GateEmpty => {
@@ -2787,25 +4904,29 @@ fn overlay_mode(
                     khaloni_poe2::stabilize::ScanResult::NoBands => {
                         eprintln!("DBG rows_rx: no-bands");
                     }
-                    khaloni_poe2::stabilize::ScanResult::Rows(rows, stale) => {
-                        eprintln!("DBG rows_rx: {} rows, stale={stale}", rows.len());
+                    khaloni_poe2::stabilize::ScanResult::Rows(scan) => {
+                        eprintln!(
+                            "DBG rows_rx: {} rows, stale={}, partial={}, at={:?}",
+                            scan.rows.len(),
+                            scan.stale,
+                            scan.partial,
+                            scan.at
+                        );
                     }
-                    khaloni_poe2::stabilize::ScanResult::Scrolled(dy) => {
-                        eprintln!("DBG rows_rx: scrolled {dy}");
+                    khaloni_poe2::stabilize::ScanResult::Scrolled { dy, to, span } => {
+                        eprintln!("DBG rows_rx: scrolled {dy} to {to:?} in {span:?}");
                     }
-                    khaloni_poe2::stabilize::ScanResult::TrackingLost => {
+                    khaloni_poe2::stabilize::ScanResult::TrackingLost { .. } => {
                         eprintln!("DBG rows_rx: tracking-lost");
                     }
                 }
             }
-            if scanning {
-                let before = dbg.then(|| stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>());
-                stabilizer.apply(msg);
-                if let Some(before) = before {
-                    let after: Vec<String> = stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect();
-                    if before != after {
-                        eprintln!("TRACE stab: [{}] -> [{}]", before.join(", "), after.join(", "));
-                    }
+            let before = dbg.then(|| stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect::<Vec<_>>());
+            stabilizer.apply(msg);
+            if let Some(before) = before {
+                let after: Vec<String> = stabilizer.rows().iter().map(|r| format!("{}@y{}", r.item_key, r.y_top)).collect();
+                if before != after {
+                    eprintln!("TRACE stab: [{}] -> [{}]", before.join(", "), after.join(", "));
                 }
             }
         }
@@ -2814,19 +4935,18 @@ fn overlay_mode(
             let t = TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if t.is_multiple_of(10) {
                 eprintln!(
-                    "DBG t={t} paused={paused} scanning={scanning} present={game_present} focused={game_focused} visible={game_visible} region={:?} rows={} surface={:?} game_pos={game_pos:?}",
-                    scan_geom.lock().unwrap().1,
+                    "DBG t={t} paused={paused} present={game_present} focused={game_focused} visible={game_visible} region={:?} rows={} surface={:?} game_pos={game_pos:?}",
+                    scan_geom.lock().unwrap_or_else(|e| e.into_inner()).1,
                     stabilizer.rows().len(),
                     overlay.size()
                 );
             }
         }
 
-        // Rows obey the F8 master switch, focus, and visibility (see
-        // scanpolicy); the popup only needs the game on screen. An explicit
-        // F7 (or the F8 toggle note itself) must stay visible while the
-        // overlay is toggled off, otherwise the hotkeys read as dead keys
-        // (live finding, 2026-07-23).
+        // Rows obey focus and visibility (see scanpolicy); the popup only
+        // needs the game on screen. An explicit F7 must stay visible while
+        // pricing is paused, otherwise the hotkey reads as a dead key (live
+        // finding, 2026-07-23).
         let on_screen = policy.on_screen;
         let show_rows = policy.show_rows;
         // The Evaluate panel renders whenever it is open and the game is
@@ -2835,9 +4955,14 @@ fn overlay_mode(
         let show = show_rows
             || (on_screen && hover.current.is_some())
             || (game_present && apanel.is_some());
-        let size = overlay.size();
+        // The pixmap is in device pixels and the renderer scales into it,
+        // so text is rasterized at the size it has on screen (on a 150%
+        // output a logical-size buffer was stretched by the compositor and
+        // every glyph came out soft). Layout, placement and hit-testing
+        // stay in logical pixels throughout.
+        let size = overlay.device_size();
         if size.0 > 0 && size.1 > 0 {
-            let mut resized = false;
+            let mut resized = renderer.set_scale(overlay.scale() as f32);
             let pm = pixmap.get_or_insert_with(|| {
                 resized = true;
                 tiny_skia::Pixmap::new(size.0, size.1).expect("pixmap")
@@ -2853,7 +4978,7 @@ fn overlay_mode(
                 // Placement geometry, rebuilt every paint from the live game
                 // position plus the detector's (frame dims, region): labels
                 // need the full map, rumour badges only the capture scale.
-                let (frame_dims, region_now) = *scan_geom.lock().unwrap();
+                let (frame_dims, region_now) = *scan_geom.lock().unwrap_or_else(|e| e.into_inner());
                 let smap = match (frame_dims, region_now) {
                     (Some(f), Some(r)) => Some(CoordMap::new(
                         Rect { x: game_pos.0, y: game_pos.1, w: game.w, h: game.h },
@@ -2939,13 +5064,27 @@ fn overlay_mode(
                     _ => Vec::new(),
                 };
                 let edit_state = editing.map(|(fi, field)| (fi, field, edit_buf.clone()));
-                // Reference/leveling panels: cloned into the frame state so
-                // typing, scrolling, and checkbox toggles trigger repaints
-                // through the same equality gate as everything else.
-                let ref_state = ref_panel
+                if let Some((p, _)) = mkt_panel.as_mut() {
+                    let snap = svc.snapshot();
+                    let changed = mkt_feed.refresh(
+                        p,
+                        &snap.league,
+                        snap.loading,
+                        (snap.stale, snap.uniques_stale),
+                        &svc.market(),
+                        cfg.market_floors(),
+                        cfg.divine_threshold,
+                        khaloni_poe2::prices::unix_now(),
+                    ) | p.set_runs(runs_hub.shown());
+                    // New data resizes the panel; its input region follows.
+                    if changed {
+                        sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                    }
+                }
+                let mkt_state = mkt_panel
                     .as_ref()
                     .map(|(p, pos)| (p.clone(), (pos.0 - out_pos.0, pos.1 - out_pos.1)));
-                let lvl_state = lvl_panel
+                let craft_state = craft_panel
                     .as_ref()
                     .map(|(p, pos)| (p.clone(), (pos.0 - out_pos.0, pos.1 - out_pos.1)));
                 Some((
@@ -2956,8 +5095,8 @@ fn overlay_mode(
                     panel,
                     rumour_badges,
                     edit_state,
-                    ref_state,
-                    lvl_state,
+                    mkt_state,
+                    craft_state,
                 ))
             } else {
                 None
@@ -2971,7 +5110,7 @@ fn overlay_mode(
             // to clear it, even though nothing else about the rows changed.
             if resized || frame_state != last_frame {
                 match &frame_state {
-                    Some((placed, rate, stale, popup, panel, rumours, edit_state, ref_state, lvl_state)) => {
+                    Some((placed, rate, stale, popup, panel, rumours, edit_state, mkt_state, craft_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
                         // Rumour rating badges sit on the cleared frame with
                         // the rows; both are part of the on-panel overlay.
@@ -2988,17 +5127,15 @@ fn overlay_mode(
                             let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
                             renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf);
                         }
-                        if let Some((p, anchor)) = ref_state {
-                            let lay = khaloni_poe2::reference_ui::layout(p, &|s| {
+                        if let Some((p, anchor)) = mkt_state {
+                            let lay = khaloni_poe2::market_ui::layout(p, &|s| {
                                 renderer.evaluate_label_width(s)
                             });
-                            renderer.draw_reference(pm, p, &lay, *anchor);
+                            renderer.draw_market(pm, p, &lay, *anchor);
                         }
-                        if let Some((p, anchor)) = lvl_state {
-                            let lay = khaloni_poe2::leveling_ui::layout(p, &|s| {
-                                renderer.evaluate_label_width(s)
-                            });
-                            renderer.draw_leveling(pm, p, &lay, *anchor);
+                        if let Some((p, anchor)) = craft_state {
+                            let lay = khaloni_poe2::craft_ui::layout(p, &|s| renderer.evaluate_label_width(s));
+                            renderer.draw_craft(pm, p, &lay, *anchor);
                         }
                     }
                     None => pm.fill(tiny_skia::Color::TRANSPARENT),
@@ -3034,6 +5171,139 @@ mod main_tests {
     }
 
     use super::{rarity_label, requires_level, urlencode};
+
+    #[test]
+    fn a_runtime_failure_is_not_reported_as_a_failed_start() {
+        use khaloni_poe2::platform::OverlayError;
+        let heading = super::fatal_heading;
+        assert!(heading(false, None).contains("could not start"));
+        assert!(heading(false, Some(&OverlayError::Startup("no layer-shell".into()))).contains("could not start"));
+        assert!(heading(true, None).contains("stopped working"));
+        // A lost compositor connection is a runtime event whenever it is seen.
+        let lost = OverlayError::Connection("broken pipe".into());
+        assert!(heading(true, Some(&lost)).contains("display connection was lost"));
+        assert!(!heading(true, Some(&lost)).contains("could not start"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_openmp_restart_happens_once_and_respects_the_user() {
+        use std::ffi::OsStr;
+        assert!(super::needs_openmp_restart(None), "unset: restart with the limit");
+        // Set by the restart itself (no loop) or by the user (their call).
+        assert!(!super::needs_openmp_restart(Some(OsStr::new("1"))));
+        assert!(!super::needs_openmp_restart(Some(OsStr::new("8"))));
+    }
+
+    #[test]
+    fn the_overlay_follows_the_game_to_another_output() {
+        let off = super::off_output;
+        // A 2560x1440 output at x=2560; the game's centre on it, then on
+        // the output to its left.
+        assert!(!off((3840, 720), (2560, 0), (2560, 1440)));
+        assert!(off((1280, 720), (2560, 0), (2560, 1440)));
+        assert!(off((3840, 1500), (2560, 0), (2560, 1440)));
+        // A surface not configured yet says nothing.
+        assert!(!off((1280, 720), (2560, 0), (0, 0)));
+    }
+
+    #[test]
+    fn closing_the_panel_clears_everything_that_belongs_to_it() {
+        use khaloni_poe2::evaluate_ui::Field;
+        let panel = super::build_panel("Horror Bane".into(), &Default::default(), &[], None, Vec::new(), &[], None);
+        let mut apanel = Some((panel, khaloni_poe2_core::trade::Query::default(), (10, 10)));
+        let mut editing = Some((2usize, Field::Min));
+        let mut buf = String::from("41");
+        let mut drag = Some(((1, 1), (2, 2)));
+        let mut searched = Some(super::Searched {
+            query: Default::default(),
+            league: "Standard".into(),
+            cheapest: None,
+            unit: "ex".into(),
+            unit_per_exalted: 1.0,
+        });
+        assert!(super::close_eval(&mut apanel, &mut editing, &mut buf, &mut drag, &mut searched));
+        assert!(apanel.is_none() && editing.is_none() && buf.is_empty() && drag.is_none() && searched.is_none());
+        // Nothing open: still leaves no edit state behind.
+        editing = Some((0, Field::Max));
+        assert!(!super::close_eval(&mut apanel, &mut editing, &mut buf, &mut drag, &mut searched));
+        assert!(editing.is_none());
+    }
+
+    #[test]
+    fn a_filter_without_a_minimum_gets_an_empty_box() {
+        use khaloni_poe2_core::trade::{FilterLabel, Query, StatFilter};
+        let mut open_ended = StatFilter::at_least("explicit.stat_1", 0.0, false);
+        open_ended.value.min = None;
+        open_ended.value.max = Some(12.0);
+        let query = Query { filters: vec![StatFilter::at_least("explicit.stat_0", 23.0, false), open_ended], ..Default::default() };
+        let label = |text: &str| FilterLabel {
+            text: text.into(),
+            tier: None,
+            min: 0,
+            rolled: None,
+            tag: "explicit",
+            hidden: false,
+            lines: Vec::new(),
+        };
+        let labels = [label("23 to Accuracy Rating"), label("12% reduced Attribute Requirements")];
+        let panel =
+            super::build_panel("X".into(), &query, &labels, None, vec!["Some unsearchable line".into()], &[], None);
+        assert_eq!(panel.rows[0].min, Some(23.0));
+        assert_eq!((panel.rows[1].min, panel.rows[1].max), (None, Some(12.0)), "no bound is not a bound of 0");
+        assert_eq!(panel.rows[2].min, None);
+        assert!(panel.searching, "a seeded card has its search running");
+    }
+
+    /// "Open site" opens the query the search sent, built by the same
+    /// call Search makes: a ticked extra row is in the link with the bound
+    /// in its box, an unticked one is not, and EE2's rows are as they were.
+    #[test]
+    fn open_site_carries_exactly_the_searched_filters() {
+        use khaloni_poe2::evaluate_ui::{commit_edit, search_query, toggle_row, Field, Target};
+        use khaloni_poe2_core::ee2::request::ExtraRow;
+        use khaloni_poe2_core::trade::{FilterLabel, FilterValue, Query, StatFilter};
+        let query = Query { filters: vec![StatFilter::at_least("explicit.stat_0", 23.0, false)], ..Default::default() };
+        let labels = [FilterLabel {
+            text: "23 to Accuracy Rating".into(),
+            tier: None,
+            min: 23,
+            rolled: Some(25.0),
+            tag: "explicit",
+            hidden: false,
+            lines: Vec::new(),
+        }];
+        let line = |text: &str, id: &str| ExtraRow {
+            text: text.into(),
+            tag: "explicit",
+            rolled: Some(142.0),
+            lines: vec![text.into()],
+            into: vec!["Total Life".into()],
+            group: "explicit",
+            ids: vec![id.into()],
+            option: None,
+            value: FilterValue { min: Some(127.0), max: None },
+            lookup: Vec::new(),
+            stat_keys: Vec::new(),
+        };
+        let extra =
+            [line("+142 to maximum Life", "explicit.stat_3299347043"), line("+30 to Strength", "explicit.stat_4080418644")];
+        let mut panel = super::build_panel("X".into(), &query, &labels, None, Vec::new(), &extra, None);
+        let rows: Vec<usize> =
+            (0..panel.rows.len()).filter(|i| matches!(panel.rows[*i].target, Some(Target::Extra(_)))).collect();
+        assert_eq!(rows.len(), 2, "both lines are rows");
+        let mut q = query.clone();
+        assert_eq!(search_query(&panel, &q), query, "nothing ticked: the search is EE2's");
+        toggle_row(&mut panel, &mut q, rows[0]);
+        commit_edit(&mut panel, &mut q, rows[0], Field::Min, "130");
+        let sent = search_query(&panel, &q);
+        let url = super::site_search_url("Standard", &sent);
+        let body = sent.to_body().to_string();
+        assert!(url.ends_with(&super::urlencode(&body)), "the link carries the body that was searched");
+        assert!(body.contains(r#"{"disabled":false,"id":"explicit.stat_3299347043","value":{"min":130}}"#), "{body}");
+        assert!(!body.contains("explicit.stat_4080418644"), "an unticked line is not searched");
+        assert!(body.contains("explicit.stat_0"), "EE2's row is still there");
+    }
 
     fn item(text: &str) -> khaloni_poe2_core::item::Item {
         khaloni_poe2_core::item::parse_item(text).expect("fixture parses")

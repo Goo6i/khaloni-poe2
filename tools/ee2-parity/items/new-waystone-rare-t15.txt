@@ -1,0 +1,30 @@
+Item Class: Waystones
+Rarity: Rare
+Howling Passage
+Waystone (Tier 15)
+--------
+Revives Available: 1 (augmented)
+Magic Monsters: +40% (augmented)
+Item Rarity: +32% (augmented)
+Pack Size: +18% (augmented)
+Waystone Drop Chance: +95% (augmented)
+--------
+Item Level: 82
+--------
+{ Prefix Modifier "Burning" (Tier: 1) }
+Area has patches of Ignited Ground — Unscalable Value
+{ Prefix Modifier "Teeming" (Tier: 1) }
+40(30-40)% increased Magic Monsters
+{ Prefix Modifier "Flaming" (Tier: 1) }
+Monsters deal 37(30-39)% of Damage as Extra Fire
+{ Suffix Modifier "of Precision" (Tier: 1) }
+Monsters have 58(50-70)% increased Accuracy Rating
+{ Suffix Modifier "of Toughness" (Tier: 1) }
+Monsters have 45(40-49)% increased Ailment Threshold
+Monsters have 33(30-35)% increased Stun Threshold
+{ Suffix Modifier "of Enfeeblement" (Tier: 1) }
+Players are periodically Cursed with Enfeeble — Unscalable Value
+--------
+Can be used in a Map Device, allowing you to enter a Map. Waystones can only be used once.
+--------
+Corrupted

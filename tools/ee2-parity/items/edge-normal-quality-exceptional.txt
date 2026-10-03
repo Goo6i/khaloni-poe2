@@ -1,0 +1,14 @@
+Item Class: Two Hand Maces
+Rarity: Normal
+Exceptional Sacred Maul
+--------
+Quality: +25% (augmented)
+Physical Damage: 95-177 (augmented)
+Critical Hit Chance: 5.00%
+Attacks per Second: 1.10
+--------
+Requires: Level 78, 165 Str
+--------
+Sockets: S S S 
+--------
+Item Level: 82

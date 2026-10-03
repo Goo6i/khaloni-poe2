@@ -22,7 +22,6 @@ pub use crate::platform::Hotkey;
 pub async fn listen(
     tx: std::sync::mpsc::Sender<Hotkey>,
     price_check: String,
-    overlay: String,
     extra: Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     // RegisterHotKey delivers WM_HOTKEY to the registering thread's message
@@ -31,7 +30,7 @@ pub async fn listen(
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<anyhow::Result<()>>();
     std::thread::Builder::new()
         .name("hotkeys".into())
-        .spawn(move || pump(tx, price_check, overlay, extra, ready_tx))?;
+        .spawn(move || pump(tx, price_check, extra, ready_tx))?;
 
     // The handshake is a handful of Win32 calls; spawn_blocking keeps the
     // bounded wait off the async workers, and the timeout only guards
@@ -49,10 +48,31 @@ pub async fn listen(
     Ok(())
 }
 
+/// Signature twin of the Linux `listen_with`. The registrations live on
+/// the pump thread for the process lifetime, so a new set of bindings is
+/// not applied here yet: it is logged, and takes effect on the next start.
+pub async fn listen_with(
+    tx: std::sync::mpsc::Sender<Hotkey>,
+    bindings: crate::platform::HotkeyBindings,
+    rebind: crate::platform::HotkeyRebind,
+) -> anyhow::Result<()> {
+    let crate::platform::HotkeyBindings { price_check, extra } = bindings;
+    let listening = listen(tx, price_check, extra);
+    let rebinds = async {
+        loop {
+            let _ = rebind.next().await;
+            eprintln!("hotkeys: changed bindings apply after a restart");
+        }
+    };
+    tokio::select! {
+        r = listening => r,
+        _ = rebinds => Ok(()),
+    }
+}
+
 fn pump(
     tx: std::sync::mpsc::Sender<Hotkey>,
     price_check: String,
-    overlay: String,
     extra: Vec<(String, String)>,
     ready_tx: std::sync::mpsc::Sender<anyhow::Result<()>>,
 ) {
@@ -84,7 +104,6 @@ fn pump(
             None => eprintln!("hotkeys: unsupported trigger {trigger:?}, skipped"),
         }
     };
-    bind(Hotkey::OverlayToggle, &overlay);
     bind(Hotkey::PriceCheck, &price_check);
     for (id, trigger) in &extra {
         bind(Hotkey::Extra(id.clone()), trigger);

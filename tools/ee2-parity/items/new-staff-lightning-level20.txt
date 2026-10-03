@@ -1,0 +1,25 @@
+Item Class: Staves
+Rarity: Rare
+Gale Spire
+Voltaic Staff
+--------
+Quality: +20% (augmented)
+--------
+Requires: Level 90, 178 Int
+--------
+Item Level: 84
+--------
+Grants Skill: Level 20 Lightning Bolt
+--------
+{ Prefix Modifier "Glyphic" (Tier: 2) — Damage, Caster }
+171(150-189)% increased Spell Damage
+{ Prefix Modifier "Electrocuting" (Tier: 2) — Damage, Elemental, Lightning }
+158(150-189)% increased Lightning Damage
+{ Prefix Modifier "Zaffre" (Tier: 3) — Mana }
++187(165-189) to maximum Mana
+{ Suffix Modifier "of Thunderstorms" (Tier: 1) — Elemental, Lightning, Caster, Gem }
++7 to Level of all Lightning Spell Skills
+{ Suffix Modifier "of Sortilege" (Tier: 2) — Caster, Speed }
+43(38-44)% increased Cast Speed
+{ Suffix Modifier "of Incision" (Tier: 3) — Damage, Caster, Critical }
+47(40-49)% increased Critical Spell Damage Bonus

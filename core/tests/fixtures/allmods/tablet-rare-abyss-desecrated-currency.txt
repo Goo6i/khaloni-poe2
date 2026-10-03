@@ -1,0 +1,21 @@
+Item Class: Tablet
+Rarity: Rare
+Cyclopean Myth
+Abyss Tablet
+--------
+Item Level: 80
+--------
+{ Implicit Modifier }
+Adds Abysses to a Map
+10 uses remaining
+--------
+{ Prefix Modifier "Abounding" (Tier: 1) }
+Map has 18(15-20)% increased Monster Rarity
+{ Prefix Modifier "Bountiful" (Tier: 1) }
+32(25-35)% increased Gold found in Map
+{ Suffix Modifier "of Ossification" (Tier: 1) }
+25(20-30)% increased chance for Desecrated Currency from Abysses in Map
+{ Suffix Modifier "of Schisms" (Tier: 1) }
+Map has 34(20-40)% chance to contain four additional Abysses
+--------
+Can be used in a personal Map Device to add modifiers to a Map.

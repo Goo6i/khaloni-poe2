@@ -1,0 +1,21 @@
+Item Class: Amulets
+Rarity: Unique
+Astramentis
+Stellar Amulet
+--------
+Requires: Level 54
+--------
+Item Level: 80
+--------
+{ Implicit Modifier — Attribute }
++6(5-7) to all Attributes
+--------
+{ Unique Modifier — Attribute }
++104(80-120) to all Attributes
+{ Unique Modifier — Physical }
+-4 Physical Damage taken from Attack Hits
+--------
+Mindless rage will shake the world,
+Cunning lies will bend it.
+Reckless haste will break the world,
+And into darkness send it.

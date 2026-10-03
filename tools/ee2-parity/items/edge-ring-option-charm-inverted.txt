@@ -1,0 +1,22 @@
+Item Class: Rings
+Rarity: Rare
+Doom Whorl
+Sapphire Ring
+--------
+Requires: Level 48
+--------
+Item Level: 62
+--------
+{ Implicit Modifier — Elemental, Cold, Resistance }
++27(20-30)% to Cold Resistance (implicit)
+--------
+{ Prefix Modifier "Robust" (Tier: 5) — Life }
++72(70-84) to maximum Life
+{ Prefix Modifier "Precise" (Tier: 6) — Attack }
++120(110-135) to Accuracy Rating
+{ Suffix Modifier "of Sparking" (Tier: 1) }
++2 to Level of all Spark Skills
+{ Suffix Modifier "of Austerity" (Tier: 2) }
+14(16-12)% reduced Charm Charges used
+{ Suffix Modifier "of the Pupil" (Tier: 7) — Attribute }
++9(8-12) to Intelligence

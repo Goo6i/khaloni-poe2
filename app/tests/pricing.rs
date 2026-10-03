@@ -45,9 +45,18 @@ fn prices_currency_rows_with_counts() {
     assert!(rows[0].label.contains("each") || rows[0].label.contains("ex"));
     assert_ne!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
     // amount is the label's leading number, denom carries what the label's
-    // suffix used to say ("div" or "ex"); the renderer draws an icon instead.
+    // suffix used to say ("div", "chaos" or "ex"); the renderer draws an icon
+    // instead.
     assert_ne!(rows[0].amount, khaloni_poe2_core::value::UNKNOWN);
-    let expected_denom = if rows[0].label.contains(" div") { Denom::Divine } else { Denom::Exalted };
+    let expected_denom = if rows[0].label.contains(" div") {
+        Denom::Divine
+    } else if rows[0].label.contains(" chaos") {
+        Denom::Chaos
+    } else {
+        Denom::Exalted
+    };
+    // Two chaos orbs are two chaos.
+    assert_eq!(expected_denom, Denom::Chaos);
     assert_eq!(rows[0].denom, expected_denom);
     // The panel is a pick-one choice: no summed total is ever rendered.
     assert!(total.is_empty());
@@ -327,4 +336,95 @@ fn off_bar_text_with_a_count_token_never_becomes_a_question_mark() {
     uniq.on_bar = false;
     let (rows, _) = price_lines(&t, &vocab, &[off, uniq], &Config::default());
     assert!(rows.is_empty(), "{rows:?}");
+}
+
+fn split_line(filtered: &str, unfiltered: &str) -> OcrLine {
+    OcrLine {
+        on_bar: true,
+        filtered: filtered.to_string(),
+        unfiltered: unfiltered.to_string(),
+        y_top: 10,
+        height: 30,
+    }
+}
+
+#[test]
+fn a_stack_is_priced_at_its_count_when_the_confident_words_lost_the_count() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    // Tesseract gave "3x" under 40% confidence: only the unfiltered text has it.
+    let (rows, _) = price_lines(&t, &v, &[split_line("chaos orb", "3x chaos orb")], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0].count, rows[0].count_explicit), (3, true));
+    assert_eq!(rows[0].label, "3 chaos (1 each)");
+    assert!((rows[0].value_chaos - 3.0).abs() < 0.01, "{}", rows[0].value_chaos);
+}
+
+#[test]
+fn ten_is_ten_however_tesseract_spells_it() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (clean, _) = price_lines(&t, &v, &[line("10x chaos orb", 10)], &cfg);
+    assert_eq!(clean[0].count, 10);
+    for token in ["l0x", "lox", "1ox", "iox"] {
+        let text = format!("{token} chaos orb");
+        let (rows, _) = price_lines(&t, &v, &[line(&text, 10)], &cfg);
+        assert_eq!(rows.len(), 1, "{text}");
+        assert_eq!(rows[0].count, 10, "{text}");
+        assert_eq!(rows[0].label, clean[0].label, "{text}");
+        assert_eq!(rows[0].value_ex, clean[0].value_ex, "{text}");
+    }
+}
+
+#[test]
+fn a_zero_count_is_never_a_priced_count() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (rows, _) = price_lines(&t, &v, &[line("0x chaos orb", 10)], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, khaloni_poe2_core::value::UNKNOWN, "a stack of unknown size has no price");
+    assert_eq!(rows[0].value_ex, 0.0);
+    // The other read of the same row has the digit: priced at it.
+    let (rows, _) = price_lines(&t, &v, &[split_line("8x chaos orb", "0x chaos orb")], &cfg);
+    assert_eq!(rows[0].count, 8);
+}
+
+#[test]
+fn two_reads_of_one_row_naming_different_items_show_a_question_mark() {
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    let (rows, _) = price_lines(&t, &v, &[split_line("2x chaos orb", "2x exalted orb")], &cfg);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, khaloni_poe2_core::value::UNKNOWN);
+    assert_eq!(rows[0].item_key, "ambiguous");
+}
+
+#[test]
+fn tiers_are_judged_in_chaos_not_in_inflated_exalted() {
+    use khaloni_poe2::pricing::tier_for_chaos;
+    assert_eq!(tier_for_chaos(0.4, 1.0, 10.0), Tier::Junk);
+    assert_eq!(tier_for_chaos(1.0, 1.0, 10.0), Tier::Decent);
+    assert_eq!(tier_for_chaos(10.0, 1.0, 10.0), Tier::Jackpot);
+    assert_eq!(tier_for_chaos(0.0, 1.0, 10.0), Tier::Unknown, "no chaos value, no tier");
+
+    let t = table();
+    let v = build_vocab(&t);
+    let cfg = Config::default();
+    // The fixture's rates put one chaos at ~56 exalted and one exalted at
+    // ~0.018 chaos: judged in exalted, a single chaos orb cleared the
+    // jackpot bar of 10 five times over.
+    let (rows, _) = price_lines(
+        &t,
+        &v,
+        &[line("1x chaos orb", 10), line("1x exalted orb", 50), line("12x chaos orb", 90), line("1x divine orb", 130)],
+        &cfg,
+    );
+    let tiers: Vec<Tier> = rows.iter().map(|r| r.tier).collect();
+    assert_eq!(tiers, vec![Tier::Decent, Tier::Junk, Tier::Jackpot, Tier::Decent]);
+    assert!((rows[0].value_chaos - 1.0).abs() < 0.01);
+    assert!(rows[0].value_ex > 50.0, "value_ex still carries exalted for the best-pick comparison");
 }

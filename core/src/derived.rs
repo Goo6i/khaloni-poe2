@@ -1,5 +1,5 @@
 //! Statistics an item card shows that the clipboard text does not state
-//! outright: weapon DPS figures and the trade site's pseudo totals.
+//! outright: weapon DPS figures.
 //!
 //! Everything here is derived from the item's own text. Nothing is looked up,
 //! defaulted, or inferred from the base type — a figure this module reports is
@@ -17,21 +17,6 @@
 //! Attacks per second is what makes an item a weapon here: without it a damage
 //! range has no rate to multiply by, so [`weapon_stats`] reports `None` rather
 //! than a DPS that means nothing.
-//!
-//! # Pseudo totals
-//!
-//! These mirror the trade site's `pseudo` stats, which is what makes them
-//! useful for pricing:
-//!
-//! - Implicits and explicits both count; the trade pseudo does not care where
-//!   a stat came from.
-//! - Elemental resistance is Fire + Cold + Lightning only. Chaos resistance is
-//!   a separate pseudo, and maximum-resistance mods are a different stat
-//!   entirely.
-//! - A mod granting several stats at once counts once per stat it grants, so
-//!   `+5 to all Attributes` is worth 15 attributes and `+12% to all Elemental
-//!   Resistances` is worth 36 resistance.
-//! - Percentage-increase mods are not flat grants and never fold in.
 
 use crate::item::Item;
 
@@ -43,14 +28,6 @@ pub struct WeaponStats {
     pub total_dps: f64,
     pub aps: f64,
     pub crit_chance: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct PseudoTotals {
-    pub total_life: f64,
-    pub total_es: f64,
-    pub total_elemental_resistance: f64,
-    pub total_attributes: f64,
 }
 
 /// Per-element damage property lines. PoE2 exports list the elements it rolled
@@ -111,75 +88,14 @@ pub fn weapon_stats(item: &Item) -> Option<WeaponStats> {
     })
 }
 
-/// Trade-style pseudo totals summed over the item's implicit and explicit mods.
-pub fn pseudo_totals(item: &Item) -> PseudoTotals {
-    let mut totals = PseudoTotals::default();
-    for m in item.implicits.iter().chain(item.explicits.iter()) {
-        // Advanced-format mod text carries its roll range inline
-        // (`+31(31-33) to Dexterity`); the actual roll is the bare number.
-        let text = without_parentheticals(&m.text);
-        let Some((value, target)) = split_flat_grant(&text) else {
-            continue;
-        };
-        match target {
-            "maximum Life" => totals.total_life += value,
-            "maximum Energy Shield" => totals.total_es += value,
-            _ => {
-                totals.total_elemental_resistance += value * elemental_resistances(target);
-                totals.total_attributes += value * attributes(target);
-            }
-        }
-    }
-    totals
-}
-
-/// Splits a flat grant into its rolled value and what it grants:
-/// `"+31 to Dexterity"` → `(31.0, "Dexterity")`, `"+28% to Fire Resistance"` →
-/// `(28.0, "Fire Resistance")`. `None` for any other mod shape, including
-/// percentage-increase mods, which have no ` to ` and no leading number.
-fn split_flat_grant(text: &str) -> Option<(f64, &str)> {
-    let (head, target) = text.trim().split_once(" to ")?;
-    let value = head.trim().trim_end_matches('%').parse().ok()?;
-    Some((value, target.trim()))
-}
-
-/// How many elemental resistances a grant target covers: `"Fire Resistance"` →
-/// 1, `"all Elemental Resistances"` → 3, `"Chaos Resistance"` → 0.
-fn elemental_resistances(target: &str) -> f64 {
-    if !target.ends_with("Resistance") && !target.ends_with("Resistances") {
-        return 0.0;
-    }
-    // Maximum resistance is its own trade stat and is never part of this total.
-    if target.contains("Maximum") || target.contains("maximum") {
-        return 0.0;
-    }
-    if target.starts_with("all ") {
-        return 3.0;
-    }
-    ["Fire", "Cold", "Lightning"]
-        .iter()
-        .filter(|e| target.contains(*e))
-        .count() as f64
-}
-
-/// How many attributes a grant target covers: `"Dexterity"` → 1,
-/// `"all Attributes"` → 3.
-fn attributes(target: &str) -> f64 {
-    if target == "all Attributes" {
-        return 3.0;
-    }
-    ["Strength", "Dexterity", "Intelligence"]
-        .iter()
-        .filter(|a| target.contains(*a))
-        .count() as f64
-}
-
 /// Sum of the midpoints of every comma-separated range in a damage property
-/// value: `"12-24 (augmented), 5-9 (augmented)"` → 25.
+/// value: `"12-24 (augmented), 5-9 (augmented)"` → 25. Ranges are separated
+/// by a comma and a space; a bare comma is a thousands separator
+/// (`"414-1,043"`), which a split on every comma read as two ranges.
 fn average_damage(value: &str) -> f64 {
     without_parentheticals(value)
-        .split(',')
-        .filter_map(range_midpoint)
+        .split(", ")
+        .filter_map(|part| range_midpoint(&part.replace(',', "")))
         .sum()
 }
 

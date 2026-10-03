@@ -1,0 +1,21 @@
+Item Class: Tablet
+Rarity: Rare
+Entropy Stele
+Breach Tablet
+--------
+Item Level: 80
+--------
+{ Implicit Modifier }
+Adds an Otherworldy Breach to a Map
+9 uses remaining
+--------
+{ Prefix Modifier "Teeming" (Tier: 1) }
+Map has 47(25-70)% increased Magic Monsters
+{ Prefix Modifier "Collector's" (Tier: 1) }
+14(10-20)% increased Rarity of Items found in Map
+{ Suffix Modifier "of Xesht" (Tier: 1) }
+12(10-15)% increased Quantity of Breach Splinters dropped by Breach Monsters in Map
+{ Suffix Modifier "of Lingering" (Tier: 1) }
+Breaches in Map open and close 12(10-15)% slower
+--------
+Can be used in a personal Map Device to add modifiers to a Map.

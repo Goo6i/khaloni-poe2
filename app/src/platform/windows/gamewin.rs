@@ -73,6 +73,16 @@ pub struct GameWindowFeed {
     pub keyboard_wanted: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// Twin of the Linux handle that stops the KWin script. The Windows feed
+/// is a polling thread inside this process and leaves nothing behind in
+/// the window manager, so there is nothing to stop.
+#[derive(Clone)]
+pub struct ScriptShutdown;
+
+impl ScriptShutdown {
+    pub fn shutdown(&self) {}
+}
+
 /// Platform-neutral facade, matching the Linux side.
 pub fn start() -> anyhow::Result<GameWindowFeed> {
     GameWindowFeed::start()
@@ -129,6 +139,13 @@ impl GameWindowFeed {
             }
         });
         Ok(GameWindowFeed { rx, keyboard_wanted: Default::default() })
+    }
+
+    /// Matches the Linux API; see `ScriptShutdown`.
+    pub fn shutdown(&self) {}
+
+    pub fn shutdown_handle(&self) -> ScriptShutdown {
+        ScriptShutdown
     }
 
     /// Brings the game to the foreground, for a price check pressed while

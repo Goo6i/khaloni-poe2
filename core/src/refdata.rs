@@ -77,253 +77,6 @@ pub fn search_bases<'a>(bases: &'a [BaseItem], query: &str) -> Vec<&'a BaseItem>
     bases.iter().filter(|b| b.name.to_lowercase().contains(&q)).collect()
 }
 
-/// A unique item with its full rolled effects, from the XileHUD PoE2 dataset.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UniqueDetail {
-    pub name: String,
-    pub base: String,
-    pub mods: Vec<String>,
-}
-
-/// A passive keystone (name + effect text), from the XileHUD dataset.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Keystone {
-    pub name: String,
-    pub description: String,
-}
-
-/// Strips HTML tags and decodes the few entities XileHUD's mod strings use, so
-/// effect text renders as safe plain text (no innerHTML needed on the client).
-fn strip_html(s: &str) -> String {
-    // Line breaks first, so multi-line descriptions keep their line structure.
-    let s = s
-        .replace("<br>", "\n")
-        .replace("<br/>", "\n")
-        .replace("<br />", "\n");
-    let mut out = String::with_capacity(s.len());
-    let mut in_tag = false;
-    for c in s.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-}
-
-/// Parses XileHUD `Uniques.json` (`{uniques:{Weapon|Armour|Other:[{name,
-/// typeLine, explicitMods:[html]}]}}`) into a flat, name-sorted list with the
-/// effect text cleaned to plain strings.
-pub fn parse_xile_uniques(json: &str) -> Vec<UniqueDetail> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Some(groups) = v.get("uniques").and_then(|u| u.as_object()) {
-        for arr in groups.values() {
-            for it in arr.as_array().into_iter().flatten() {
-                let Some(name) = it.get("name").and_then(|n| n.as_str()) else { continue };
-                let base = it.get("typeLine").and_then(|t| t.as_str()).unwrap_or("").to_string();
-                let mods = it
-                    .get("explicitMods")
-                    .and_then(|m| m.as_array())
-                    .map(|a| a.iter().filter_map(|m| m.as_str()).map(strip_html).collect())
-                    .unwrap_or_default();
-                out.push(UniqueDetail { name: name.to_string(), base, mods });
-            }
-        }
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
-}
-
-/// Parses XileHUD `Keystones.json` (`{keystones:[{name,description}]}`).
-pub fn parse_keystones(json: &str) -> Vec<Keystone> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    if let Some(arr) = v.get("keystones").and_then(|k| k.as_array()) {
-        for it in arr {
-            if let Some(name) = it.get("name").and_then(|n| n.as_str()) {
-                out.push(Keystone {
-                    name: name.to_string(),
-                    description: strip_html(it.get("description").and_then(|d| d.as_str()).unwrap_or("")),
-                });
-            }
-        }
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
-}
-
-/// Case-insensitive search over uniques by name, base, or any mod text.
-pub fn search_uniques<'a>(uniques: &'a [UniqueDetail], query: &str) -> Vec<&'a UniqueDetail> {
-    let q = query.to_lowercase();
-    uniques
-        .iter()
-        .filter(|u| {
-            u.name.to_lowercase().contains(&q)
-                || u.base.to_lowercase().contains(&q)
-                || u.mods.iter().any(|m| m.to_lowercase().contains(&q))
-        })
-        .collect()
-}
-
-/// Case-insensitive search over keystones by name or description.
-pub fn search_keystones<'a>(keystones: &'a [Keystone], query: &str) -> Vec<&'a Keystone> {
-    let q = query.to_lowercase();
-    keystones
-        .iter()
-        .filter(|k| k.name.to_lowercase().contains(&q) || k.description.to_lowercase().contains(&q))
-        .collect()
-}
-
-/// A generic reference catalog entry (name + effect/description lines), used
-/// for the XileHUD categories that share the `{name, explicitMods|description}`
-/// shape: essences, omens, catalysts, currency, annoints, and the like.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct RefEntry {
-    pub name: String,
-    pub lines: Vec<String>,
-}
-
-fn pretty_slug(s: &str) -> String {
-    s.rsplit('/').next().unwrap_or(s).replace('_', " ").trim().to_string()
-}
-
-fn entry_lines(v: &serde_json::Value) -> Vec<String> {
-    let mut lines = Vec::new();
-    // Any of the mod arrays a XileHUD entry may carry; a mod string can itself
-    // hold <br>-separated lines, so split those too.
-    for field in ["explicitMods", "enchantMods", "implicitMods"] {
-        if let Some(mods) = v.get(field).and_then(|m| m.as_array()) {
-            for s in mods.iter().filter_map(|m| m.as_str()) {
-                lines.extend(strip_html(s).lines().map(str::to_string).filter(|l| !l.trim().is_empty()));
-            }
-        }
-    }
-    if lines.is_empty() {
-        if let Some(desc) = v.get("description").and_then(|d| d.as_str()) {
-            lines.extend(strip_html(desc).lines().map(str::to_string).filter(|l| !l.trim().is_empty()));
-        }
-    }
-    lines
-}
-
-/// Generic parser for a XileHUD reference file whose data is one array (or a
-/// dict of arrays) under the single non-`slug` key, each element `{name,
-/// explicitMods|description, ...}`. Empty-name entries fall back to a
-/// prettified slug; `[DNT]` (dev/untranslated) and duplicate names are dropped.
-pub fn parse_xile_category(json: &str) -> Vec<RefEntry> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let mut raw: Vec<&serde_json::Value> = Vec::new();
-    if let Some(arr) = v.as_array() {
-        // Some files are a bare top-level array of entries.
-        raw.extend(arr.iter());
-    } else if let Some(obj) = v.as_object() {
-        // Others wrap the data (array, or dict-of-arrays) under one key.
-        for (k, val) in obj {
-            if k == "slug" {
-                continue;
-            }
-            match val {
-                serde_json::Value::Array(a) => raw.extend(a.iter()),
-                serde_json::Value::Object(groups) => {
-                    for gv in groups.values() {
-                        if let Some(a) = gv.as_array() {
-                            raw.extend(a.iter());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    } else {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for e in raw {
-        let Some(o) = e.as_object() else { continue };
-        let name = o
-            .get("name")
-            .and_then(|n| n.as_str())
-            .filter(|s| !s.trim().is_empty())
-            .map(String::from)
-            .or_else(|| o.get("slug").and_then(|s| s.as_str()).map(pretty_slug))
-            .unwrap_or_default();
-        if name.is_empty() || name.contains("[DNT]") {
-            continue;
-        }
-        out.push(RefEntry { name, lines: entry_lines(e) });
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    out.dedup_by(|a, b| a.name == b.name);
-    out
-}
-
-/// Case-insensitive search over generic entries by name or any line.
-pub fn search_ref_entries<'a>(entries: &'a [RefEntry], query: &str) -> Vec<&'a RefEntry> {
-    let q = query.to_lowercase();
-    entries
-        .iter()
-        .filter(|e| e.name.to_lowercase().contains(&q) || e.lines.iter().any(|l| l.to_lowercase().contains(&q)))
-        .collect()
-}
-
-/// One step of the leveling guide.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LevelingStep {
-    pub id: String,
-    pub kind: String,
-    pub zone: String,
-    pub description: String,
-    pub hint: String,
-}
-
-/// An act with its ordered leveling steps.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct LevelingAct {
-    pub act: u32,
-    pub name: String,
-    pub steps: Vec<LevelingStep>,
-}
-
-/// Parses XileHUD `leveling-data-v2.json` (`{acts:[{actNumber,actName,steps:
-/// [{id,type,zone,description,hint}]}]}`) into acts of steps.
-pub fn parse_leveling(json: &str) -> Vec<LevelingAct> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
-    };
-    let s = |o: &serde_json::Value, k: &str| o.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let mut out = Vec::new();
-    for a in v.get("acts").and_then(|x| x.as_array()).into_iter().flatten() {
-        let steps = a
-            .get("steps")
-            .and_then(|x| x.as_array())
-            .into_iter()
-            .flatten()
-            .map(|st| LevelingStep {
-                id: s(st, "id"),
-                kind: s(st, "type"),
-                zone: s(st, "zone"),
-                description: s(st, "description"),
-                hint: s(st, "hint"),
-            })
-            .collect();
-        out.push(LevelingAct {
-            act: a.get("actNumber").and_then(|n| n.as_u64()).unwrap_or(0) as u32,
-            name: s(a, "actName"),
-            steps,
-        });
-    }
-    out
-}
-
 /// Upstream commits the reference downloads are pinned to, so a format
 /// change upstream cannot break the parsers between our releases. Each is
 /// bumped once its repository has published data for a new game patch;
@@ -333,9 +86,12 @@ pub fn parse_leveling(json: &str) -> Vec<LevelingAct> {
 /// XileHUD/poe_overlay: v0.6.11 (2026-06-19). Its data still lives in a
 /// `Rise of the Abyssal` directory and has not changed since.
 pub const XILE_COMMIT: &str = "cdec6065f7e3240d878edb0363c5f1918e0851f4";
-/// Kvan7/Exiled-Exchange-2: the 0.5.5 (Forbidden Rites) data update of
-/// 2026-09-04, verified to parse with 2503 affixes and 4039 items.
-pub const EE2_COMMIT: &str = "040dec96811ee886859ff4e5fb40c1ab85a2a46e";
+/// Kvan7/Exiled-Exchange-2: master of 2026-09-06, verified to parse with
+/// 2526 affixes and 4058 items. This is also the commit `core::ee2` was
+/// ported from and the one `tools/ee2-parity` holds it to: its data files
+/// there are byte-for-byte the two this pin downloads, so the app searches
+/// with the data the parity test passed on. Bump the three together.
+pub const EE2_COMMIT: &str = "cca30662bf31eaf38bd711e2ec1a6b899a06c40e";
 
 /// Identity of the reference-data set this build expects on disk: the
 /// pinned commits above. The unpinned downloads (repoe mods, trade stats)
@@ -357,24 +113,6 @@ pub fn fetch_xile_path(rel: &str) -> Result<String, String> {
     let resp = http.get(&url).send().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("{rel} status {}", resp.status()));
-    }
-    resp.text().map_err(|e| e.to_string())
-}
-
-/// Downloads one XileHUD PoE2 reference file (e.g. "Uniques", "Keystones")
-/// from the current league dir. Pinned to a verified commit. Caller caches it.
-pub fn fetch_xile_json(file: &str) -> Result<String, String> {
-    let url = format!(
-        "https://raw.githubusercontent.com/XileHUD/poe_overlay/{XILE_COMMIT}/data/poe2/Rise%20of%20the%20Abyssal/{file}.json"
-    );
-    let http = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = http.get(&url).send().map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("{file}.json status {}", resp.status()));
     }
     resp.text().map_err(|e| e.to_string())
 }
@@ -413,6 +151,55 @@ pub fn fetch_repoe_mods() -> Result<String, String> {
         return Err(format!("mods.json status {}", resp.status()));
     }
     resp.text().map_err(|e| e.to_string())
+}
+
+/// Downloads the repoe-fork PoE2 `base_items.json` export (every base with
+/// its item class and tags, which decide what a base can roll). Callers
+/// check it with [`validate_base_items`] and cache the result.
+pub fn fetch_repoe_base_items() -> Result<String, String> {
+    let url = "https://repoe-fork.github.io/poe2/base_items.json";
+    let http = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .user_agent("Mozilla/5.0 khaloni-poe2/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = http.get(url).send().map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("base_items.json status {}", resp.status()));
+    }
+    resp.text().map_err(|e| e.to_string())
+}
+
+#[derive(Deserialize)]
+struct BaseCheckRow {
+    #[serde(default)]
+    domain: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    item_class: String,
+    #[serde(default)]
+    tags: Option<Vec<String>>,
+}
+
+/// Whether `body` is a base item export the craft planner can use: an
+/// object of rows, at least one of them an item-domain base with a name, an
+/// item class and a tag list. Valid JSON of another shape (an error object,
+/// the mods export saved under the wrong name) is refused, so it never
+/// replaces a good cached copy.
+pub fn validate_base_items(body: &str) -> Result<(), String> {
+    let rows: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_str(body).map_err(|e| format!("base_items.json is not an object of rows: {e}"))?;
+    let usable = rows
+        .into_values()
+        .filter_map(|v| serde_json::from_value::<BaseCheckRow>(v).ok())
+        .filter(|r| r.domain == "item" && !r.name.trim().is_empty() && !r.item_class.trim().is_empty())
+        .filter(|r| r.tags.as_ref().is_some_and(|t| !t.is_empty()))
+        .count();
+    if usable == 0 {
+        return Err("base_items.json holds no item base with a name, an item class and tags".to_string());
+    }
+    Ok(())
 }
 
 // --- Exiled-Exchange-2 data (the richer PoE2 source with readable affix text
@@ -847,71 +634,6 @@ mod tests {
         let charm = a.iter().find(|x| x.text.contains("Charm")).unwrap();
         assert!(charm.trade_ids.contains(&"rune.stat_554899692".to_string()));
         assert_eq!(search_affixes(&a, "attack").len(), 1);
-    }
-
-    #[test]
-    fn parses_xile_uniques_and_keystones_stripping_html() {
-        let uniques = concat!(
-            r##"{"slug":"Uniques","uniques":{"Weapon":["##,
-            r##"{"name":"Brynhand's Mark","typeLine":"Wooden Club","explicitMods":["##,
-            r##""Adds <span class=\"mod-value\">(10-14)</span> Physical Damage","Causes Double Stun"]}"##,
-            r##"],"Armour":[],"Other":[]}}"##,
-        );
-        let u = parse_xile_uniques(uniques);
-        assert_eq!(u.len(), 1);
-        assert_eq!(u[0].name, "Brynhand's Mark");
-        assert_eq!(u[0].base, "Wooden Club");
-        assert_eq!(u[0].mods[0], "Adds (10-14) Physical Damage", "html stripped");
-        assert_eq!(search_uniques(&u, "double stun").len(), 1, "searches mod text");
-
-        let ks = r##"{"slug":"Keystones","keystones":[{"name":"Resolute Technique","description":"Accuracy is Doubled<br>Never deal Critical Hits"}]}"##;
-        let k = parse_keystones(ks);
-        assert_eq!(k.len(), 1);
-        assert_eq!(k[0].name, "Resolute Technique");
-        assert!(k[0].description.contains("Never deal Critical Hits"));
-        assert_eq!(search_keystones(&k, "critical").len(), 1);
-    }
-
-    #[test]
-    fn generic_category_handles_explicitmods_slug_fallback_and_dnt() {
-        let json = concat!(
-            r##"{"slug":"essences","essences":["##,
-            r##"{"name":"","slug":"Lesser_Essence_of_the_Body","explicitMods":["Armour: <span>+30</span> to maximum Life","  "]},"##,
-            r##"{"name":"Omen of Foo","explicitMods":["Line one<br>line two"]},"##,
-            r##"{"name":"[DNT] dev","explicitMods":["x"]}"##,
-            r##"]}"##,
-        );
-        let e = parse_xile_category(json);
-        assert_eq!(e.len(), 2, "DNT dropped");
-        let body = e.iter().find(|x| x.name == "Lesser Essence of the Body").expect("slug fallback name");
-        assert_eq!(body.lines, vec!["Armour: +30 to maximum Life"], "html stripped, blanks dropped");
-        let omen = e.iter().find(|x| x.name == "Omen of Foo").unwrap();
-        assert_eq!(omen.lines, vec!["Line one", "line two"], "<br> split into lines");
-        assert_eq!(search_ref_entries(&e, "maximum life").len(), 1);
-    }
-
-    #[test]
-    fn parses_leveling_acts_and_steps() {
-        let json = r##"{"acts":[{"actNumber":1,"actName":"Grelwood","steps":[
-            {"id":"a1_1","type":"kill_boss","zone":"The Riverbank","description":"Kill The Bloated Miller","hint":"use skill point"},
-            {"id":"a1_2","type":"waypoint","zone":"Clearfell","description":"Take the waypoint"}
-        ]}]}"##;
-        let acts = parse_leveling(json);
-        assert_eq!(acts.len(), 1);
-        assert_eq!(acts[0].act, 1);
-        assert_eq!(acts[0].name, "Grelwood");
-        assert_eq!(acts[0].steps.len(), 2);
-        assert_eq!(acts[0].steps[0].kind, "kill_boss");
-        assert_eq!(acts[0].steps[0].description, "Kill The Bloated Miller");
-        assert_eq!(acts[0].steps[1].hint, "", "missing hint -> empty");
-    }
-
-    #[test]
-    fn generic_category_handles_top_level_array_and_enchant_mods() {
-        let json = r##"[{"name":"Trap A","explicitMods":["deals damage"]},{"name":"Emotion","enchantMods":["Allocates Point Blank"]}]"##;
-        let e = parse_xile_category(json);
-        assert_eq!(e.len(), 2);
-        assert_eq!(e.iter().find(|x| x.name == "Emotion").unwrap().lines, vec!["Allocates Point Blank"]);
     }
 
     #[test]

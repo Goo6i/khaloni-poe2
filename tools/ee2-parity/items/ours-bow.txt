@@ -1,0 +1,34 @@
+Item Class: Bows
+Rarity: Rare
+Horror Bane
+Obliterator Bow
+--------
+Quality: +20% (augmented)
+Physical Damage: 266-499 (augmented)
+Lightning Damage: 3-82 (lightning)
+Critical Hit Chance: 8.48% (augmented)
+Attacks per Second: 1.10
+--------
+Requires: Level 78, 163 Dex
+--------
+Sockets: S S 
+--------
+Item Level: 81
+--------
+38% increased Physical Damage (rune)
+--------
+{ Implicit Modifier }
+50% reduced Projectile Range
+--------
+{ Prefix Modifier "Tyrannical" (Tier: 2) — Damage, Physical, Attack }
+157(155-169)% increased Physical Damage
+{ Prefix Modifier "Arcing" (Tier: 5) — Damage, Elemental, Lightning, Attack }
+Adds 3(1-4) to 82(63-82) Lightning Damage
+{ Desecrated Prefix Modifier "Gleaming" (Tier: 5) — Damage, Physical, Attack }
+Adds 13(10-15) to 26(18-26) Physical Damage
+{ Suffix Modifier "of the Phantom" (Tier: 1) — Attribute }
++31(31-33) to Dexterity
+{ Suffix Modifier "of the Marksman" (Tier: 2) }
++3 to Level of all Projectile Skills
+{ Crafted Suffix Modifier "of Calamity" (Tier: 3) — Attack, Critical }
++3.48(3.11-3.8)% to Critical Hit Chance
