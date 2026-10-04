@@ -346,7 +346,8 @@ fn a_crafted_and_a_desecrated_mod_take_their_single_slots() {
     assert!(crafted.iter().all(|m| !data.entry(m.entry_id.as_deref().unwrap()).unwrap().rollable_anywhere()));
 
     // An unrevealed desecrated modifier holds the slot before it is known.
-    let text = read(&fixtures().join("craft/rare-soldier-cuirass-crafted-desecrated.txt")).replace(
+    // Line endings unified first: a Windows checkout gives the fixture CRLF.
+    let text = read(&fixtures().join("craft/rare-soldier-cuirass-crafted-desecrated.txt")).replace("\r\n", "\n").replace(
         "{ Desecrated Suffix Modifier \"of Ulaman\" (Tier: 1) — Elemental, Lightning, Chaos, Resistance }\n+15(13-17)% to Lightning and Chaos Resistances (desecrated)",
         "{ Desecrated Suffix Modifier }\nDesecrated Suffix",
     );
