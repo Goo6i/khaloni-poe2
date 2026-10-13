@@ -38,3 +38,4 @@ pub mod rumours;
 pub mod scanpolicy;
 pub mod stabilize;
 pub mod template;
+pub mod theme;
