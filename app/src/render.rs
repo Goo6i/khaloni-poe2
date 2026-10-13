@@ -60,6 +60,9 @@ struct TextStyle {
     color: Color,
 }
 
+/// An art image kept alive beside its device-size copy.
+type ScaledArt = (std::sync::Arc<RgbaImage>, RgbaImage);
+
 pub struct Renderer {
     amount_font: Font,
     annotation_font: Font,
@@ -73,8 +76,9 @@ pub struct Renderer {
     icon_chaos: RgbaImage,
     icons_scaled: RefCell<HashMap<(u8, u32), RgbaImage>>,
     /// Item art resized to its device slot, keyed by the image's identity
-    /// and the device side. Small: panels hold one art at a time.
-    art_scaled: RefCell<HashMap<(usize, u32), RgbaImage>>,
+    /// and the device side. Each entry holds its source Arc so the keyed
+    /// address cannot be freed and reused while the entry lives.
+    art_scaled: RefCell<HashMap<(usize, u32), ScaledArt>>,
     sprites: RefCell<SpriteCache<Rc<RgbaImage>>>,
 }
 
@@ -783,11 +787,11 @@ impl Renderer {
         if !cache.contains_key(&key) && cache.len() >= 8 {
             cache.clear();
         }
-        let scaled = cache.entry(key).or_insert_with(|| {
+        let (_keep, scaled) = cache.entry(key).or_insert_with(|| {
             let (iw, ih) = (art.width().max(1), art.height().max(1));
             let s = (side as f32 / iw as f32).min(side as f32 / ih as f32);
             let (w, h) = (((iw as f32) * s).round().max(1.0) as u32, ((ih as f32) * s).round().max(1.0) as u32);
-            image::imageops::resize(art.as_ref(), w, h, image::imageops::FilterType::Lanczos3)
+            (art.clone(), image::imageops::resize(art.as_ref(), w, h, image::imageops::FilterType::Lanczos3))
         });
         let x0 = ((ax + rect.x as f32) * scale).round() as i32 + (side as i32 - scaled.width() as i32) / 2;
         let y0 = ((ay + rect.y as f32) * scale).round() as i32 + (side as i32 - scaled.height() as i32) / 2;
@@ -1739,4 +1743,20 @@ impl Renderer {
 
 fn load_icon(bytes: &[u8]) -> anyhow::Result<RgbaImage> {
     Ok(image::load_from_memory(bytes)?.to_rgba8())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn price_cells_split_at_their_unit_word() {
+        assert_eq!(split_price_unit("12 div"), Some(("12", Denom::Divine, "")));
+        assert_eq!(split_price_unit("3 ex"), Some(("3", Denom::Exalted, "")));
+        assert_eq!(split_price_unit("7 chaos"), Some(("7", Denom::Chaos, "")));
+        assert_eq!(split_price_unit("2 div x3"), Some(("2", Denom::Divine, " x3")));
+        assert_eq!(split_price_unit("no price"), None);
+        assert_eq!(split_price_unit("1 alch"), None);
+        assert_eq!(split_price_unit("div"), None);
+    }
 }

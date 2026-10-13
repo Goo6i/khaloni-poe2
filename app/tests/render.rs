@@ -727,6 +727,37 @@ fn group_headings_and_badge_pills_are_drawn_for_every_visible_group() {
 }
 
 #[test]
+fn the_art_cache_keeps_its_source_alive_so_a_reused_address_cannot_alias() {
+    // Draw art A, drop every outside reference to it, allocate art B of the
+    // same size (which may land at A's address), draw B: B's pixels must
+    // show, never A's.
+    let r = Renderer::new().unwrap();
+    let green = {
+        let mut img = image::RgbaImage::new(64, 64);
+        for p in img.pixels_mut() { *p = image::Rgba([0, 200, 0, 255]); }
+        img
+    };
+    let red = {
+        let mut img = image::RgbaImage::new(64, 64);
+        for p in img.pixels_mut() { *p = image::Rgba([200, 0, 0, 255]); }
+        img
+    };
+    let slot = khaloni_poe2::config::Rect { x: 0, y: 0, w: 48, h: 48 };
+    let mut pm = tiny_skia::Pixmap::new(48, 48).unwrap();
+    {
+        let a = std::sync::Arc::new(green);
+        r.draw_art(&mut pm, &a, &slot, 0.0, 0.0);
+    }
+    for _ in 0..16 {
+        let b = std::sync::Arc::new(red.clone());
+        let mut pm2 = tiny_skia::Pixmap::new(48, 48).unwrap();
+        r.draw_art(&mut pm2, &b, &slot, 0.0, 0.0);
+        let c = rgb_of(&pm2, 24, 24);
+        assert!(c.0 > 150 && c.1 < 60, "stale art drawn: {c:?}");
+    }
+}
+
+#[test]
 fn art_is_drawn_inside_its_slot_when_the_panel_has_it() {
     let r = Renderer::new().unwrap();
     let mut panel = listing_panel();
