@@ -1128,6 +1128,9 @@ enum AppraiseDone {
         /// Every modifier line EE2 gives no row of its own, as a row the
         /// user can tick into the search.
         extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+        /// The item's base type when it has a name of its own, for the
+        /// nameplate; None when the name is the base.
+        base_type: Option<String>,
     },
     /// Listings for the panel with this title. Boxed: a search's answer
     /// carries every block of the card and dwarfs the other variants.
@@ -1162,6 +1165,9 @@ struct SearchDone {
     blocks: khaloni_poe2::appraise::Blocks,
     /// poe.ninja's line for the item, when it tracks it.
     ninja: Option<khaloni_poe2::evaluate_ui::NinjaBlock>,
+    /// The item's art for the nameplate, when the first listing carried
+    /// one and it could be loaded.
+    art: Option<khaloni_poe2::evaluate_ui::Art>,
     /// The exchange offers and the stack's worth, for a stackable.
     bulk: Option<khaloni_poe2::evaluate_ui::BulkBlock>,
     stack_value: Option<String>,
@@ -1262,6 +1268,9 @@ struct TradeWorker {
     league: String,
     current: khaloni_poe2::league::Current,
     cache_dir: std::path::PathBuf,
+    /// Fetches item art from GGG's CDN: short timeout, so a slow image
+    /// never holds the next price check.
+    art_http: reqwest::blocking::Client,
     gem_map: GemMap,
     svc: prices::PriceService,
     exch_names: Arc<std::sync::OnceLock<Vec<String>>>,
@@ -1329,6 +1338,7 @@ impl TradeWorker {
                         facts: None,
                         unsearchable: Vec::new(),
                         extra: Vec::new(),
+                        base_type: None,
                     });
                 }
                 let _ = self.done_tx.send(AppraiseDone::Result { title, outcome: Err(why), strictness });
@@ -1512,6 +1522,7 @@ impl TradeWorker {
                     }),
                     unsearchable: Vec::new(),
                     extra: Vec::new(),
+                    base_type: None,
                 });
                 let answer = self.exchange_price(&name);
                 let offers = answer.as_ref().ok().and_then(|a| a.as_ref()).map(|(_, view)| view.offers.len());
@@ -1583,6 +1594,7 @@ impl TradeWorker {
                 } else {
                     (item.name.clone(), item.base_type.clone(), hover::is_corrupted(&item.raw))
                 };
+                let base_type = ninja.1.clone();
                 self.last_check = Some(Checked { title: title.clone(), built: built.clone(), ninja });
                 let unsearchable = built.unsearchable_totals();
                 // Nothing on this item could be read into the search: the
@@ -1598,6 +1610,7 @@ impl TradeWorker {
                         facts: Some(facts),
                         unsearchable,
                         extra: built.extra,
+                        base_type,
                     });
                     let _ = self.done_tx.send(AppraiseDone::Result {
                         title,
@@ -1609,7 +1622,7 @@ impl TradeWorker {
                     });
                     return;
                 }
-                self.seed_and_search(title, built.query, built.labels, facts, unsearchable, built.extra);
+                self.seed_and_search(title, built.query, built.labels, facts, unsearchable, built.extra, base_type);
             }
             AppraiseReq::Upgrade { item, generation } => {
                 if generation < self.generation.load(Ordering::Acquire) {
@@ -1636,7 +1649,8 @@ impl TradeWorker {
                     Err(_) => Vec::new(),
                 };
                 let facts = ItemFacts::read(&item, props, false);
-                self.seed_and_search(title, q, labels, facts, Vec::new(), Vec::new());
+                let base_type = item.base_type.clone().filter(|b| !item.name.is_empty() && *b != item.name);
+                self.seed_and_search(title, q, labels, facts, Vec::new(), Vec::new(), base_type);
             }
             AppraiseReq::Exact { title, query, strictness } => {
                 let outcome = self.search(&query, &title).map(Box::new);
@@ -1648,6 +1662,7 @@ impl TradeWorker {
     /// The panel opens now, with every row, before the search: the user
     /// reads and adjusts the selection while the listings are fetched
     /// instead of waiting on the request to see the mods at all.
+    #[allow(clippy::too_many_arguments)]
     fn seed_and_search(
         &mut self,
         title: String,
@@ -1656,6 +1671,7 @@ impl TradeWorker {
         facts: ItemFacts,
         unsearchable: Vec<String>,
         extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+        base_type: Option<String>,
     ) {
         let _ = self.done_tx.send(AppraiseDone::Seed {
             title: title.clone(),
@@ -1664,6 +1680,7 @@ impl TradeWorker {
             facts: Some(facts),
             unsearchable,
             extra,
+            base_type,
         });
         let outcome = self.search(&query, &title).map(Box::new);
         let _ = self.done_tx.send(AppraiseDone::Result {
@@ -1768,6 +1785,23 @@ impl TradeWorker {
             divine_threshold,
             built: checked.map(|c| &c.built),
         });
+        let art = blocks.icon.as_deref().and_then(|url| {
+            let http = &self.art_http;
+            let fetch = |u: &str| -> Result<Vec<u8>, String> {
+                let resp = http.get(u).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("status {}", resp.status()));
+                }
+                resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
+            };
+            match khaloni_poe2::art::load_or_fetch(&self.cache_dir, url, &fetch) {
+                Ok(img) => Some(khaloni_poe2::evaluate_ui::Art::new(img)),
+                Err(e) => {
+                    eprintln!("art: {e}");
+                    None
+                }
+            }
+        });
         let ninja = checked.and_then(|c| {
             let model = appraise::market_model(&self.svc.market(), floors, now_unix);
             let (name, base, corrupted) = &c.ninja;
@@ -1781,6 +1815,7 @@ impl TradeWorker {
             league: self.league.clone(),
             blocks,
             ninja,
+            art,
             bulk: None,
             stack_value: None,
             budget: self.budget_text(),
@@ -1820,6 +1855,7 @@ impl TradeWorker {
             league: self.league.clone(),
             blocks: Default::default(),
             ninja: None,
+            art: None,
             bulk: Some(khaloni_poe2::appraise::bulk_block(view, names)),
             stack_value: Some(khaloni_poe2::appraise::stack_value_text(
                 stack,
@@ -2647,6 +2683,7 @@ fn off_output(point: (i32, i32), output_pos: (i32, i32), size: (u32, u32)) -> bo
 
 /// The Evaluate card for a freshly built query: one row per filter, led by
 /// the item's computed figures, closed by the lines that cannot be searched.
+#[allow(clippy::too_many_arguments)]
 fn build_panel(
     title: String,
     query: &khaloni_poe2_core::trade::Query,
@@ -2777,6 +2814,11 @@ fn show_search(panel: &mut khaloni_poe2::evaluate_ui::Panel, done: &SearchDone) 
     // press without a checked item behind it keeps the line it had.
     if done.ninja.is_some() {
         panel.ninja = done.ninja.clone();
+    }
+    // The art belongs to the item, like the ninja line: a search that found
+    // none keeps the one the panel had.
+    if done.art.is_some() {
+        panel.art = done.art.clone();
     }
     panel.bulk = done.bulk.clone();
     panel.stack_value = done.stack_value.clone();
@@ -3210,6 +3252,11 @@ fn overlay_mode(
             league: cfg.league.clone(),
             current: current_league.clone(),
             cache_dir: cache.clone(),
+            art_http: reqwest::blocking::Client::builder()
+                .user_agent("khaloni-poe2")
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("reqwest client"),
             gem_map: gem_map.clone(),
             svc: svc.clone(),
             exch_names: exch_names.clone(),
@@ -4339,9 +4386,8 @@ fn overlay_mode(
                 // Seed: open the interactive panel where the "searching
                 // trade..." popup was anchored, with every row and no
                 // listings yet.
-                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra } => {
-                    let panel =
-                        build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), None /* Task 7 plumbs the base type */);
+                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra, base_type } => {
+                    let panel = build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), base_type);
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)

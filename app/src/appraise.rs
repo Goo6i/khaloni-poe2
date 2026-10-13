@@ -381,6 +381,8 @@ pub struct Blocks {
     pub shown: usize,
     pub dropped: usize,
     pub total: Option<u64>,
+    /// The first entry's item art URL, for the nameplate.
+    pub icon: Option<String>,
 }
 
 fn view_exalted(v: &ListingView, f: &Fetched) -> Option<f64> {
@@ -389,6 +391,7 @@ fn view_exalted(v: &ListingView, f: &Fetched) -> Option<f64> {
 
 /// The blocks for one search, from its fetched entries.
 pub fn blocks(f: &Fetched) -> Blocks {
+    let icon = f.raw.iter().flatten().find_map(|v| v.get("item")?.get("icon")?.as_str().map(str::to_string));
     let mut dropped = 0;
     let views: Vec<ListingView> = f
         .raw
@@ -452,6 +455,7 @@ pub fn blocks(f: &Fetched) -> Blocks {
         cheapest,
         dropped,
         total: f.total,
+        icon,
     }
 }
 

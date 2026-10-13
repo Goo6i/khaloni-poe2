@@ -1,5 +1,6 @@
 pub mod applog;
 pub mod appraise;
+pub mod art;
 pub mod autoregion;
 pub mod bindings;
 pub mod budget;

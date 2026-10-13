@@ -31,6 +31,7 @@ fn listing(amount: f64, currency: &str) -> Listing {
         account: "Seller#0001".into(),
         indexed: String::new(),
         item_name: String::new(),
+        icon: None,
     }
 }
 
@@ -907,4 +908,28 @@ fn a_price_check_search_sends_the_saved_session_and_follows_its_changes() {
     assert!(!heads[0].contains("poesessid"), "no session saved, yet one was sent:\n{}", heads[0]);
     assert!(heads[1].contains("cookie: poesessid=abc123\r\n"), "the saved session was not sent:\n{}", heads[1]);
     assert!(!heads[2].contains("poesessid"), "a cleared session was still sent:\n{}", heads[2]);
+}
+
+#[test]
+fn blocks_take_the_first_entrys_icon_and_none_when_no_entry_carries_one() {
+    let body: serde_json::Value = serde_json::from_str(include_str!("../../core/tests/fixtures/trade_fetch_full.json")).unwrap();
+    let raw: Vec<Option<serde_json::Value>> = body["result"].as_array().unwrap().iter().cloned().map(Some).collect();
+    let table = table();
+    let names = std::collections::HashMap::new();
+    fn fetched<'a>(
+        raw: &'a [Option<serde_json::Value>],
+        names: &'a std::collections::HashMap<String, String>,
+        table: &'a PriceTable,
+    ) -> khaloni_poe2::appraise::Fetched<'a> {
+        khaloni_poe2::appraise::Fetched {
+            raw, total: Some(raw.len() as u64), now_unix: 1_790_000_000, my_account: "me", currency_names: names, table, divine_threshold: 100.0, built: None,
+        }
+    }
+    let b = khaloni_poe2::appraise::blocks(&fetched(&raw, &names, &table));
+    assert!(b.icon.as_deref().is_some_and(|u| u.contains("web.poecdn.com")));
+    let nulls: Vec<Option<serde_json::Value>> = vec![None, None];
+    assert_eq!(khaloni_poe2::appraise::blocks(&fetched(&nulls, &names, &table)).icon, None);
+    let mut no_icon = raw[0].clone().unwrap();
+    no_icon["item"].as_object_mut().unwrap().remove("icon");
+    assert_eq!(khaloni_poe2::appraise::blocks(&fetched(&[Some(no_icon)], &names, &table)).icon, None);
 }

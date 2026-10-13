@@ -1956,6 +1956,8 @@ pub struct Listing {
     pub account: String,
     pub indexed: String,
     pub item_name: String,
+    /// The item's art on GGG's CDN, as the API sends it; None when absent.
+    pub icon: Option<String>,
 }
 
 /// The listings of one fetch, and how many of the requested ones are not
@@ -2007,6 +2009,7 @@ struct RawItem {
     name: Option<String>,
     #[serde(rename = "baseType")]
     base_type: Option<String>,
+    icon: Option<String>,
 }
 
 pub fn parse_search(json: &str) -> Result<SearchResult, TradeError> {
@@ -2020,12 +2023,14 @@ pub fn parse_fetch(json: &str) -> Result<FetchOutcome, TradeError> {
     for entry in raw.iter().flatten() {
         let e: FetchEntry = serde_json::from_value(entry.clone())?;
         let Some(price) = e.listing.price else { continue };
+        let item = e.item;
         listings.push(Listing {
             price_amount: price.amount,
             price_currency: price.currency,
             account: e.listing.account.map(|a| a.name).unwrap_or_default(),
             indexed: e.listing.indexed.unwrap_or_default(),
-            item_name: e.item.and_then(|i| i.name.or(i.base_type)).unwrap_or_default(),
+            item_name: item.as_ref().and_then(|i| i.name.clone().or_else(|| i.base_type.clone())).unwrap_or_default(),
+            icon: item.and_then(|i| i.icon),
         });
     }
     let dropped = raw.len() - listings.len();
@@ -2465,4 +2470,25 @@ mod search_url_tests {
 /// Prefer [`TradeClient::cached_data`], which also keeps it on disk.
 pub fn fetch_stats_json() -> Result<String, TradeError> {
     TradeClient::new(TRADE_BASE, "")?.data_json(TradeData::Stats)
+}
+
+#[cfg(test)]
+mod fetch_tests {
+    use super::parse_fetch;
+
+    #[test]
+    fn parse_fetch_keeps_the_items_icon_url() {
+        let body = include_str!("../tests/fixtures/trade_fetch_full.json");
+        let out = parse_fetch(body).unwrap();
+        let first = out.listings.first().expect("a listing");
+        let icon = first.icon.as_deref().expect("an icon");
+        assert!(icon.starts_with("https://web.poecdn.com/gen/image/"), "{icon}");
+    }
+
+    #[test]
+    fn parse_fetch_tolerates_an_item_without_an_icon() {
+        let body = r#"{"result":[{"id":"a","listing":{"price":{"amount":1,"currency":"exalted"},"indexed":"2026-01-01T00:00:00Z","account":{"name":"x"}},"item":{"name":"Thing","baseType":"Base"}}]}"#;
+        let out = parse_fetch(body).unwrap();
+        assert_eq!(out.listings[0].icon, None);
+    }
 }
