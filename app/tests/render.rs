@@ -690,3 +690,53 @@ fn the_popup_title_is_drawn_in_the_name_face_on_the_dark_surface() {
     assert!(lit, "no title drawn");
     let _ = (pg, pb);
 }
+
+#[test]
+fn the_nameplate_is_tinted_with_the_rarity_colour_at_its_top() {
+    let r = Renderer::new().unwrap();
+    let panel = listing_panel(); // rarity "Rare"
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    let top = theme::blend(theme::BG_NAMEPLATE, theme::RARITY_RARE, theme::BANNER_TINT);
+    let (tr, tg, tb) = bytes(top);
+    // A pixel in the banner's top row, left of the name, right of the frame.
+    let y = (lay.banner.y + 1) as u32;
+    let got = rgb_of(&pm, 14, y);
+    assert!((got.0 as i32 - tr as i32).abs() <= 1 && (got.1 as i32 - tg as i32).abs() <= 1 && (got.2 as i32 - tb as i32).abs() <= 1,
+        "banner top {got:?} is not the rare tint {:?}", (tr, tg, tb));
+    // Its bottom row is the plain nameplate.
+    let (nr, ng, nb) = bytes(theme::BG_NAMEPLATE);
+    let bottom = rgb_of(&pm, 14, (lay.banner.y + lay.banner.h as i32 - 1) as u32);
+    assert!((bottom.0 as i32 - nr as i32).abs() <= 1 && (bottom.1 as i32 - ng as i32).abs() <= 1 && (bottom.2 as i32 - nb as i32).abs() <= 1, "banner bottom {bottom:?}");
+}
+
+#[test]
+fn group_headings_and_badge_pills_are_drawn_for_every_visible_group() {
+    let r = Renderer::new().unwrap();
+    let panel = full_panel(fixture_listing_rows());
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    let (pr, _, _) = bytes(theme::BG_PANEL);
+    for (baseline, _) in &lay.group_heads {
+        let y = (*baseline - 4) as u32;
+        let gold = (12..20u32).any(|x| rgb_of(&pm, x, y).0 > pr + 40);
+        assert!(gold, "no heading diamond at baseline {baseline}");
+    }
+}
+
+#[test]
+fn art_is_drawn_inside_its_slot_when_the_panel_has_it() {
+    let r = Renderer::new().unwrap();
+    let mut panel = listing_panel();
+    let mut img = image::RgbaImage::new(64, 64);
+    for p in img.pixels_mut() { *p = image::Rgba([0, 200, 0, 255]); }
+    panel.art = Some(ev::Art::new(img));
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let slot = lay.art.expect("slot");
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    let centre = rgb_of(&pm, (slot.x + 24) as u32, (slot.y + 24) as u32);
+    assert!(centre.1 > 150 && centre.0 < 60, "art not composited: {centre:?}");
+}
