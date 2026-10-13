@@ -2655,6 +2655,7 @@ fn build_panel(
     unsearchable: Vec<String>,
     extra: &[khaloni_poe2_core::ee2::request::ExtraRow],
     reference: Option<&khaloni_poe2::refcache::Reference>,
+    base_type: Option<String>,
 ) -> khaloni_poe2::evaluate_ui::Panel {
     // Affix index once per panel, not once per row: it is a map over the
     // whole affix export (tens of thousands of entries) and every row looks
@@ -2749,6 +2750,7 @@ fn build_panel(
             item_level: facts.as_ref().and_then(|f| f.item_level),
             requires_level: facts.as_ref().and_then(|f| f.requires_level),
             base,
+            base_type,
         },
         rows,
         extras,
@@ -4339,7 +4341,7 @@ fn overlay_mode(
                 // listings yet.
                 AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra } => {
                     let panel =
-                        build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get());
+                        build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), None /* Task 7 plumbs the base type */);
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)
@@ -5210,7 +5212,7 @@ mod main_tests {
     #[test]
     fn closing_the_panel_clears_everything_that_belongs_to_it() {
         use khaloni_poe2::evaluate_ui::Field;
-        let panel = super::build_panel("Horror Bane".into(), &Default::default(), &[], None, Vec::new(), &[], None);
+        let panel = super::build_panel("Horror Bane".into(), &Default::default(), &[], None, Vec::new(), &[], None, None);
         let mut apanel = Some((panel, khaloni_poe2_core::trade::Query::default(), (10, 10)));
         let mut editing = Some((2usize, Field::Min));
         let mut buf = String::from("41");
@@ -5248,7 +5250,7 @@ mod main_tests {
         };
         let labels = [label("23 to Accuracy Rating"), label("12% reduced Attribute Requirements")];
         let panel =
-            super::build_panel("X".into(), &query, &labels, None, vec!["Some unsearchable line".into()], &[], None);
+            super::build_panel("X".into(), &query, &labels, None, vec!["Some unsearchable line".into()], &[], None, None);
         assert_eq!(panel.rows[0].min, Some(23.0));
         assert_eq!((panel.rows[1].min, panel.rows[1].max), (None, Some(12.0)), "no bound is not a bound of 0");
         assert_eq!(panel.rows[2].min, None);
@@ -5288,7 +5290,7 @@ mod main_tests {
         };
         let extra =
             [line("+142 to maximum Life", "explicit.stat_3299347043"), line("+30 to Strength", "explicit.stat_4080418644")];
-        let mut panel = super::build_panel("X".into(), &query, &labels, None, Vec::new(), &extra, None);
+        let mut panel = super::build_panel("X".into(), &query, &labels, None, Vec::new(), &extra, None, None);
         let rows: Vec<usize> =
             (0..panel.rows.len()).filter(|i| matches!(panel.rows[*i].target, Some(Target::Extra(_)))).collect();
         assert_eq!(rows.len(), 2, "both lines are rows");

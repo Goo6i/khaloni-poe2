@@ -884,10 +884,10 @@ impl Renderer {
         );
         self.eval_rule(pm, ax, ay + head_y as f32 + 5.0, w);
 
-        // Block separators (implicit vs explicit), from the same layout
+        // Group headings, from the same layout
         // the hitboxes use so the line can never sit on a row.
-        for &dy in &lay.dividers {
-            self.eval_rule(pm, ax, ay + dy as f32, lay.size.0 as f32);
+        for (baseline, title) in &lay.group_heads {
+            self.section_heading(pm, ax + 12.0, ay + *baseline as f32, w - 24.0, title);
         }
         for (g, &i) in lay.rows.iter().zip(&lay.visible_rows) {
             let Some(row) = panel.rows.get(i) else { continue };

@@ -98,6 +98,7 @@ fn bare_panel() -> ev::Panel {
             item_level: Some(81),
             requires_level: None,
             base: None,
+            base_type: None,
         },
         rows: vec![ev::StatRow {
             label: "+60 to maximum Life".into(),

@@ -142,6 +142,7 @@ fn panel(name: &str, rarity: &str, rows: Vec<ev::StatRow>, status: &str) -> ev::
             item_level: Some(81),
             requires_level: Some(65),
             base: Some(ev::BaseToggle { label: "Category: Body Armour".into(), enabled: true }),
+            base_type: Some("Soldier Cuirass".into()),
         },
         rows,
         status: status.into(),

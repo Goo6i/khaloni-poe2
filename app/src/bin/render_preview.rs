@@ -84,6 +84,7 @@ fn main() -> anyhow::Result<()> {
             item_level: Some(81),
             requires_level: Some(67),
             base: Some(ev::BaseToggle { label: "Expert Dualstring Bow".into(), enabled: true }),
+            base_type: None,
         },
         rows: vec![
             weapon_row("Physical DPS", 412.6, ev::EquipKey::Pdps, true),
@@ -151,6 +152,7 @@ fn main() -> anyhow::Result<()> {
             item_level: Some(74),
             requires_level: None,
             base: None,
+            base_type: None,
         },
         show_hidden: true,
         strictness: ev::Strictness::Quick,

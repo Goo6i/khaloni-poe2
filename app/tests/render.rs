@@ -279,6 +279,7 @@ fn a_line_without_a_trade_id_draws_no_checkbox_and_no_value_wells() {
             item_level: Some(82),
             requires_level: None,
             base: None,
+            base_type: None,
         },
         rows,
         extras,
@@ -345,6 +346,7 @@ fn listing_panel() -> ev::Panel {
             item_level: Some(81),
             requires_level: Some(65),
             base: Some(ev::BaseToggle { label: "Category: Body Armour".into(), enabled: true }),
+            base_type: None,
         },
         rows: vec![
             ev::StatRow {
