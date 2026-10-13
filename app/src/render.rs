@@ -4,7 +4,10 @@ use std::rc::Rc;
 
 use fontdue::{Font, FontSettings, Metrics};
 use image::RgbaImage;
-use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect as SkRect, Stroke, Transform};
+use tiny_skia::{
+    Color, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap, Point, Rect as SkRect, SpreadMode, Stroke,
+    Transform,
+};
 
 use crate::hover::Popup;
 use crate::ornament::{self, DeviceRect, FrameMetrics, Placed as OrnamentPlaced, Scale, SpriteCache, RULE_DIAMOND};
@@ -465,10 +468,8 @@ impl Renderer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn rounded(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, radius: f32,
-               fill: Option<Color>, stroke: Option<(Color, f32)>) {
-        let Some(rect) = SkRect::from_xywh(x, y, w, h) else { return };
+    fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<tiny_skia::Path> {
+        let rect = SkRect::from_xywh(x, y, w, h)?;
         let r = radius.min(w / 2.0).min(h / 2.0);
         let mut pb = PathBuilder::new();
         pb.move_to(rect.left() + r, rect.top());
@@ -481,7 +482,13 @@ impl Renderer {
         pb.line_to(rect.left(), rect.top() + r);
         pb.quad_to(rect.left(), rect.top(), rect.left() + r, rect.top());
         pb.close();
-        let Some(path) = pb.finish() else { return };
+        pb.finish()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rounded(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, radius: f32,
+               fill: Option<Color>, stroke: Option<(Color, f32)>) {
+        let Some(path) = Self::rounded_path(x, y, w, h, radius) else { return };
         if let Some(c) = fill {
             let mut paint = Paint::default();
             paint.set_color(c);
@@ -535,15 +542,26 @@ impl Renderer {
         if enabled {
             let top = blend(theme::PLATE_TOP, theme::GOLD, 0.16 * hover);
             let bottom = blend(theme::PLATE_BOTTOM, theme::GOLD, 0.08 * hover);
-            // Two bands: tiny-skia has gradients, but two flat halves read the
-            // same at these heights and keep the renderer's one paint path.
-            self.rounded(pm, x, y, w, h / 2.0 + 1.0, theme::CONTROL_RADIUS, Some(theme::color(top)), None);
-            self.rounded(pm, x, y + h / 2.0, w, h / 2.0, theme::CONTROL_RADIUS, Some(theme::color(bottom)), None);
+            // One rounded path under a vertical gradient (logical points; the
+            // fill goes through `xf` like every path).
+            if let Some(path) = Self::rounded_path(x, y, w, h, theme::CONTROL_RADIUS) {
+                let shader = LinearGradient::new(
+                    Point::from_xy(x, y),
+                    Point::from_xy(x, y + h),
+                    vec![GradientStop::new(0.0, theme::color(top)), GradientStop::new(1.0, theme::color(bottom))],
+                    SpreadMode::Pad,
+                    Transform::identity(),
+                );
+                if let Some(shader) = shader {
+                    let paint = Paint { shader, anti_alias: true, ..Default::default() };
+                    pm.fill_path(&path, &paint, tiny_skia::FillRule::Winding, self.xf(), None);
+                }
+            }
             self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, None, Some((theme::color(theme::BORDER_GOLD), 1.0)));
         } else {
             self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, Some(theme::color(theme::BG_FIELD)), Some((theme::color(theme::BORDER_FIELD), 1.0)));
         }
-        let ink = if enabled { blend(theme::GOLD_LIGHT, theme::TEXT, 0.0) } else { theme::TEXT_DIM };
+        let ink = if enabled { theme::GOLD_LIGHT } else { theme::TEXT_DIM };
         let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: theme::color(ink) };
         let tw = self.text_width(FontKind::Amount, label, 16.0);
         self.draw_text(pm, x + (w - tw).max(0.0) / 2.0, y + h - 8.0, label, &style);

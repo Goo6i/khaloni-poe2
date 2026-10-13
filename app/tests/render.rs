@@ -630,3 +630,24 @@ fn a_top_tier_badge_is_filled_gold_and_a_lower_one_is_outlined() {
     let (pr, pg, pb) = bytes(theme::BG_PANEL);
     assert_eq!(rgb_of(&pm, 103, 13), (pr, pg, pb, 255), "outlined badge keeps the panel inside");
 }
+
+#[test]
+fn the_plate_button_fills_its_edges_at_mid_height_without_a_seam() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(160, 60).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    let rect = khaloni_poe2::config::Rect { x: 10, y: 10, w: 120, h: 28 };
+    r.plate_button(&mut pm, &rect, 0.0, 0.0, "Search", 0.0, true);
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // Two px inside the left and right edges at the vertical middle: plate, not panel.
+    for x in [12u32, 13, 126, 127] {
+        for y in [23u32, 24, 25] {
+            let px = rgb_of(&pm, x, y);
+            assert_ne!((px.0, px.1, px.2), (pr, pg, pb), "panel shows through the plate at ({x}, {y})");
+        }
+    }
+    // The top of the plate is lighter than its bottom (the gradient runs down).
+    let top = rgb_of(&pm, 60, 13);
+    let bottom = rgb_of(&pm, 60, 35);
+    assert!(top.0 > bottom.0, "gradient top {top:?} should be lighter than bottom {bottom:?}");
+}
