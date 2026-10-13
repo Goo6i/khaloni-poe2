@@ -855,7 +855,8 @@ pub fn stash_needle_options(user_good: &[String]) -> Vec<String> {
         .collect();
     for n in user_good {
         let t = n.trim();
-        // Skip empties: the "+ Add" button creates blank rows while typing.
+        // Skip empties: Add trims its input and rejects a blank one, but a
+        // config edited by hand can still hold one.
         if !t.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(t)) {
             out.push(t.to_string());
         }
@@ -864,7 +865,7 @@ pub fn stash_needle_options(user_good: &[String]) -> Vec<String> {
 }
 
 /// Needle list with autocomplete from the mod database: the marked mods in
-/// one card, a field to add another under it. Suggestion visibility is keyed
+/// one card, each an editable field with Remove, and a field to add another. Suggestion visibility is keyed
 /// off `suggest`, not widget focus: a click on a suggestion button takes
 /// focus from the text field, and focus-gated suggestions would vanish one
 /// frame before the click could land.
@@ -882,23 +883,28 @@ fn string_list(
         let mut remove: Option<usize> = None;
         st::card(ui, id, |ui| {
             let n = items.len();
-            for (i, s) in items.iter().enumerate() {
+            for (i, s) in items.iter_mut().enumerate() {
+                // The field is the row: it carries the needle text, a blank
+                // needle shows as an empty field, and Remove sits at the edge.
                 let body = |ui: &mut egui::Ui| {
                     if st::button(ui, "Remove").clicked() {
                         remove = Some(i);
                     }
+                    let w = (ui.available_width() - 8.0).max(120.0);
+                    ui.add(egui::TextEdit::singleline(s).desired_width(w));
                 };
                 ui.push_id(i, |ui| {
                     if i + 1 == n {
-                        st::row_last(ui, s, None, body)
+                        st::row_last(ui, "", None, body)
                     } else {
-                        st::row(ui, s, None, body)
+                        st::row(ui, "", None, body)
                     }
                 });
             }
         });
         if let Some(i) = remove {
             items.remove(i);
+            *suggest = None;
         }
     }
     // The add field's suggestions live under a slot past every item.

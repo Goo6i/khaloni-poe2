@@ -286,13 +286,17 @@ pub fn row_last(ui: &mut Ui, label: &str, description: Option<&str>, control: im
 fn row_inner(ui: &mut Ui, label: &str, description: Option<&str>, last: bool, control: impl FnOnce(&mut Ui)) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(ui.available_width() * 0.6);
-            ui.label(egui::RichText::new(label).size(16.0).color(color32(theme::TEXT)));
-            if let Some(d) = description {
-                ui.label(egui::RichText::new(d).small().color(color32(theme::TEXT_DIM)));
-            }
-        });
+        // A row with no label and no description is all control: no left
+        // column, so the control gets the whole width.
+        if !label.is_empty() || description.is_some() {
+            ui.vertical(|ui| {
+                ui.set_width(ui.available_width() * 0.6);
+                ui.label(egui::RichText::new(label).size(16.0).color(color32(theme::TEXT)));
+                if let Some(d) = description {
+                    ui.label(egui::RichText::new(d).small().color(color32(theme::TEXT_DIM)));
+                }
+            });
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| control(ui));
     });
     ui.add_space(8.0);
