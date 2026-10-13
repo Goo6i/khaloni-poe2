@@ -209,7 +209,7 @@ fn render(r: &Renderer, p: &ev::Panel, path: &std::path::Path, drawn: &mut Strin
     // A mid-dark backdrop standing in for the game, so the panel's own
     // translucent fill reads the way it does in play.
     pm.fill(Color::from_rgba8(0x2A, 0x2E, 0x33, 0xFF));
-    r.draw_evaluate(&mut pm, p, &lay, (20 - x0, 20), None, "");
+    r.draw_evaluate(&mut pm, p, &lay, (20 - x0, 20), None, "", std::time::Instant::now());
     pm.save_png(path)?;
     println!("{} {}x{}", path.display(), w, h);
     Ok(())

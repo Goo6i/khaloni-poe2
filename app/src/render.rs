@@ -853,6 +853,7 @@ impl Renderer {
     ///
     /// `editing` names the box being typed into as (index into `panel.rows`,
     /// field).
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_evaluate(
         &self,
         pm: &mut Pixmap,
@@ -861,6 +862,50 @@ impl Renderer {
         anchor: (i32, i32),
         editing: Option<(usize, crate::evaluate_ui::Field)>,
         edit_buf: &str,
+        now: std::time::Instant,
+    ) {
+        let appear = crate::evaluate_ui::eased(panel.opened_at, now, theme::APPEAR);
+        if appear >= 1.0 {
+            self.draw_evaluate_into(pm, panel, lay, anchor, editing, edit_buf, now);
+            return;
+        }
+        // Opening: draw the panel, and the hover card beside it if there is
+        // one, into a scratch pixmap sized to their union (the card can sit
+        // left of the panel, at negative x), then lay it over `pm` faint and
+        // lowered.
+        let scale = self.scale.get();
+        let (mut x0, mut y0, mut x1, mut y1) = (0, 0, lay.size.0, lay.size.1);
+        if let Some(c) = lay.card.as_ref().filter(|_| panel.hover.is_some()) {
+            x0 = x0.min(c.rect.x);
+            y0 = y0.min(c.rect.y);
+            x1 = x1.max(c.rect.x + c.rect.w as i32);
+            y1 = y1.max(c.rect.y + c.rect.h as i32);
+        }
+        let (dw, dh) = (((x1 - x0) as f32 * scale).ceil() as u32, ((y1 - y0) as f32 * scale).ceil() as u32);
+        let Some(mut tmp) = Pixmap::new(dw.max(1), dh.max(1)) else { return };
+        self.draw_evaluate_into(&mut tmp, panel, lay, (-x0, -y0), editing, edit_buf, now);
+        let rise = (1.0 - appear) * theme::APPEAR_RISE * scale;
+        let paint = tiny_skia::PixmapPaint { opacity: appear, ..Default::default() };
+        pm.draw_pixmap(
+            ((anchor.0 + x0) as f32 * scale).round() as i32,
+            ((anchor.1 + y0) as f32 * scale + rise).round() as i32,
+            tmp.as_ref(),
+            &paint,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_evaluate_into(
+        &self,
+        pm: &mut Pixmap,
+        panel: &crate::evaluate_ui::Panel,
+        lay: &crate::evaluate_ui::Layout,
+        anchor: (i32, i32),
+        editing: Option<(usize, crate::evaluate_ui::Field)>,
+        edit_buf: &str,
+        now: std::time::Instant,
     ) {
         use crate::evaluate_ui::{AffixKind, Field, SellerState};
         let f = panel;
@@ -1128,14 +1173,18 @@ impl Renderer {
             self.draw_text(pm, mx + side + 6.0, by + bh - 6.0, s.label(), &style);
         }
 
-        for (rect, action, label) in &lay.buttons {
+        for (i, (rect, action, label)) in lay.buttons.iter().enumerate() {
+            let hover = panel
+                .button_hover
+                .filter(|(j, _)| *j == i)
+                .map_or(0.0, |(_, at)| crate::evaluate_ui::eased(Some(at), now, theme::TRANSITION));
             // Search reads as switched off while one is running: a press
             // on it is not sent (see `Panel::searching`).
             let off = panel.searching && *action == crate::evaluate_ui::Action::Search;
             if *action == crate::evaluate_ui::Action::Search {
-                self.plate_button(pm, rect, ax, ay, label, 0.0, !off);
+                self.plate_button(pm, rect, ax, ay, label, hover, !off);
             } else {
-                self.outlined_button(pm, rect, ax, ay, label, 0.0, true);
+                self.outlined_button(pm, rect, ax, ay, label, hover, true);
             }
         }
         if !panel.status.is_empty() {
@@ -1199,11 +1248,12 @@ impl Renderer {
             for (i, (rect, row)) in t.rows.iter().zip(&f.listings).enumerate() {
                 let (rx, ry) = (ax + rect.x as f32, ay + rect.y as f32);
                 if f.hover == Some(i) {
+                    let lift = crate::evaluate_ui::eased(f.hover_at, now, theme::TRANSITION);
                     self.fill_device(
                         pm,
                         self.device_rect(rx, ry, rect.w as f32, rect.h as f32),
                         theme::BG_BUTTON_HOVER,
-                        0xff,
+                        (lift * 255.0) as u8,
                     );
                 }
                 let baseline = ry + rect.h as f32 - 6.0;

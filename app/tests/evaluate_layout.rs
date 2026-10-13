@@ -95,3 +95,28 @@ fn late_art_lands_only_on_the_panel_it_was_fetched_for() {
     ev::apply_art(&mut p, "Item", ev::Art::new(image::RgbaImage::new(1, 1)));
     assert!(p.art.is_some());
 }
+
+#[test]
+fn a_panel_animates_only_within_its_appear_and_hover_windows() {
+    use std::time::{Duration, Instant};
+    let t0 = Instant::now();
+    let mut p = panel(None, false);
+    assert!(!ev::animating(&p, t0), "nothing started");
+    p.opened_at = Some(t0);
+    assert!(ev::animating(&p, t0 + Duration::from_millis(100)));
+    assert!(!ev::animating(&p, t0 + Duration::from_millis(200)));
+    p.hover_at = Some(t0 + Duration::from_millis(500));
+    assert!(ev::animating(&p, t0 + Duration::from_millis(600)));
+    assert!(!ev::animating(&p, t0 + Duration::from_millis(700)));
+    p.button_hover = Some((0, t0 + Duration::from_secs(1)));
+    assert!(ev::animating(&p, t0 + Duration::from_millis(1100)));
+    assert!(!ev::animating(&p, t0 + Duration::from_millis(1200)));
+}
+
+#[test]
+fn button_at_names_the_button_under_a_point() {
+    let lay = ev::layout(&panel(None, false), &measure);
+    let (rect, _, _) = &lay.buttons[0];
+    assert_eq!(ev::button_at(&lay, rect.x + 1, rect.y + 1), Some(0));
+    assert_eq!(ev::button_at(&lay, rect.x - 1, rect.y + 1), None);
+}

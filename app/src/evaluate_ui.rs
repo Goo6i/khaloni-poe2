@@ -581,6 +581,13 @@ pub struct Panel {
     /// edge, when the caller knows it: the hover card goes left of the
     /// panel when it would not fit on the right. None puts it on the right.
     pub screen_right: Option<i32>,
+    /// When the panel opened: it rises and fades in over `theme::APPEAR`.
+    pub opened_at: Option<std::time::Instant>,
+    /// When `hover` last changed: the row's lift eases over `theme::TRANSITION`.
+    pub hover_at: Option<std::time::Instant>,
+    /// The button under the pointer (index into `Layout::buttons`) and when
+    /// it came under it.
+    pub button_hover: Option<(usize, std::time::Instant)>,
 }
 
 /// A table under the card: the caption line, the left edge of each
@@ -1514,6 +1521,28 @@ fn row_under(lay: &Layout, x: i32, y: i32) -> Option<usize> {
 /// none. Polled on motion, unlike `hit`, which answers clicks.
 pub fn hover_hit(lay: &Layout, x: i32, y: i32) -> Option<usize> {
     row_under(lay, x, y)
+}
+
+/// How far an animation that began at `start` has come at `now`, eased,
+/// 0 at the start and 1 once `window` has passed. No start is settled.
+pub fn eased(start: Option<std::time::Instant>, now: std::time::Instant, window: std::time::Duration) -> f32 {
+    start.map_or(1.0, |s| crate::theme::ease(now.saturating_duration_since(s).as_secs_f32() / window.as_secs_f32()))
+}
+
+/// Whether a frame drawn at `now` would differ from the last: an animation
+/// is live within its window after its start.
+pub fn animating(panel: &Panel, now: std::time::Instant) -> bool {
+    let live = |start: Option<std::time::Instant>, window: std::time::Duration| {
+        start.is_some_and(|s| now.saturating_duration_since(s) < window)
+    };
+    live(panel.opened_at, crate::theme::APPEAR)
+        || live(panel.hover_at, crate::theme::TRANSITION)
+        || live(panel.button_hover.map(|(_, at)| at), crate::theme::TRANSITION)
+}
+
+/// The button under (`x`, `y`) in panel-local px.
+pub fn button_at(lay: &Layout, x: i32, y: i32) -> Option<usize> {
+    lay.buttons.iter().position(|(r, _, _)| inside(r, x, y))
 }
 
 /// Every string the panel draws, for checks against the overlay face and

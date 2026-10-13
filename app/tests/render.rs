@@ -288,7 +288,7 @@ fn a_line_without_a_trade_id_draws_no_checkbox_and_no_value_wells() {
     let r = Renderer::new().unwrap();
     let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
     let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32 + 20, lay.size.1 as u32 + 20).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (10, 10), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (10, 10), None, "", std::time::Instant::now());
 
     let colours = |pm: &tiny_skia::Pixmap, rect: &khaloni_poe2::config::Rect| {
         let mut seen = std::collections::BTreeSet::new();
@@ -462,7 +462,7 @@ fn the_card_draws_every_line_with_its_tier_badge() {
     let w = (ax + card.rect.x + card.rect.w as i32 + 10) as u32;
     let h = (ay + lay.size.1.max(card.rect.y + card.rect.h as i32) + 10) as u32;
     let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (ax, ay), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (ax, ay), None, "", std::time::Instant::now());
 
     let painted_in = |x0: i32, y0: i32, x1: i32, y1: i32, keep: &dyn Fn(u8, u8, u8) -> bool| {
         let mut n = 0;
@@ -697,7 +697,7 @@ fn the_nameplate_is_tinted_with_the_rarity_colour_at_its_top() {
     let panel = listing_panel(); // rarity "Rare"
     let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
     let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
     let top = theme::blend(theme::BG_NAMEPLATE, theme::RARITY_RARE, theme::BANNER_TINT);
     let (tr, tg, tb) = bytes(top);
     // A pixel in the banner's top row, left of the name, right of the frame.
@@ -717,7 +717,7 @@ fn group_headings_and_badge_pills_are_drawn_for_every_visible_group() {
     let panel = full_panel(fixture_listing_rows());
     let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
     let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
     let (pr, _, _) = bytes(theme::BG_PANEL);
     for (baseline, _) in &lay.group_heads {
         let y = (*baseline - 4) as u32;
@@ -767,7 +767,30 @@ fn art_is_drawn_inside_its_slot_when_the_panel_has_it() {
     let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
     let slot = lay.art.expect("slot");
     let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
     let centre = rgb_of(&pm, (slot.x + 24) as u32, (slot.y + 24) as u32);
     assert!(centre.1 > 150 && centre.0 < 60, "art not composited: {centre:?}");
+}
+
+#[test]
+fn an_opening_panel_is_drawn_faint_and_risen_then_settles() {
+    use std::time::{Duration, Instant};
+    let r = Renderer::new().unwrap();
+    let mut panel = listing_panel();
+    let t0 = Instant::now();
+    panel.opened_at = Some(t0);
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let size = ((lay.size.0 + 20) as u32, (lay.size.1 + 20) as u32);
+    let mut early = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut early, &panel, &lay, (10, 10), None, "", t0 + Duration::from_millis(10));
+    let mut late = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut late, &panel, &lay, (10, 10), None, "", t0 + Duration::from_secs(1));
+    let mid = (10 + lay.size.0 / 2) as u32;
+    let y = (10 + lay.size.1 / 2) as u32;
+    assert!(early.pixel(mid, y).unwrap().alpha() < late.pixel(mid, y).unwrap().alpha(), "early frame is fainter");
+    assert_eq!(late.pixel(mid, y).unwrap().alpha(), 255, "settled frame is opaque");
+    // Risen: the top frame line is lower early than late.
+    let top_late = (10..30u32).find(|yy| late.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+    let top_early = (10..30u32).find(|yy| early.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+    assert!(top_early > top_late, "early {top_early} should sit below late {top_late}");
 }

@@ -4414,6 +4414,7 @@ fn overlay_mode(
                     close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
                     let mut panel = panel;
                     panel.screen_right = Some(overlay.output_pos().0 + overlay.size().0 as i32 - pos.0);
+                    panel.opened_at = Some(std::time::Instant::now());
                     apanel = Some((panel, *query, pos));
                     overlay.set_keyboard(false)?;
                     sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
@@ -4653,6 +4654,7 @@ fn overlay_mode(
                     // at it does.
                     Some(khaloni_poe2::evaluate_ui::Action::HoverRow(i)) => {
                         panel.hover = Some(i);
+                        panel.hover_at = Some(std::time::Instant::now());
                     }
                     // One search at a time: a press while one runs is not
                     // sent (the button is drawn switched off meanwhile).
@@ -4817,8 +4819,13 @@ fn overlay_mode(
                     None if over_card => p.hover,
                     None => None,
                 };
+                let button = khaloni_poe2::evaluate_ui::button_at(&lay, local.0, local.1);
+                if button != p.button_hover.map(|(i, _)| i) {
+                    p.button_hover = button.map(|i| (i, std::time::Instant::now()));
+                }
                 if hover != p.hover {
                     p.hover = hover;
+                    p.hover_at = Some(std::time::Instant::now());
                     sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
             }
@@ -5170,7 +5177,9 @@ fn overlay_mode(
             // visibility) actually changed since the last tick. Including
             // the popup here is what makes its 6s expiry repaint the frame
             // to clear it, even though nothing else about the rows changed.
-            if resized || frame_state != last_frame {
+            let now = std::time::Instant::now();
+            let animating = apanel.as_ref().is_some_and(|(p, _, _)| khaloni_poe2::evaluate_ui::animating(p, now));
+            if resized || animating || frame_state != last_frame {
                 match &frame_state {
                     Some((placed, rate, stale, popup, panel, rumours, edit_state, mkt_state, craft_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
@@ -5187,7 +5196,7 @@ fn overlay_mode(
                             });
                             let ed = edit_state.as_ref().map(|(i, f, _)| (*i, *f));
                             let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
-                            renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf);
+                            renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf, now);
                         }
                         if let Some((p, anchor)) = mkt_state {
                             let lay = khaloni_poe2::market_ui::layout(p, &|s| {
