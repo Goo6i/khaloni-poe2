@@ -560,3 +560,73 @@ fn a_long_closest_line_wraps_inside_the_panel() {
     let drawn = ev::all_text(&panel, &measure);
     assert!(g.texts.iter().all(|t| drawn.contains(t)), "the labels list the wrapped lines as drawn");
 }
+
+use khaloni_poe2::ornament::{FrameMetrics, Scale};
+use khaloni_poe2::theme;
+
+fn rgb_of(pm: &tiny_skia::Pixmap, x: u32, y: u32) -> (u8, u8, u8, u8) {
+    let p = pm.pixel(x, y).expect("inside");
+    // tiny-skia stores premultiplied; demultiply for an opaque pixel.
+    (p.red(), p.green(), p.blue(), p.alpha())
+}
+
+fn bytes(c: u32) -> (u8, u8, u8) {
+    (((c >> 16) & 0xff) as u8, ((c >> 8) & 0xff) as u8, (c & 0xff) as u8)
+}
+
+#[test]
+fn the_frame_outer_line_lands_on_the_surface_edge_at_every_scale() {
+    let r = Renderer::new().unwrap();
+    for scale in [1.0f32, 1.25, 1.5, 2.0] {
+        r.set_scale(scale);
+        let (w, h) = ((200.0 * scale).ceil() as u32, (100.0 * scale).ceil() as u32);
+        let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
+        r.surface(&mut pm, 0.0, 0.0, 200.0, 100.0);
+        let metrics = FrameMetrics::new(Scale { device: scale, unit: 1.0 });
+        let mid = h / 2;
+        let (gr, gg, gb) = bytes(theme::BORDER_GOLD);
+        let (pr, pg, pb) = bytes(theme::BG_PANEL);
+        // Outer line: the first column, dim gold, one hairline wide.
+        assert_eq!(rgb_of(&pm, 0, mid), (gr, gg, gb, 255), "scale {scale}: outer line");
+        let after_outer = metrics.line as u32;
+        assert_eq!(rgb_of(&pm, after_outer, mid), (pr, pg, pb, 255), "scale {scale}: panel right after the outer line");
+        // Inner line: `gap` in, gold over panel at 30 %, then panel again.
+        let inner = metrics.gap as u32;
+        assert_ne!(rgb_of(&pm, inner, mid), (pr, pg, pb, 255), "scale {scale}: inner line painted");
+        assert_eq!(rgb_of(&pm, inner + metrics.line as u32, mid), (pr, pg, pb, 255), "scale {scale}: panel after inner line");
+        // The last column is the outer line too.
+        assert_eq!(rgb_of(&pm, w - 1, mid), (gr, gg, gb, 255), "scale {scale}: right outer line");
+    }
+}
+
+#[test]
+fn a_section_heading_paints_a_gold_diamond_before_its_text_and_a_rule_after() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(400, 40).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    r.section_heading(&mut pm, 10.0, 24.0, 380.0, "Prefixes · 3");
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // Something gold-ish in the first 8 px (the diamond).
+    let diamond = (10..18u32).any(|x| (14..26u32).any(|y| rgb_of(&pm, x, y).0 > pr + 40));
+    assert!(diamond, "no diamond painted");
+    // The rule runs to the right edge: painted near x=380, fading, so lighter than panel.
+    let rule_px = rgb_of(&pm, 120, 19);
+    assert!(rule_px.0 > pr, "rule not painted at x=120: {rule_px:?}");
+    assert_eq!(rgb_of(&pm, 395, 5), (pr, pg, pb, 255), "nothing above the heading row");
+}
+
+#[test]
+fn a_top_tier_badge_is_filled_gold_and_a_lower_one_is_outlined() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(200, 40).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    let w1 = r.tier_badge(&mut pm, 10.0, 10.0, "P1", theme::AFFIX_PREFIX, true);
+    let w2 = r.tier_badge(&mut pm, 100.0, 10.0, "S3", theme::AFFIX_SUFFIX, false);
+    assert!(w1 > 16.0 && w2 > 16.0);
+    let (tr, tg, tb) = bytes(theme::TIER_TOP);
+    // Inside the top badge, away from its text: the gold fill.
+    assert_eq!(rgb_of(&pm, 12, 12), (tr, tg, tb, 255), "top badge fill");
+    // Inside the outlined badge, away from its text and edge: still panel.
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    assert_eq!(rgb_of(&pm, 103, 13), (pr, pg, pb, 255), "outlined badge keeps the panel inside");
+}

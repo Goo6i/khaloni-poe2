@@ -1,12 +1,15 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use fontdue::{Font, FontSettings, Metrics};
 use image::RgbaImage;
 use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect as SkRect, Stroke, Transform};
 
 use crate::hover::Popup;
+use crate::ornament::{self, DeviceRect, FrameMetrics, Placed as OrnamentPlaced, Scale, SpriteCache, RULE_DIAMOND};
 use crate::pricing::{Denom, Tier};
+use crate::theme::{self, blend};
 
 #[derive(Clone, PartialEq)]
 pub struct Placed {
@@ -64,6 +67,7 @@ pub struct Renderer {
     icon_exalted: RgbaImage,
     icon_chaos: RgbaImage,
     icons_scaled: RefCell<HashMap<(u8, u32), RgbaImage>>,
+    sprites: RefCell<SpriteCache<Rc<RgbaImage>>>,
 }
 
 const FONTIN_REGULAR: &[u8] = include_bytes!("../assets/fonts/Fontin-Regular.ttf");
@@ -91,19 +95,17 @@ const POPUP_LINE_PX: f32 = 18.0;
 const POPUP_PAD: f32 = 12.0;
 const POPUP_ROW_GAP: f32 = 6.0;
 
-// Shared design system with the control panel (settings-mockup.html): warm
-// near-black chrome, bronze hairlines, off-white text, grey/blue/gold value
-// tiers. The overlay reads as one tool with the settings window.
-const C_PANEL: (u8, u8, u8, u8) = (0x1C, 0x16, 0x0F, 238); // pill/panel fill (near-opaque over the game)
-const C_INK: (u8, u8, u8) = (0xEA, 0xE0, 0xCB); // primary text
+// Reward-row pill palette (unchanged by the restyle; see theme.rs).
+const C_PANEL: (u8, u8, u8, u8) = theme::REWARD_PANEL;
+const C_INK: (u8, u8, u8) = theme::REWARD_INK;
 const C_INK2: (u8, u8, u8) = (0xB3, 0xA3, 0x82); // secondary / descriptions
-const C_LINE: (u8, u8, u8) = (0x37, 0x2C, 0x1E); // subtle hairline
-const C_BRONZE: (u8, u8, u8) = (0x6B, 0x56, 0x37); // default border
-const C_GOLD: (u8, u8, u8) = (0xC9, 0xA2, 0x27); // jackpot / best
-const C_BLUE: (u8, u8, u8) = (0x2E, 0x5A, 0x8A); // decent border
-const C_BLUE_LT: (u8, u8, u8) = (0x7F, 0xA8, 0xD6); // decent text (readable on dark)
-const C_JUNK_LT: (u8, u8, u8) = (0xB7, 0xAB, 0x97); // junk text
-const C_RED: (u8, u8, u8) = (0x8B, 0x3A, 0x2E); // stale / danger
+const C_LINE: (u8, u8, u8) = theme::REWARD_LINE;
+const C_BRONZE: (u8, u8, u8) = theme::REWARD_BRONZE;
+const C_GOLD: (u8, u8, u8) = theme::REWARD_GOLD;
+const C_BLUE: (u8, u8, u8) = theme::REWARD_BLUE;
+const C_BLUE_LT: (u8, u8, u8) = theme::REWARD_BLUE_LT;
+const C_JUNK_LT: (u8, u8, u8) = theme::REWARD_JUNK_LT;
+const C_RED: (u8, u8, u8) = theme::REWARD_RED;
 const C_UNIQUE: (u8, u8, u8) = (0xAF, 0x60, 0x25); // unique item name, the game's own orange
 // Suffix badges: a warm amber against the prefixes' C_BLUE_LT, so the two
 // affix families split cool/warm at a glance without inventing a hue
@@ -216,6 +218,7 @@ impl Renderer {
             icon_exalted: load_icon(ICON_EXALTED_PNG)?,
             icon_chaos: load_icon(ICON_CHAOS_PNG)?,
             icons_scaled: RefCell::new(HashMap::new()),
+            sprites: RefCell::new(SpriteCache::new(ornament::CACHE_CAPACITY)),
         })
     }
 
@@ -235,6 +238,7 @@ impl Renderer {
         // Entries for the old scale would never be read again.
         self.glyph_cache.borrow_mut().clear();
         self.icons_scaled.borrow_mut().clear();
+        *self.sprites.borrow_mut() = SpriteCache::new(ornament::CACHE_CAPACITY);
         true
     }
 
@@ -351,21 +355,121 @@ impl Renderer {
                 continue;
             }
             let idx = ((px_y * w + px_x) * 4) as usize;
-            let sa = u32::from(a);
-            let sr = u32::from(r) * sa / 255;
-            let sg = u32::from(g) * sa / 255;
-            let sb = u32::from(b) * sa / 255;
-            let inv = 255 - sa;
-            data[idx] = (sr + u32::from(data[idx]) * inv / 255) as u8;
-            data[idx + 1] = (sg + u32::from(data[idx + 1]) * inv / 255) as u8;
-            data[idx + 2] = (sb + u32::from(data[idx + 2]) * inv / 255) as u8;
-            data[idx + 3] = (sa + u32::from(data[idx + 3]) * inv / 255) as u8;
+            Self::over(data, idx, (r, g, b), a);
         }
     }
 
     fn pill(&self, pm: &mut Pixmap, x: f32, y_top: f32, w: f32, h: f32, border: Color) {
-        let Some(rect) = SkRect::from_xywh(x, y_top, w, h) else { return };
-        let r = PILL_CORNER.min(w / 2.0).min(h / 2.0);
+        self.rounded(pm, x, y_top, w, h, PILL_CORNER, Some(pill_fill_color()), Some((border, PILL_BORDER_WIDTH)));
+    }
+
+    fn device_scale(&self) -> Scale {
+        Scale { device: self.scale.get(), unit: 1.0 }
+    }
+
+    fn device_rect(&self, x: f32, y: f32, w: f32, h: f32) -> DeviceRect {
+        let s = self.device_scale();
+        DeviceRect::new(s.device(x), s.device(y), s.device(x + w), s.device(y + h))
+    }
+
+    /// Straight-alpha `rgb` at `a` over one premultiplied pixel of `data`.
+    #[inline]
+    fn over(data: &mut [u8], idx: usize, (r, g, b): (u8, u8, u8), a: u8) {
+        let sa = u32::from(a);
+        let inv = 255 - sa;
+        data[idx] = (u32::from(r) * sa / 255 + u32::from(data[idx]) * inv / 255) as u8;
+        data[idx + 1] = (u32::from(g) * sa / 255 + u32::from(data[idx + 1]) * inv / 255) as u8;
+        data[idx + 2] = (u32::from(b) * sa / 255 + u32::from(data[idx + 2]) * inv / 255) as u8;
+        data[idx + 3] = (sa + u32::from(data[idx + 3]) * inv / 255) as u8;
+    }
+
+    /// A quad of `color` at `alpha` over `rect` (device px).
+    fn fill_device(&self, pm: &mut Pixmap, rect: DeviceRect, color: u32, alpha: u8) {
+        let (w, h) = (pm.width() as i32, pm.height() as i32);
+        let rgb = (((color >> 16) & 0xff) as u8, ((color >> 8) & 0xff) as u8, (color & 0xff) as u8);
+        let data = pm.data_mut();
+        for y in rect.top.max(0)..rect.bottom.min(h) {
+            for x in rect.left.max(0)..rect.right.min(w) {
+                Self::over(data, ((y * w + x) * 4) as usize, rgb, alpha);
+            }
+        }
+    }
+
+    /// `placed`'s sprite from the cache (rasterised on first use), blitted
+    /// where it shows. Sprite pixels are BGRA straight alpha.
+    fn blit_sprite(&self, pm: &mut Pixmap, placed: &OrnamentPlaced) {
+        let (pixels, _evicted) = self.sprites.borrow_mut().get(placed.sprite, |s| Rc::new(ornament::rasterize(s)));
+        let (w, h) = (pm.width() as i32, pm.height() as i32);
+        let shown = placed.shown;
+        let data = pm.data_mut();
+        for y in shown.top.max(0)..shown.bottom.min(h) {
+            for x in shown.left.max(0)..shown.right.min(w) {
+                let image::Rgba([b, g, r, a]) =
+                    *pixels.get_pixel((x - placed.rect.left) as u32, (y - placed.rect.top) as u32);
+                if a == 0 {
+                    continue;
+                }
+                Self::over(data, ((y * w + x) * 4) as usize, (r, g, b), a);
+            }
+        }
+    }
+
+    pub fn game_frame(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32) {
+        let scale = self.device_scale();
+        let parts = ornament::frame(self.device_rect(x, y, w, h), FrameMetrics::new(scale));
+        for line in &parts.lines {
+            if !line.rect.is_empty() {
+                self.fill_device(pm, line.rect, line.color, line.alpha);
+            }
+        }
+        for corner in &parts.corners {
+            self.blit_sprite(pm, corner);
+        }
+    }
+
+    /// A lens surface: opaque panel fill in the double gold frame.
+    pub fn surface(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32) {
+        self.fill_device(pm, self.device_rect(x, y, w, h), theme::BG_PANEL, 0xff);
+        self.game_frame(pm, x, y, w, h);
+    }
+
+    pub fn ornament_rule(&self, pm: &mut Pixmap, x: f32, y_center: f32, w: f32, color: u32) {
+        let scale = self.device_scale();
+        let rect = self.device_rect(x, y_center - RULE_DIAMOND / 2.0, w, RULE_DIAMOND);
+        for part in ornament::rule(rect, scale, color, theme::GOLD).iter().flatten() {
+            self.blit_sprite(pm, part);
+        }
+    }
+
+    /// A group heading: a 6 px diamond, the title in capitals in GOLD small
+    /// caps, and a rule fading out to `x + w`, all on the row's axis.
+    pub fn section_heading(&self, pm: &mut Pixmap, x: f32, baseline: f32, w: f32, text: &str) {
+        const DIAMOND: f32 = 6.0;
+        const GAP: f32 = 7.0;
+        const PX: f32 = 12.5;
+        let scale = self.device_scale();
+        let axis = baseline - PX * 0.35;
+        let mark = self.device_rect(x, axis - DIAMOND / 2.0, DIAMOND, DIAMOND);
+        self.blit_sprite(pm, &ornament::diamond(mark, DIAMOND, scale, theme::GOLD, true));
+        let title = text.to_uppercase();
+        let style = TextStyle { kind: FontKind::Amount, px: PX, color: theme::color(theme::GOLD) };
+        let tx = x + DIAMOND + GAP;
+        self.draw_text(pm, tx, baseline, &title, &style);
+        let tw = self.text_width(FontKind::Amount, &title, PX);
+        let rule_x = tx + tw + GAP;
+        if rule_x < x + w {
+            let rect = self.device_rect(rule_x, axis - 0.5, x + w - rule_x, 1.0);
+            if let Some(line) = ornament::fading_line(rect, scale, theme::BORDER_GOLD, false) {
+                self.blit_sprite(pm, &line);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rounded(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, radius: f32,
+               fill: Option<Color>, stroke: Option<(Color, f32)>) {
+        let Some(rect) = SkRect::from_xywh(x, y, w, h) else { return };
+        let r = radius.min(w / 2.0).min(h / 2.0);
         let mut pb = PathBuilder::new();
         pb.move_to(rect.left() + r, rect.top());
         pb.line_to(rect.right() - r, rect.top());
@@ -378,17 +482,97 @@ impl Renderer {
         pb.quad_to(rect.left(), rect.top(), rect.left() + r, rect.top());
         pb.close();
         let Some(path) = pb.finish() else { return };
+        if let Some(c) = fill {
+            let mut paint = Paint::default();
+            paint.set_color(c);
+            paint.anti_alias = true;
+            pm.fill_path(&path, &paint, tiny_skia::FillRule::Winding, self.xf(), None);
+        }
+        if let Some((c, width)) = stroke {
+            let mut paint = Paint::default();
+            paint.set_color(c);
+            paint.anti_alias = true;
+            pm.stroke_path(&path, &paint, &Stroke { width, ..Default::default() }, self.xf(), None);
+        }
+    }
 
-        let mut fill_paint = Paint::default();
-        fill_paint.set_color(pill_fill_color());
-        fill_paint.anti_alias = true;
-        pm.fill_path(&path, &fill_paint, tiny_skia::FillRule::Winding, self.xf(), None);
+    /// "P1" in a pill: gold-filled with dark ink for a top tier, otherwise
+    /// an outline in BORDER_FIELD with the letter in `color`. Returns the
+    /// pill's width.
+    pub fn tier_badge(&self, pm: &mut Pixmap, x: f32, y_top: f32, text: &str, color_: u32, top: bool) -> f32 {
+        const PX: f32 = 11.0;
+        const PAD: f32 = 4.0;
+        const H: f32 = 16.0;
+        let tw = self.text_width(FontKind::Amount, text, PX);
+        let w = tw + PAD * 2.0;
+        if top {
+            self.rounded(pm, x, y_top, w, H, 3.0, Some(theme::color(theme::TIER_TOP)), None);
+        } else {
+            self.rounded(pm, x + 0.5, y_top + 0.5, w - 1.0, H - 1.0, 3.0, None, Some((theme::color(theme::BORDER_FIELD), 1.0)));
+        }
+        let ink = if top { theme::BADGE_INK } else { color_ };
+        let style = TextStyle { kind: FontKind::Amount, px: PX, color: theme::color(ink) };
+        self.draw_text(pm, x + PAD, y_top + H - 4.0, text, &style);
+        w
+    }
 
-        let mut border_paint = Paint::default();
-        border_paint.set_color(border);
-        border_paint.anti_alias = true;
-        let stroke = Stroke { width: PILL_BORDER_WIDTH, ..Default::default() };
-        pm.stroke_path(&path, &border_paint, &stroke, self.xf(), None);
+    /// A min/max box: BG_FIELD well in a BORDER_FIELD edge, GOLD while focused.
+    pub fn value_field(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, text: &str, focused: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        let edge = if focused { theme::GOLD } else { theme::BORDER_FIELD };
+        self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS,
+                     Some(theme::color(theme::BG_FIELD)), Some((theme::color(edge), 1.0)));
+        let style = TextStyle { kind: FontKind::Amount, px: EVAL_BOX_PX, color: theme::color(theme::TEXT) };
+        self.draw_text(pm, x + 5.0, y + h - 5.0, text, &style);
+    }
+
+    /// The bronze plate button (Search): a two-stop gradient lifted toward
+    /// gold by `hover` (0..1), a BORDER_GOLD edge, the label centred in
+    /// GOLD_LIGHT small caps. Switched off: BORDER_FIELD edge, TEXT_DIM label.
+    #[allow(clippy::too_many_arguments)]
+    pub fn plate_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, label: &str, hover: f32, enabled: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        if enabled {
+            let top = blend(theme::PLATE_TOP, theme::GOLD, 0.16 * hover);
+            let bottom = blend(theme::PLATE_BOTTOM, theme::GOLD, 0.08 * hover);
+            // Two bands: tiny-skia has gradients, but two flat halves read the
+            // same at these heights and keep the renderer's one paint path.
+            self.rounded(pm, x, y, w, h / 2.0 + 1.0, theme::CONTROL_RADIUS, Some(theme::color(top)), None);
+            self.rounded(pm, x, y + h / 2.0, w, h / 2.0, theme::CONTROL_RADIUS, Some(theme::color(bottom)), None);
+            self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, None, Some((theme::color(theme::BORDER_GOLD), 1.0)));
+        } else {
+            self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, Some(theme::color(theme::BG_FIELD)), Some((theme::color(theme::BORDER_FIELD), 1.0)));
+        }
+        let ink = if enabled { blend(theme::GOLD_LIGHT, theme::TEXT, 0.0) } else { theme::TEXT_DIM };
+        let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, label, 16.0);
+        self.draw_text(pm, x + (w - tw).max(0.0) / 2.0, y + h - 8.0, label, &style);
+    }
+
+    /// A secondary button: BORDER_FIELD outline, TEXT label, label lifting
+    /// to GOLD_LIGHT with `hover`; `on` false draws it switched off.
+    #[allow(clippy::too_many_arguments)]
+    pub fn outlined_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, label: &str, hover: f32, on: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        let edge = if on { blend(theme::BORDER_FIELD, theme::GOLD, 0.6 * hover) } else { theme::BORDER_ROW };
+        let fill = theme::color_alpha(theme::BG_BUTTON_HOVER, (hover * 255.0) as u8);
+        self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, Some(fill), Some((theme::color(edge), 1.0)));
+        let ink = if on { blend(theme::TEXT, theme::GOLD_LIGHT, hover) } else { theme::TEXT_MUTED };
+        let style = TextStyle { kind: FontKind::Amount, px: 14.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, label, 14.0);
+        self.draw_text(pm, x + (w - tw).max(0.0) / 2.0, y + h - 7.0, label, &style);
+    }
+
+    /// A title-bar glyph button (x): no edge at rest, BG_BUTTON_HOVER with `hover`.
+    pub fn title_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, glyph: &str, hover: f32) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        if hover > 0.0 {
+            self.rounded(pm, x, y, w, h, theme::CONTROL_RADIUS, Some(theme::color_alpha(theme::BG_BUTTON_HOVER, (hover * 255.0) as u8)), None);
+        }
+        let ink = blend(theme::TEXT_DIM, theme::GOLD_LIGHT, hover);
+        let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, glyph, 16.0);
+        self.draw_text(pm, x + (w - tw) / 2.0, y + h / 2.0 + 5.0, glyph, &style);
     }
 
     pub fn draw_frame(&self, pm: &mut Pixmap, labels: &[Placed], total: &str, stale: bool) {
