@@ -10,7 +10,6 @@ use crate::config::{Config, LiveSearch};
 use crate::wealth::WealthSnapshot;
 
 pub fn section_account(ui: &mut egui::Ui, cfg: &mut Config, wealth: &[WealthSnapshot]) {
-    ui.heading("Account");
     ui.add_space(6.0);
 
     ui.horizontal(|ui| {

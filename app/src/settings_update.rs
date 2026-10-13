@@ -75,7 +75,6 @@ impl UpdateUi {
 }
 
 pub fn section_updates(ui: &mut egui::Ui, cfg: &mut Config, ui_state: &mut UpdateUi) {
-    ui.heading("Updates");
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label("Installed version");

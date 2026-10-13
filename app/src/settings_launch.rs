@@ -8,7 +8,6 @@
 use eframe::egui;
 
 pub fn section_launch(ui: &mut egui::Ui) {
-    ui.heading("Run with the game");
     ui.add_space(6.0);
     ui.label(
         "Steam can start the overlay together with Path of Exile 2 and close it \

@@ -88,14 +88,19 @@ pub fn run() -> anyhow::Result<()> {
     let cfg = Config::load()?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([760.0, 640.0])
-            .with_min_inner_size([560.0, 480.0]),
+            .with_decorations(false)
+            .with_inner_size([900.0, 680.0])
+            .with_min_inner_size([720.0, 520.0]),
         ..Default::default()
     };
     eframe::run_native(
         "khaloni-poe2 settings",
         options,
-        Box::new(move |_cc| Ok(Box::new(SettingsApp::new(cfg)))),
+        Box::new(move |cc| {
+            // Fonts take effect at the next pass, so they go in before the first frame.
+            crate::settings_style::install(&cc.egui_ctx);
+            Ok(Box::new(SettingsApp::new(cfg)))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("settings window: {e}"))
 }
@@ -127,6 +132,20 @@ const SECTIONS: [(Section, &str); 11] = [
     (Section::Waystones, "Waystones"),
     (Section::Account, "Account"),
     (Section::Updates, "Updates"),
+];
+
+const SECTION_DESCRIPTIONS: [&str; 11] = [
+    "The keys that open the price check, the panels and the planner",
+    "What the overlay shows and how it looks over the game",
+    "Where prices come from and how values are tiered",
+    "The market panel's tables and your own runs",
+    "Crafting profiles and the planner's rules",
+    "How the screen is read",
+    "Keys that send a chat command or a stash search",
+    "Starting the overlay with the game",
+    "Waystone modifiers to mark",
+    "Your pathofexile.com account",
+    "Updates and the version in use",
 ];
 
 const AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(300);
@@ -283,28 +302,43 @@ impl SettingsApp {
 impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::settings_style::install(&ctx);
         self.handle_capture(&ctx);
 
-        // Bottom before left so the status bar spans the full window width.
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if let Some(err) = &self.save_err {
-                    ui.colored_label(egui::Color32::RED, format!("save failed: {err}"));
-                } else if let Some(at) = &self.saved_at {
-                    ui.weak(format!("Saved {at}"));
-                }
-            });
-        });
-
+        let bar = crate::settings_style::title_bar(ui, "Settings");
+        if bar.close_clicked {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        let status = if let Some(err) = &self.save_err {
+            Some(format!("save failed: {err}"))
+        } else {
+            self.saved_at.as_ref().map(|at| format!("Saved {at}"))
+        };
         egui::Panel::left("nav")
             .resizable(false)
-            .default_size(170.0)
+            .default_size(crate::settings_style::SIDEBAR_W)
+            .frame(
+                egui::Frame::NONE
+                    .fill(crate::settings_style::color32(crate::theme::BG_SIDEBAR))
+                    .inner_margin(egui::Margin { left: 12, right: 8, top: 16, bottom: 16 }),
+            )
             .show(ui, |ui| {
-                ui.add_space(8.0);
                 for (section, label) in SECTIONS {
-                    ui.selectable_value(&mut self.section, section, label);
+                    if crate::settings_style::sidebar_item(ui, label, self.section == section).clicked() {
+                        self.section = section;
+                    }
                 }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                    ui.vertical(|ui| {
+                        crate::settings_style::sidebar_footer(ui, "khaloni-poe2", env!("CARGO_PKG_VERSION"), status.as_deref());
+                    });
+                });
             });
+        let (section_i, section_label) = SECTIONS
+            .iter()
+            .position(|(s, _)| *s == self.section)
+            .map(|i| (i, SECTIONS[i].1))
+            .unwrap_or((0, SECTIONS[0].1));
 
         let Self {
             model,
@@ -324,10 +358,18 @@ impl eframe::App for SettingsApp {
         let tier_ok = model.tier_valid();
         let EditModel { cfg, capture, .. } = model;
 
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::NONE
+                    .fill(crate::settings_style::color32(crate::theme::BG_PANEL))
+                    .inner_margin(egui::Margin { left: 48, right: 48, top: 8, bottom: 24 }),
+            )
+            .show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .show(ui, |ui| match section {
+                .show(ui, |ui| {
+                    crate::settings_style::section_heading(ui, section_label, SECTION_DESCRIPTIONS[section_i]);
+                    match section {
                     Section::Hotkeys => section_hotkeys(ui, cfg, capture),
                     Section::Display => section_display(ui, cfg, tier_ok),
                     Section::Pricing => section_pricing(ui, cfg, leagues),
@@ -347,8 +389,11 @@ impl eframe::App for SettingsApp {
                     Section::Waystones => {
                         section_waystones(ui, cfg, &mod_list, suggest, stash_selected)
                     }
+                    }
                 });
         });
+
+        crate::settings_style::frame(&ctx);
 
         self.autosave(&ctx);
     }
@@ -438,7 +483,6 @@ fn capture_button(
 }
 
 fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
-    ui.heading("Hotkeys");
     ui.add_space(6.0);
     // The same resolution the overlay binds from (`triggers::dedupe` under
     // it), so what is marked here is exactly what will be left unbound.
@@ -503,7 +547,6 @@ fn conflict_label(ui: &mut egui::Ui, conflicts: &[crate::bindings::Conflict], sl
 }
 
 fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
-    ui.heading("Display");
     ui.add_space(6.0);
     ui.checkbox(&mut cfg.pause_when_hidden, "Hide overlay when the game is minimized or covered");
     ui.add_space(8.0);
@@ -575,7 +618,6 @@ fn tier_bar(ui: &mut egui::Ui, cfg: &Config, tier_ok: bool) {
 }
 
 fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<String>>>) {
-    ui.heading("Pricing");
     ui.add_space(6.0);
     let list = leagues.lock().unwrap().clone();
     ui.horizontal(|ui| {
@@ -616,7 +658,6 @@ fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<
 }
 
 fn section_capture_ocr(ui: &mut egui::Ui) {
-    ui.heading("Capture & OCR");
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(
@@ -628,7 +669,6 @@ fn section_capture_ocr(ui: &mut egui::Ui) {
 }
 
 fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
-    ui.heading("Macros & Shortcuts");
     ui.add_space(6.0);
     let conflicts = crate::bindings::resolve(cfg).conflicts;
 
@@ -706,7 +746,6 @@ fn section_waystones(
     suggest: &mut Option<(&'static str, usize)>,
     stash_selected: &mut BTreeSet<String>,
 ) {
-    ui.heading("Waystones");
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new(

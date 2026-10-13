@@ -17,6 +17,7 @@ pub mod settings_account;
 pub mod settings_craft;
 pub mod settings_launch;
 pub mod settings_market;
+pub mod settings_style;
 pub mod settings_ui;
 pub mod settings_update;
 pub mod tray;

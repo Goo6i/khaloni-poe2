@@ -261,7 +261,6 @@ fn profile_editor(ui: &mut egui::Ui, i: usize, p: &mut Profile, dirty: &mut bool
 }
 
 pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi) {
-    ui.heading("Crafting");
     ui.add_space(6.0);
     planner_settings(ui, cfg);
     ui.add_space(14.0);

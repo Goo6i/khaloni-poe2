@@ -557,7 +557,6 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
 }
 
 pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi) {
-    ui.heading("Market");
     ui.add_space(4.0);
     // The player's own results, apart from the market's figures and above
     // them, so they show whatever state the price cache is in.
