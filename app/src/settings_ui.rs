@@ -462,65 +462,51 @@ fn portal_key(key: egui::Key, modifiers: egui::Modifiers) -> Option<String> {
     })
 }
 
-/// A button that shows the current binding, or "press a key…" while armed.
-fn capture_button(
-    ui: &mut egui::Ui,
-    current: &str,
-    target: CaptureTarget,
-    capture: &mut Option<CaptureTarget>,
-) {
-    let armed = *capture == Some(target);
-    let label = if armed {
-        "press a key…"
-    } else if current.is_empty() {
-        "unbound"
-    } else {
-        current
-    };
-    if ui.button(label).clicked() {
-        *capture = Some(target);
-    }
-}
-
 fn section_hotkeys(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
-    ui.add_space(6.0);
+    use crate::settings_style as st;
     // The same resolution the overlay binds from (`triggers::dedupe` under
     // it), so what is marked here is exactly what will be left unbound.
     let conflicts = crate::bindings::resolve(cfg).conflicts;
-    egui::Grid::new("hotkeys")
-        .num_columns(2)
-        .spacing([16.0, 8.0])
-        .show(ui, |ui| {
-            let rows: [(&str, &str, CaptureTarget); 5] = [
-                ("Price check", &cfg.hotkey_price_check, CaptureTarget::PriceCheck),
-                ("Settings panel", &cfg.hotkey_settings, CaptureTarget::Settings),
-                ("Market panel", &cfg.hotkey_market, CaptureTarget::Market),
-                ("Upgrade check", &cfg.hotkey_upgrade, CaptureTarget::Upgrade),
-                ("Craft planner", &cfg.hotkey_craft, CaptureTarget::Craft),
-            ];
-            // Bindings are cloned so capture_button can take &mut capture
-            // while cfg stays borrowed by the row labels.
-            let rows: Vec<(String, String, CaptureTarget)> = rows
-                .into_iter()
-                .map(|(l, k, t)| (l.to_string(), k.to_string(), t))
-                .collect();
-            for (label, key, target) in rows {
-                ui.label(label);
-                ui.horizontal(|ui| {
-                    capture_button(ui, &key, target, capture);
-                    conflict_label(ui, &conflicts, slot_of(target));
-                });
-                ui.end_row();
+    let rows: [(&str, &str, String, CaptureTarget); 5] = [
+        ("Price check", "Prices the item under the cursor", cfg.hotkey_price_check.clone(), CaptureTarget::PriceCheck),
+        ("Settings panel", "Opens this window", cfg.hotkey_settings.clone(), CaptureTarget::Settings),
+        ("Market panel", "The market tables over the game", cfg.hotkey_market.clone(), CaptureTarget::Market),
+        ("Upgrade check", "Searches for a better version of the item", cfg.hotkey_upgrade.clone(), CaptureTarget::Upgrade),
+        ("Craft planner", "The planner for the item under the cursor", cfg.hotkey_craft.clone(), CaptureTarget::Craft),
+    ];
+    st::card(ui, "hotkeys", |ui| {
+        let n = rows.len();
+        for (i, (label, desc, key, target)) in rows.iter().enumerate() {
+            let body = |ui: &mut egui::Ui| {
+                if st::recorder(ui, key, *capture == Some(*target)).clicked() {
+                    *capture = Some(*target);
+                }
+                if let Some(c) = crate::bindings::conflict_for(&conflicts, slot_of(*target)) {
+                    st::warning(ui, &format!("off: {}", c.message));
+                }
+            };
+            if i + 1 == n {
+                st::row_last(ui, label, Some(desc), body)
+            } else {
+                st::row(ui, label, Some(desc), body)
             }
-        });
-    ui.add_space(6.0);
-    ui.small("a running overlay picks hotkey changes up within a second (KDE shows one approval dialog)");
-    ui.add_space(10.0);
-    ui.checkbox(&mut cfg.advanced_copy, "Copy items with advanced descriptions (Ctrl+Alt+C)");
-    ui.small(
-        "Off sends plain Ctrl+C, which copies what the game's \"advanced mod descriptions\" option says: with that \
-         option off, the copy has no readable modifiers and the item is not priced.",
-    );
+        }
+    });
+    st::note(ui, "a running overlay picks hotkey changes up within a second (KDE shows one approval dialog)");
+    ui.add_space(8.0);
+    st::card(ui, "copy", |ui| {
+        st::row_last(
+            ui,
+            "Copy items with advanced descriptions (Ctrl+Alt+C)",
+            Some(
+                "Off sends plain Ctrl+C, which copies what the game's \"advanced mod descriptions\" option says: with \
+                 that option off, the copy has no readable modifiers and the item is not priced.",
+            ),
+            |ui| {
+                st::switch(ui, &mut cfg.advanced_copy);
+            },
+        );
+    });
 }
 
 /// The binding row a capture target edits, in `bindings` terms.
@@ -537,73 +523,52 @@ fn slot_of(target: CaptureTarget) -> crate::bindings::Slot {
     }
 }
 
-/// Marks a row whose key another binding got first. The overlay leaves such
-/// a row unbound, and a settings window that accepted the duplicate without
-/// a word was where the "my F10 does nothing" report came from.
-fn conflict_label(ui: &mut egui::Ui, conflicts: &[crate::bindings::Conflict], slot: crate::bindings::Slot) {
-    if let Some(c) = crate::bindings::conflict_for(conflicts, slot) {
-        ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), format!("off: {}", c.message));
-    }
-}
-
 fn section_display(ui: &mut egui::Ui, cfg: &mut Config, tier_ok: bool) {
-    ui.add_space(6.0);
-    ui.checkbox(&mut cfg.pause_when_hidden, "Hide overlay when the game is minimized or covered");
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.label("Overlay opacity");
+    use crate::settings_style as st;
+    st::card(ui, "overlay", |ui| {
+        st::row(ui, "Hide overlay when the game is minimized or covered", None, |ui| {
+            st::switch(ui, &mut cfg.pause_when_hidden);
+        });
         // In-game overlay only — this window is unaffected by design.
         // Floor at 10%: a fully invisible overlay reads as broken (the
         // hotkeys still work with nothing on screen to show for it).
-        let mut pct = (cfg.overlay_opacity * 100.0).round().clamp(10.0, 100.0) as u32;
-        if ui.add(egui::Slider::new(&mut pct, 10..=100).suffix("%")).changed() {
-            cfg.overlay_opacity = f64::from(pct) / 100.0;
-        }
-    });
-    ui.horizontal(|ui| {
+        st::row(ui, "Overlay opacity", Some("In-game overlay only; this window is unaffected"), |ui| {
+            let mut pct = (cfg.overlay_opacity * 100.0).round().clamp(10.0, 100.0);
+            if st::stepper(ui, &mut pct, 5.0, 10.0..=100.0, "%") {
+                cfg.overlay_opacity = pct / 100.0;
+            }
+        });
         // The stored number has always been compared against the value
         // in divines (`value::pick_unit`); only this label called it ex.
-        ui.label("Show a value in divines from");
-        ui.add(
-            egui::DragValue::new(&mut cfg.divine_threshold)
-                .speed(0.1)
-                .range(0.0..=10000.0)
-                .suffix(" div"),
-        );
+        st::row_last(ui, "Show a value in divines from", Some("Below this, prices read in exalted"), |ui| {
+            st::stepper(ui, &mut cfg.divine_threshold, 0.5, 0.0..=10000.0, " div");
+        });
     });
-
-    ui.add_space(12.0);
-    ui.label("Value tiers (in chaos: the exalted orb's worth moves too much to set a bar by)");
-    ui.horizontal(|ui| {
-        ui.label("decent from");
-        ui.add(
-            egui::DragValue::new(&mut cfg.tier_decent_chaos)
-                .speed(0.1)
-                .range(0.0..=10000.0)
-                .suffix(" chaos"),
-        );
-        ui.label("jackpot from");
-        ui.add(
-            egui::DragValue::new(&mut cfg.tier_good_chaos)
-                .speed(0.1)
-                .range(0.0..=10000.0)
-                .suffix(" chaos"),
-        );
+    st::group_heading(ui, "Value tiers");
+    st::note(ui, "In chaos: the exalted orb's worth moves too much to set a bar by");
+    st::card(ui, "tiers", |ui| {
+        st::row(ui, "Decent from", None, |ui| {
+            st::stepper(ui, &mut cfg.tier_decent_chaos, 1.0, 0.0..=10000.0, " chaos");
+        });
+        st::row_last(ui, "Jackpot from", None, |ui| {
+            st::stepper(ui, &mut cfg.tier_good_chaos, 1.0, 0.0..=10000.0, " chaos");
+        });
     });
     tier_bar(ui, cfg, tier_ok);
     if !tier_ok {
-        ui.colored_label(egui::Color32::RED, "decent must be ≤ jackpot");
+        st::warning(ui, "decent must be ≤ jackpot");
     }
 }
 
 /// Three zones on a log10 scale over 0.1..1000 chaos, so the junk/decent split
 /// stays visible even though jackpot thresholds run two orders higher.
 fn tier_bar(ui: &mut egui::Ui, cfg: &Config, tier_ok: bool) {
+    use crate::settings_style::color32;
     let width = ui.available_width().min(420.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::hover());
     let painter = ui.painter();
     if !tier_ok {
-        painter.rect_filled(rect, 3, egui::Color32::from_rgb(0xB0, 0x30, 0x30));
+        painter.rect_filled(rect, 3, color32(crate::theme::TEXT_WARNING));
         return;
     }
     let frac = |v: f64| ((v.clamp(0.1, 1000.0).log10() + 1.0) / 4.0) as f32;
@@ -612,81 +577,107 @@ fn tier_bar(ui: &mut egui::Ui, cfg: &Config, tier_ok: bool) {
     let zone = |a: f32, b: f32| {
         egui::Rect::from_min_max(egui::pos2(a, rect.top()), egui::pos2(b, rect.bottom()))
     };
-    painter.rect_filled(zone(rect.left(), x1), 0, egui::Color32::from_rgb(0x6E, 0x65, 0x5A));
-    painter.rect_filled(zone(x1, x2), 0, egui::Color32::from_rgb(0x2E, 0x5A, 0x8A));
-    painter.rect_filled(zone(x2, rect.right()), 0, egui::Color32::from_rgb(0xC9, 0xA2, 0x27));
+    painter.rect_filled(zone(rect.left(), x1), 0, color32(crate::theme::TEXT_MUTED));
+    painter.rect_filled(zone(x1, x2), 0, color32(crate::theme::RARITY_MAGIC));
+    painter.rect_filled(zone(x2, rect.right()), 0, color32(crate::theme::GOLD));
 }
 
 fn section_pricing(ui: &mut egui::Ui, cfg: &mut Config, leagues: &Arc<Mutex<Vec<String>>>) {
-    ui.add_space(6.0);
+    use crate::settings_style as st;
     let list = leagues.lock().unwrap().clone();
-    ui.horizontal(|ui| {
-        ui.label("League");
-        if list.is_empty() {
-            // Fetch still in flight (or failed): free text keeps the field
-            // editable instead of blocking on the network.
-            ui.text_edit_singleline(&mut cfg.league);
-        } else {
-            egui::ComboBox::from_id_salt("league")
-                .selected_text(cfg.league.clone())
+    st::card(ui, "pricing", |ui| {
+        st::row(ui, "League", None, |ui| {
+            if list.is_empty() {
+                // Fetch still in flight (or failed): free text keeps the field
+                // editable instead of blocking on the network.
+                st::text_field(ui, &mut cfg.league);
+            } else if list.len() <= 4 {
+                // The index is the value; no league picked lights nothing.
+                let mut picked = list.iter().position(|l| *l == cfg.league).unwrap_or(usize::MAX);
+                let options: Vec<(usize, &str)> = list.iter().map(String::as_str).enumerate().collect();
+                if st::segmented(ui, "league", &options, &mut picked) {
+                    cfg.league = list[picked].clone();
+                }
+            } else {
+                egui::ComboBox::from_id_salt("league")
+                    .selected_text(cfg.league.clone())
+                    .show_ui(ui, |ui| {
+                        for l in &list {
+                            ui.selectable_value(&mut cfg.league, l.clone(), l);
+                        }
+                    });
+            }
+        });
+        st::row_last(ui, "Refresh prices every", None, |ui| {
+            egui::ComboBox::from_id_salt("refresh")
+                .selected_text(format!("{} min", cfg.refresh_minutes))
                 .show_ui(ui, |ui| {
-                    for l in &list {
-                        ui.selectable_value(&mut cfg.league, l.clone(), l);
+                    for m in [5u64, 10, 15, 30, 60] {
+                        ui.selectable_value(&mut cfg.refresh_minutes, m, format!("{m} min"));
                     }
                 });
-        }
+        });
     });
     // The running overlay follows a league change as a whole (see
     // `league`); the refresh interval is read once, at startup.
-    ui.small("A league change takes effect in the running overlay. The refresh interval applies from the next start.");
-    ui.horizontal(|ui| {
-        ui.label("Refresh prices every");
-        egui::ComboBox::from_id_salt("refresh")
-            .selected_text(format!("{} min", cfg.refresh_minutes))
-            .show_ui(ui, |ui| {
-                for m in [5u64, 10, 15, 30, 60] {
-                    ui.selectable_value(&mut cfg.refresh_minutes, m, format!("{m} min"));
-                }
-            });
+    st::note(ui, "A league change takes effect in the running overlay. The refresh interval applies from the next start.");
+    ui.add_space(8.0);
+    st::card(ui, "gems", |ui| {
+        st::row_last(
+            ui,
+            "Price reward-panel gems through trade search (uses search budget)",
+            Some(
+                "Each gem row is one trade search, counted against the same limit as your own price checks. Currency \
+                 rows price through poe.ninja and ask the exchange only for what it lacks, whatever this says.",
+            ),
+            |ui| {
+                st::switch(ui, &mut cfg.price_gem_rows);
+            },
+        );
     });
-    ui.add_space(10.0);
-    ui.checkbox(&mut cfg.price_gem_rows, "Price reward-panel gems through trade search (uses search budget)");
-    ui.small(
-        "Each gem row is one trade search, counted against the same limit as your own price checks. Currency \
-         rows price through poe.ninja and ask the exchange only for what it lacks, whatever this says.",
-    );
 }
 
 fn section_capture_ocr(ui: &mut egui::Ui) {
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(
+    use crate::settings_style as st;
+    st::card(ui, "capture", |ui| {
+        st::row_last(
+            ui,
             "The reward panel is detected automatically — no calibration. \
              Scanning runs only while reward rows are on screen.",
-        )
-        .weak(),
-    );
+            None,
+            |_| {},
+        );
+    });
 }
 
 fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<CaptureTarget>) {
-    ui.add_space(6.0);
+    use crate::settings_style as st;
     let conflicts = crate::bindings::resolve(cfg).conflicts;
 
-    ui.label("Chat macros");
+    st::group_heading(ui, "Chat macros");
     let mut remove: Option<usize> = None;
     for i in 0..cfg.macros.len() {
         let key = cfg.macros[i].key.clone();
-        ui.horizontal(|ui| {
-            capture_button(ui, &key, CaptureTarget::Macro(i), capture);
-            ui.add(
-                egui::TextEdit::singleline(&mut cfg.macros[i].message)
-                    .hint_text("message to send"),
-            );
-            if ui.button("✕").clicked() {
-                remove = Some(i);
-            }
+        st::card(ui, &format!("macro{i}"), |ui| {
+            st::row(ui, "Key", None, |ui| {
+                if st::recorder(ui, &key, *capture == Some(CaptureTarget::Macro(i))).clicked() {
+                    *capture = Some(CaptureTarget::Macro(i));
+                }
+                if let Some(c) = crate::bindings::conflict_for(&conflicts, crate::bindings::Slot::Macro(i)) {
+                    st::warning(ui, &format!("off: {}", c.message));
+                }
+            });
+            st::row_last(ui, "Message", None, |ui| {
+                if st::button(ui, "Remove").clicked() {
+                    remove = Some(i);
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut cfg.macros[i].message)
+                        .desired_width(220.0)
+                        .hint_text("message to send"),
+                );
+            });
         });
-        conflict_label(ui, &conflicts, crate::bindings::Slot::Macro(i));
     }
     if let Some(i) = remove {
         cfg.macros.remove(i);
@@ -695,7 +686,7 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
             *capture = None;
         }
     }
-    if ui.button("+ Add macro").clicked() {
+    if st::plate_button(ui, "Add macro").clicked() {
         cfg.macros.push(Macro {
             key: String::new(),
             message: String::new(),
@@ -703,21 +694,30 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
     }
 
     ui.add_space(12.0);
-    ui.label("Resource shortcuts");
+    st::group_heading(ui, "Resource shortcuts");
     let mut remove: Option<usize> = None;
     for i in 0..cfg.resource_shortcuts.len() {
         let key = cfg.resource_shortcuts[i].key.clone();
-        ui.horizontal(|ui| {
-            capture_button(ui, &key, CaptureTarget::Shortcut(i), capture);
-            ui.add(
-                egui::TextEdit::singleline(&mut cfg.resource_shortcuts[i].url)
-                    .hint_text("https://poe2db.tw/us/search?q={name}"),
-            );
-            if ui.button("✕").clicked() {
-                remove = Some(i);
-            }
+        st::card(ui, &format!("shortcut{i}"), |ui| {
+            st::row(ui, "Key", None, |ui| {
+                if st::recorder(ui, &key, *capture == Some(CaptureTarget::Shortcut(i))).clicked() {
+                    *capture = Some(CaptureTarget::Shortcut(i));
+                }
+                if let Some(c) = crate::bindings::conflict_for(&conflicts, crate::bindings::Slot::Shortcut(i)) {
+                    st::warning(ui, &format!("off: {}", c.message));
+                }
+            });
+            st::row_last(ui, "Address", None, |ui| {
+                if st::button(ui, "Remove").clicked() {
+                    remove = Some(i);
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut cfg.resource_shortcuts[i].url)
+                        .desired_width(220.0)
+                        .hint_text("https://poe2db.tw/us/search?q={name}"),
+                );
+            });
         });
-        conflict_label(ui, &conflicts, crate::bindings::Slot::Shortcut(i));
     }
     if let Some(i) = remove {
         cfg.resource_shortcuts.remove(i);
@@ -725,7 +725,7 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
             *capture = None;
         }
     }
-    if ui.button("+ Add shortcut").clicked() {
+    if st::plate_button(ui, "Add shortcut").clicked() {
         cfg.resource_shortcuts.push(ResourceShortcut {
             key: String::new(),
             url: String::new(),
@@ -733,9 +733,13 @@ fn section_macros(ui: &mut egui::Ui, cfg: &mut Config, capture: &mut Option<Capt
     }
 
     ui.add_space(12.0);
-    ui.horizontal(|ui| {
-        ui.label("Chat-open delay");
-        ui.add(egui::Slider::new(&mut cfg.macro_open_delay_ms, 0..=2000).suffix(" ms"));
+    st::card(ui, "delay", |ui| {
+        st::row_last(ui, "Chat-open delay", None, |ui| {
+            let mut ms = cfg.macro_open_delay_ms as f64;
+            if st::stepper(ui, &mut ms, 50.0, 0.0..=2000.0, " ms") {
+                cfg.macro_open_delay_ms = ms as u64;
+            }
+        });
     });
 }
 
@@ -746,16 +750,13 @@ fn section_waystones(
     suggest: &mut Option<(&'static str, usize)>,
     stash_selected: &mut BTreeSet<String>,
 ) {
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(
-            "Type to search the mod database — # stands for the rolled \
-             number, so a picked mod matches every roll. Free text works \
-             too and matches as a substring.",
-        )
-        .weak(),
+    use crate::settings_style as st;
+    st::note(
+        ui,
+        "Type to search the mod database — # stands for the rolled \
+         number, so a picked mod matches every roll. Free text works \
+         too and matches as a substring.",
     );
-    ui.add_space(6.0);
     string_list(ui, "Danger mod needles", "danger", &mut cfg.map_danger_needles, mods, suggest);
     ui.add_space(12.0);
     string_list(ui, "Reward mod needles", "good", &mut cfg.map_good_needles, mods, suggest);
@@ -772,34 +773,42 @@ fn stash_regex_builder(
     user_good: &[String],
     selected: &mut BTreeSet<String>,
 ) {
-    ui.separator();
-    ui.label("Stash search regex");
-    ui.label(
-        egui::RichText::new(
-            "Pick reward mods to build a search string for the in-game \
-             stash search, then paste it there to find matching waystones.",
-        )
-        .weak(),
+    use crate::settings_style as st;
+    st::group_heading(ui, "Stash search regex");
+    st::note(
+        ui,
+        "Pick reward mods to build a search string for the in-game \
+         stash search, then paste it there to find matching waystones.",
     );
-    ui.add_space(4.0);
     let options = stash_needle_options(user_good);
-    for needle in &options {
-        let mut on = selected.contains(needle);
-        if ui.checkbox(&mut on, needle).changed() {
-            if on {
-                selected.insert(needle.clone());
-            } else {
-                selected.remove(needle);
-            }
+    st::card(ui, "stash", |ui| {
+        let n = options.len();
+        for (i, needle) in options.iter().enumerate() {
+            let mut on = selected.contains(needle);
+            let body = |ui: &mut egui::Ui| {
+                if st::switch(ui, &mut on).changed() {
+                    if on {
+                        selected.insert(needle.clone());
+                    } else {
+                        selected.remove(needle);
+                    }
+                }
+            };
+            ui.push_id(i, |ui| {
+                if i + 1 == n {
+                    st::row_last(ui, needle, None, body)
+                } else {
+                    st::row(ui, needle, None, body)
+                }
+            });
         }
-    }
+    });
     // Compose from the option list, not the set: options carry a stable
     // display order, and needles whose config row was deleted (their
     // selection lingers in the set) silently drop out of the regex.
     let picked: Vec<String> =
         options.into_iter().filter(|n| selected.contains(n)).collect();
     let regex = khaloni_poe2_core::mapmods::regex_for_needles(&picked);
-    ui.add_space(4.0);
     // Read-only preview: TextBuffer for &str rejects edits but still
     // allows select-all, so the text stays inspectable.
     ui.add(
@@ -807,21 +816,18 @@ fn stash_regex_builder(
             .desired_width(f32::INFINITY)
             .hint_text("select mods above"),
     );
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-        if ui
-            .add_enabled(!regex.is_empty(), egui::Button::new("Copy"))
-            .clicked()
-        {
-            ui.ctx().copy_text(regex.clone());
-        }
+        ui.add_enabled_ui(!regex.is_empty(), |ui| {
+            if st::button(ui, "Copy").clicked() {
+                ui.ctx().copy_text(regex.clone());
+            }
+        });
         let count = regex.chars().count();
         if stash_regex_too_long(&regex) {
-            ui.colored_label(
-                egui::Color32::RED,
-                format!("{count}/{STASH_SEARCH_LIMIT} — too long for the in-game search"),
-            );
+            st::warning(ui, &format!("{count}/{STASH_SEARCH_LIMIT} — too long for the in-game search"));
         } else if !regex.is_empty() {
-            ui.weak(format!("{count}/{STASH_SEARCH_LIMIT}"));
+            st::note(ui, &format!("{count}/{STASH_SEARCH_LIMIT}"));
         }
     });
 }
@@ -857,10 +863,11 @@ pub fn stash_needle_options(user_good: &[String]) -> Vec<String> {
     out
 }
 
-/// Editable needle list with autocomplete from the mod database. Suggestion
-/// visibility is keyed off `suggest`, not widget focus: a click on a
-/// suggestion button takes focus from the text field, and focus-gated
-/// suggestions would vanish one frame before the click could land.
+/// Needle list with autocomplete from the mod database: the marked mods in
+/// one card, a field to add another under it. Suggestion visibility is keyed
+/// off `suggest`, not widget focus: a click on a suggestion button takes
+/// focus from the text field, and focus-gated suggestions would vanish one
+/// frame before the click could land.
 fn string_list(
     ui: &mut egui::Ui,
     label: &str,
@@ -869,46 +876,70 @@ fn string_list(
     mods: &[String],
     suggest: &mut Option<(&'static str, usize)>,
 ) {
-    ui.label(label);
-    let mut remove: Option<usize> = None;
-    for (i, s) in items.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            let resp = ui.add(egui::TextEdit::singleline(s).id_salt((id, i)));
-            if resp.gained_focus() || resp.changed() {
-                *suggest = Some((id, i));
-            }
-            if ui.button("✕").clicked() {
-                remove = Some(i);
-                *suggest = None;
+    use crate::settings_style as st;
+    st::group_heading(ui, label);
+    if !items.is_empty() {
+        let mut remove: Option<usize> = None;
+        st::card(ui, id, |ui| {
+            let n = items.len();
+            for (i, s) in items.iter().enumerate() {
+                let body = |ui: &mut egui::Ui| {
+                    if st::button(ui, "Remove").clicked() {
+                        remove = Some(i);
+                    }
+                };
+                ui.push_id(i, |ui| {
+                    if i + 1 == n {
+                        st::row_last(ui, s, None, body)
+                    } else {
+                        st::row(ui, s, None, body)
+                    }
+                });
             }
         });
-        if *suggest == Some((id, i)) && s.trim().len() >= 3 {
-            if mods.is_empty() {
-                ui.label(egui::RichText::new("  loading mod database…").weak().small());
-            }
-            let mut picked: Option<String> = None;
-            ui.indent((id, i, "sugg"), |ui| {
-                for m in mod_suggestions(mods, s, 8) {
-                    if ui.small_button(m).clicked() {
-                        picked = Some(m.clone());
-                    }
-                }
-            });
-            if let Some(p) = picked {
-                *s = p;
-                *suggest = None;
-            }
-            if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
-                *suggest = None;
-            }
+        if let Some(i) = remove {
+            items.remove(i);
         }
     }
-    if let Some(i) = remove {
-        items.remove(i);
+    // The add field's suggestions live under a slot past every item.
+    let slot = (id, usize::MAX);
+    let buf_id = ui.id().with((id, "add"));
+    let mut text: String = ui.data_mut(|d| d.get_temp(buf_id)).unwrap_or_default();
+    let mut add = false;
+    st::card(ui, &format!("{id}-add"), |ui| {
+        st::row_last(ui, &format!("Add {}", label.to_lowercase()), None, |ui| {
+            add = st::plate_button(ui, "Add").clicked();
+            let resp = st::text_field(ui, &mut text);
+            if resp.gained_focus() || resp.changed() {
+                *suggest = Some(slot);
+            }
+            add |= resp.lost_focus() && ui.input(|inp| inp.key_pressed(egui::Key::Enter));
+        });
+    });
+    if *suggest == Some(slot) && text.trim().len() >= 3 {
+        if mods.is_empty() {
+            st::note(ui, "loading mod database…");
+        }
+        let mut picked: Option<String> = None;
+        for m in mod_suggestions(mods, &text, 8) {
+            if st::button(ui, m).clicked() {
+                picked = Some(m.clone());
+            }
+        }
+        if let Some(p) = picked {
+            text = p;
+            *suggest = None;
+        }
+        if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+            *suggest = None;
+        }
     }
-    if ui.button(format!("+ Add {}", label.to_lowercase())).clicked() {
-        items.push(String::new());
+    if add && !text.trim().is_empty() {
+        items.push(text.trim().to_string());
+        text.clear();
+        *suggest = None;
     }
+    ui.data_mut(|d| d.insert_temp(buf_id, text));
 }
 
 /// Top `limit` mod texts matching `query`: every whitespace-separated query
