@@ -504,6 +504,14 @@ impl PartialEq for Art {
     }
 }
 
+/// Puts late-arriving art on the panel it was fetched for; art for a panel
+/// that has since been replaced is dropped.
+pub fn apply_art(panel: &mut Panel, title: &str, art: Art) {
+    if panel.header.name == title {
+        panel.art = Some(art);
+    }
+}
+
 /// The item header block, worded exactly as the tooltip does.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemHeader {

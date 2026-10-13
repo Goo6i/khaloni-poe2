@@ -1142,6 +1142,9 @@ enum AppraiseDone {
     },
     /// What each mod is worth, for the panel with this title.
     Attributed { title: String, outcome: Result<Vec<khaloni_poe2::evaluate_ui::AttributionRow>, String> },
+    /// The item's art for the panel with this title, once it has loaded;
+    /// sent after the `Result`, so the listings never wait for the CDN.
+    Art { title: String, art: khaloni_poe2::evaluate_ui::Art },
     /// Something the user should read that belongs to no panel (a reward
     /// row's gem could not be priced, and why).
     Note(String),
@@ -1165,9 +1168,6 @@ struct SearchDone {
     blocks: khaloni_poe2::appraise::Blocks,
     /// poe.ninja's line for the item, when it tracks it.
     ninja: Option<khaloni_poe2::evaluate_ui::NinjaBlock>,
-    /// The item's art for the nameplate, when the first listing carried
-    /// one and it could be loaded.
-    art: Option<khaloni_poe2::evaluate_ui::Art>,
     /// The exchange offers and the stack's worth, for a stackable.
     bulk: Option<khaloni_poe2::evaluate_ui::BulkBlock>,
     stack_value: Option<String>,
@@ -1654,7 +1654,10 @@ impl TradeWorker {
             }
             AppraiseReq::Exact { title, query, strictness } => {
                 let outcome = self.search(&query, &title).map(Box::new);
+                let icon = outcome.as_ref().ok().and_then(|d| d.blocks.icon.clone());
+                let art_title = title.clone();
                 let _ = self.done_tx.send(AppraiseDone::Result { title, outcome, strictness });
+                self.fetch_art(art_title, icon);
             }
         }
     }
@@ -1683,10 +1686,39 @@ impl TradeWorker {
             base_type,
         });
         let outcome = self.search(&query, &title).map(Box::new);
+        let icon = outcome.as_ref().ok().and_then(|d| d.blocks.icon.clone());
+        let art_title = title.clone();
         let _ = self.done_tx.send(AppraiseDone::Result {
             title,
             outcome,
             strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+        });
+        self.fetch_art(art_title, icon);
+    }
+
+    /// Loads the item's art off the worker's thread and sends it for the
+    /// panel with this title. Called after the search's `Result` is sent:
+    /// the listings never wait for the CDN, and the next check is not held
+    /// by a slow image.
+    fn fetch_art(&self, title: String, icon: Option<String>) {
+        let Some(url) = icon else { return };
+        let tx = self.done_tx.clone();
+        let dir = self.cache_dir.clone();
+        let http = self.art_http.clone();
+        let _ = std::thread::Builder::new().name("item-art".into()).spawn(move || {
+            let fetch = |u: &str| -> Result<Vec<u8>, String> {
+                let resp = http.get(u).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("status {}", resp.status()));
+                }
+                resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
+            };
+            match khaloni_poe2::art::load_or_fetch(&dir, &url, &fetch) {
+                Ok(img) => {
+                    let _ = tx.send(AppraiseDone::Art { title, art: khaloni_poe2::evaluate_ui::Art::new(img) });
+                }
+                Err(e) => eprintln!("art: {e}"),
+            }
         });
     }
 
@@ -1785,23 +1817,6 @@ impl TradeWorker {
             divine_threshold,
             built: checked.map(|c| &c.built),
         });
-        let art = blocks.icon.as_deref().and_then(|url| {
-            let http = &self.art_http;
-            let fetch = |u: &str| -> Result<Vec<u8>, String> {
-                let resp = http.get(u).send().map_err(|e| e.to_string())?;
-                if !resp.status().is_success() {
-                    return Err(format!("status {}", resp.status()));
-                }
-                resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
-            };
-            match khaloni_poe2::art::load_or_fetch(&self.cache_dir, url, &fetch) {
-                Ok(img) => Some(khaloni_poe2::evaluate_ui::Art::new(img)),
-                Err(e) => {
-                    eprintln!("art: {e}");
-                    None
-                }
-            }
-        });
         let ninja = checked.and_then(|c| {
             let model = appraise::market_model(&self.svc.market(), floors, now_unix);
             let (name, base, corrupted) = &c.ninja;
@@ -1815,7 +1830,6 @@ impl TradeWorker {
             league: self.league.clone(),
             blocks,
             ninja,
-            art,
             bulk: None,
             stack_value: None,
             budget: self.budget_text(),
@@ -1855,7 +1869,6 @@ impl TradeWorker {
             league: self.league.clone(),
             blocks: Default::default(),
             ninja: None,
-            art: None,
             bulk: Some(khaloni_poe2::appraise::bulk_block(view, names)),
             stack_value: Some(khaloni_poe2::appraise::stack_value_text(
                 stack,
@@ -2815,11 +2828,6 @@ fn show_search(panel: &mut khaloni_poe2::evaluate_ui::Panel, done: &SearchDone) 
     if done.ninja.is_some() {
         panel.ninja = done.ninja.clone();
     }
-    // The art belongs to the item, like the ninja line: a search that found
-    // none keeps the one the panel had.
-    if done.art.is_some() {
-        panel.art = done.art.clone();
-    }
     panel.bulk = done.bulk.clone();
     panel.stack_value = done.stack_value.clone();
     panel.budget_text = done.budget.0.clone();
@@ -3256,7 +3264,7 @@ fn overlay_mode(
                 .user_agent("khaloni-poe2")
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
-                .expect("reqwest client"),
+                .unwrap_or_else(|_| reqwest::blocking::Client::new()),
             gem_map: gem_map.clone(),
             svc: svc.clone(),
             exch_names: exch_names.clone(),
@@ -4367,6 +4375,12 @@ fn overlay_mode(
                         last_row_error_note = std::time::Instant::now();
                         notices.push_back(text);
                     }
+                }
+                AppraiseDone::Art { title, art } => {
+                    if let Some((panel, _, _)) = apanel.as_mut() {
+                        khaloni_poe2::evaluate_ui::apply_art(panel, &title, art);
+                    }
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
                 AppraiseDone::Attributed { title, outcome } => {
                     let Some((panel, _, _)) = apanel.as_mut() else { continue };

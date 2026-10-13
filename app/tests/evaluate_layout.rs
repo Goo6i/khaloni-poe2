@@ -85,3 +85,13 @@ fn art_compares_by_identity_not_by_pixels() {
     assert_eq!(a, b);
     assert_ne!(a, c);
 }
+
+#[test]
+fn late_art_lands_only_on_the_panel_it_was_fetched_for() {
+    let mut p = Panel::default();
+    p.header.name = "Item".into();
+    ev::apply_art(&mut p, "Other", ev::Art::new(image::RgbaImage::new(1, 1)));
+    assert!(p.art.is_none());
+    ev::apply_art(&mut p, "Item", ev::Art::new(image::RgbaImage::new(1, 1)));
+    assert!(p.art.is_some());
+}
