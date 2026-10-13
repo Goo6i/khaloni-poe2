@@ -651,3 +651,40 @@ fn the_plate_button_fills_its_edges_at_mid_height_without_a_seam() {
     let bottom = rgb_of(&pm, 60, 35);
     assert!(top.0 > bottom.0, "gradient top {top:?} should be lighter than bottom {bottom:?}");
 }
+
+#[test]
+fn a_one_line_popup_still_frames_cleanly() {
+    // Narrower than two frame arms in height: corners meet halfway and
+    // nothing is painted outside the popup's rect.
+    let r = Renderer::new().unwrap();
+    let popup = Popup { title: "Exalted Orb".into(), lines: vec![], expires: std::time::Instant::now() };
+    let (w, h) = r.popup_size(&popup);
+    let mut pm = tiny_skia::Pixmap::new((w + 20) as u32, (h + 20) as u32).unwrap();
+    r.draw_popup(&mut pm, &popup, (10, 10));
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    let (gr, gg, gb) = bytes(theme::BORDER_GOLD);
+    // The popup is shorter than two frame arms, so its middle row lies in
+    // the corners' fade: the outer line there is somewhere between the
+    // frame's dim gold and the corner's bright gold, and opaque.
+    let (br, _, _) = bytes(theme::GOLD);
+    let left = rgb_of(&pm, 10, 10 + h as u32 / 2);
+    assert!(left.3 == 255 && left.0 >= gr && left.0 <= br, "left outer line {left:?} not gold between {gr} and {br}");
+    let _ = (gg, gb);
+    assert_eq!(rgb_of(&pm, 10 + w as u32 / 2, 10 + h as u32 / 2), (pr, pg, pb, 255), "opaque panel inside");
+    assert_eq!(pm.pixel(5, 5).unwrap().alpha(), 0, "nothing painted outside");
+    assert_eq!(pm.pixel(10 + w as u32 + 5, 10 + h as u32 / 2).unwrap().alpha(), 0, "nothing painted right of it");
+}
+
+#[test]
+fn the_popup_title_is_drawn_in_the_name_face_on_the_dark_surface() {
+    let r = Renderer::new().unwrap();
+    let popup = sample_popup();
+    let (w, h) = r.popup_size(&popup);
+    let mut pm = tiny_skia::Pixmap::new(w as u32, h as u32).unwrap();
+    r.draw_popup(&mut pm, &popup, (0, 0));
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // The title row holds pixels lighter than the panel (the text).
+    let lit = (12..w as u32 - 12).any(|x| (12..34u32).any(|y| rgb_of(&pm, x, y).0 > pr + 60));
+    assert!(lit, "no title drawn");
+    let _ = (pg, pb);
+}

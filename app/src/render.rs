@@ -109,7 +109,6 @@ const C_BLUE: (u8, u8, u8) = theme::REWARD_BLUE;
 const C_BLUE_LT: (u8, u8, u8) = theme::REWARD_BLUE_LT;
 const C_JUNK_LT: (u8, u8, u8) = theme::REWARD_JUNK_LT;
 const C_RED: (u8, u8, u8) = theme::REWARD_RED;
-const C_UNIQUE: (u8, u8, u8) = (0xAF, 0x60, 0x25); // unique item name, the game's own orange
 // Suffix badges: a warm amber against the prefixes' C_BLUE_LT, so the two
 // affix families split cool/warm at a glance without inventing a hue
 // outside the design system.
@@ -699,10 +698,10 @@ impl Renderer {
             Some(i) => text.split_at(i + 1),
             None => (text, ""),
         };
-        let label_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK2) };
+        let label_style = TextStyle { kind: FontKind::Amount, px, color: theme::color(theme::TEXT_DIM) };
         self.draw_text(pm, x, baseline, label, &label_style);
         if !value.is_empty() {
-            let value_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK) };
+            let value_style = TextStyle { kind: FontKind::Amount, px, color: theme::color(theme::TEXT) };
             let lw = self.text_width(FontKind::Amount, label, px);
             self.draw_text(pm, x + lw, baseline, value, &value_style);
         }
@@ -711,21 +710,24 @@ impl Renderer {
     /// A hairline rule across the card's inner width, the way the game's
     /// tooltip separates the name block from the properties from the mods.
     fn eval_rule(&self, pm: &mut Pixmap, ax: f32, y: f32, panel_w: f32) {
-        self.pill(pm, ax + 12.0, y, panel_w - 24.0, 1.0, rgb(C_LINE));
+        self.fill_device(pm, self.device_rect(ax + 12.0, y, panel_w - 24.0, 1.0), theme::BORDER_ROW, 0xff);
     }
 
-    /// A checkbox: hollow outline always, filled square when on. Same
-    /// treatment every checkbox in the overlay uses.
+    /// A checkbox: hollow outline always, a gold square with a dark tick
+    /// when on. Same treatment every checkbox in the overlay uses.
     fn eval_check(&self, pm: &mut Pixmap, r: &crate::config::Rect, ax: f32, ay: f32, on: bool) {
         let (cx, cy) = (ax + r.x as f32, ay + r.y as f32);
         let side = r.w as f32;
-        self.pill(pm, cx, cy, side, side, if on { rgb(C_INK) } else { rgb(C_INK2) });
         if on {
-            let mut inner = Paint::default();
-            inner.set_color(rgb(C_INK));
+            self.rounded(pm, cx, cy, side, side, 2.0, Some(theme::color(theme::GOLD)), None);
+            let mut tick = Paint::default();
+            tick.set_color(theme::color(theme::BG_TITLE));
             if let Some(rect) = SkRect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
-                pm.fill_rect(rect, &inner, self.xf(), None);
+                pm.fill_rect(rect, &tick, self.xf(), None);
             }
+        } else {
+            let edge = theme::color(theme::TEXT_MUTED);
+            self.rounded(pm, cx, cy, side, side, 2.0, None, Some((edge, PILL_BORDER_WIDTH)));
         }
     }
 
@@ -733,21 +735,25 @@ impl Renderer {
     /// for magic (the dark border blue disappears into the panel fill),
     /// the game's own orange for unique, plain ink otherwise.
     fn rarity_color(rarity: &str) -> Color {
-        if rarity.eq_ignore_ascii_case("rare") {
-            rgb(C_GOLD)
+        let c = if rarity.eq_ignore_ascii_case("rare") {
+            theme::RARITY_RARE
         } else if rarity.eq_ignore_ascii_case("magic") {
-            rgb(C_BLUE_LT)
+            theme::RARITY_MAGIC
         } else if rarity.eq_ignore_ascii_case("unique") {
-            rgb(C_UNIQUE)
+            theme::RARITY_UNIQUE
+        } else if rarity.eq_ignore_ascii_case("currency") {
+            theme::CURRENCY_NAME
+        } else if rarity.eq_ignore_ascii_case("gem") {
+            theme::GEM_NAME
         } else {
-            rgb(C_INK)
-        }
+            theme::RARITY_NORMAL
+        };
+        theme::color(c)
     }
 
-    /// A block heading under the card, in the market view's section gold.
+    /// A block heading under the card; zero width draws no rule.
     fn section(&self, pm: &mut Pixmap, x: f32, baseline: f32, text: &str) {
-        let style = TextStyle { kind: FontKind::Amount, px: 15.0, color: rgb(C_GOLD) };
-        self.draw_text(pm, x, baseline, text, &style);
+        self.section_heading(pm, x, baseline, 0.0, text);
     }
 
     /// A table's caption line: small-caps column names with a hairline
@@ -756,22 +762,16 @@ impl Renderer {
     fn captions(&self, pm: &mut Pixmap, anchor: (f32, f32), at: (i32, &[i32]), names: &[&str], w: f32) {
         let (ax, ay) = anchor;
         let (baseline, cols) = at;
-        let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: rgb(C_INK2) };
+        let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
         for (x, name) in cols.iter().zip(names) {
             self.draw_text(pm, ax + *x as f32, ay + baseline as f32, name, &style);
         }
-        self.pill(pm, ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, 1.0, rgb(C_LINE));
+        self.fill_device(pm, self.device_rect(ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, 1.0), theme::BORDER_ROW, 0xff);
     }
 
-    /// A small button: gold border and ink when live, hairline and muted
-    /// when switched off, its label centred.
+    /// Until `draw_evaluate` calls `outlined_button` itself.
     fn small_button(&self, pm: &mut Pixmap, ax: f32, ay: f32, rect: &crate::config::Rect, label: &str, on: bool) {
-        let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-        let (bw, bh) = (rect.w as f32, rect.h as f32);
-        self.pill(pm, bx, by, bw, bh, if on { border_color(Tier::Jackpot) } else { rgb(C_LINE) });
-        let style = TextStyle { kind: FontKind::Amount, px: 14.0, color: if on { rgb(C_INK) } else { rgb(C_INK2) } };
-        let tw = self.text_width(FontKind::Amount, label, 14.0);
-        self.draw_text(pm, bx + (bw - tw).max(0.0) / 2.0, by + bh - 7.0, label, &style);
+        self.outlined_button(pm, rect, ax, ay, label, 0.0, on);
     }
 
     /// Draws the Evaluate item card with what the search found under it,
@@ -1199,10 +1199,12 @@ impl Renderer {
     ) {
         use crate::evaluate_ui::LineKind;
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        let ink = rgb(C_INK);
-        let dim = rgb(C_INK2);
+        let ink = theme::color(theme::TEXT);
+        let dim = theme::color(theme::TEXT_DIM);
         let r = &g.rect;
-        self.pill(pm, ax + r.x as f32, ay + r.y as f32, r.w as f32, r.h as f32, panel_border());
+        let (cx, cy, cw, ch) = (ax + r.x as f32, ay + r.y as f32, r.w as f32, r.h as f32);
+        self.fill_device(pm, self.device_rect(cx, cy, cw, ch), theme::BG_ITEM_CARD, 0xff);
+        self.game_frame(pm, cx, cy, cw, ch);
         let title = TextStyle { kind: FontKind::Amount, px: 20.0, color: Self::rarity_color(&card.rarity) };
         self.draw_text(pm, ax + g.title_pos.0 as f32, ay + g.title_pos.1 as f32, crate::evaluate_ui::card_title(card), &title);
         if let Some(pos) = g.base_pos {
@@ -1215,7 +1217,7 @@ impl Renderer {
             self.draw_prop_line(pm, ax + pos.0 as f32, ay + pos.1 as f32, &format!("{label}: {value}"), EVAL_PROP_PX);
         }
         for &y in &g.rules {
-            self.pill(pm, ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, 1.0, rgb(C_LINE));
+            self.fill_device(pm, self.device_rect(ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, 1.0), theme::BORDER_ROW, 0xff);
         }
         let badge = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color: dim };
         let text = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
@@ -1224,18 +1226,18 @@ impl Renderer {
             let mut bx = ax + g.badge_x as f32;
             for tier in &line.tiers {
                 let color = match tier.chars().next() {
-                    Some('P') => rgb(C_BLUE_LT),
-                    Some('S') => rgb(C_SUFFIX),
+                    Some('P') => theme::color(theme::AFFIX_PREFIX),
+                    Some('S') => theme::color(theme::AFFIX_SUFFIX),
                     _ => dim,
                 };
                 self.draw_text(pm, bx, y, tier, &TextStyle { color, ..badge });
                 bx += self.text_width(FontKind::Amount, tier, EVAL_BADGE_PX) + 4.0;
             }
             let color = match line.kind {
-                LineKind::Implicit | LineKind::Enchant | LineKind::Crafted => rgb(C_BLUE_LT),
-                LineKind::Rune => rgb(C_SUFFIX),
-                LineKind::Desecrated | LineKind::Mutated => rgb(C_DOWN),
-                LineKind::Fractured => rgb(C_GOLD),
+                LineKind::Implicit | LineKind::Enchant | LineKind::Crafted => theme::color(theme::TEXT_VALUE),
+                LineKind::Rune => theme::color(theme::AFFIX_SUFFIX),
+                LineKind::Desecrated | LineKind::Mutated => theme::color(theme::PRICE_FALL),
+                LineKind::Fractured => theme::color(theme::GOLD),
                 LineKind::Pseudo => dim,
                 LineKind::Explicit => ink,
             };
@@ -1257,20 +1259,17 @@ impl Renderer {
     ) {
         let (px_, py) = (ax + rect.x as f32, ay + rect.y as f32);
         let (pw, ph) = (rect.w as f32, rect.h as f32);
-        self.pill(pm, px_, py, pw, ph, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
-        if selected {
-            let mut lift = Paint::default();
-            lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
-            lift.anti_alias = true;
-            if let Some(r) = SkRect::from_xywh(px_ + 1.0, py + 1.0, pw - 2.0, ph - 2.0) {
-                pm.fill_rect(r, &lift, self.xf(), None);
-            }
-        }
-        let style = TextStyle {
-            kind: FontKind::Amount,
-            px: 13.0,
-            color: if selected { rgb(C_INK) } else { rgb(C_INK2) },
+        let (fill, edge, ink) = if selected {
+            (
+                theme::color_alpha(theme::GOLD, 0x29),
+                theme::color_alpha(theme::GOLD, 0x99),
+                theme::GOLD_LIGHT,
+            )
+        } else {
+            (theme::color(theme::BG_FIELD), theme::color(theme::BORDER_FIELD), theme::TEXT_DIM)
         };
+        self.rounded(pm, px_ + 0.5, py + 0.5, pw - 1.0, ph - 1.0, theme::CONTROL_RADIUS, Some(fill), Some((edge, 1.0)));
+        let style = TextStyle { kind: FontKind::Amount, px: 13.0, color: theme::color(ink) };
         self.draw_text(pm, px_ + 8.0, py + ph - 5.0, label, &style);
     }
 
@@ -1353,25 +1352,24 @@ impl Renderer {
         use crate::market_ui::{Line, Tone};
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
         let greyed = p.greyed();
-        let dim = rgb(C_INK2);
-        let ink = if greyed { dim } else { rgb(C_INK) };
-        let up = if greyed { dim } else { rgb(C_UP) };
-        let down = if greyed { dim } else { rgb(C_DOWN) };
+        let dim = theme::color(theme::TEXT_DIM);
+        let ink = if greyed { dim } else { theme::color(theme::TEXT) };
+        let up = if greyed { dim } else { theme::color(theme::PRICE_RISE) };
+        let down = if greyed { dim } else { theme::color(theme::PRICE_FALL) };
         let signed = |sign: i8| match sign {
             1 => up,
             -1 => down,
             _ => ink,
         };
-        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+        self.surface(pm, ax, ay, lay.w as f32, lay.h as f32);
 
-        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: rgb(C_INK) };
+        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: theme::color(theme::GOLD_LIGHT) };
         self.draw_text(pm, ax + lay.title_pos.0 as f32, ay + lay.title_pos.1 as f32, "Market", &title);
-        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
-        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
+        self.title_button(pm, &lay.close, ax, ay, "x", 0.0);
         let f = &p.fresh;
         let aged = p.tab != crate::market_ui::Tab::MyRuns
             && (f.stale || f.uniques_stale || greyed || p.uniques_greyed());
-        let status_color = if aged { stale_color() } else { dim };
+        let status_color = if aged { theme::color(theme::TEXT_WARNING) } else { dim };
         let status = TextStyle { kind: FontKind::Annotation, px: 14.0, color: status_color };
         self.draw_text(pm, ax + lay.status_pos.0 as f32, ay + lay.status_pos.1 as f32, &p.status(), &status);
 
@@ -1379,15 +1377,12 @@ impl Renderer {
             let label = crate::market_ui::TABS.iter().find(|(t, _)| t == tab).map(|(_, l)| *l).unwrap_or("");
             self.choice_pill(pm, ax, ay, rect, label, *tab == p.tab);
         }
-        let arrow = TextStyle { kind: FontKind::Amount, px: 16.0, color: rgb(C_INK) };
         for (rect, glyph) in [(&lay.back, "<"), (&lay.prev, "<"), (&lay.next, ">")] {
             let Some(rect) = rect else { continue };
-            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, rgb(C_LINE));
-            self.draw_text(pm, bx + 7.0, by + rect.h as f32 - 5.0, glyph, &arrow);
+            self.outlined_button(pm, rect, ax, ay, glyph, 0.0, true);
         }
         if let Some(pos) = lay.heading_pos {
-            let style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
+            let style = TextStyle { kind: FontKind::Amount, px: 18.0, color: theme::color(theme::TEXT) };
             self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, &crate::market_ui::heading_text(p), &style);
         }
         if let Some(pos) = lay.page_pos {
@@ -1403,8 +1398,7 @@ impl Renderer {
             let baseline = top + rect.h as f32 - 5.0;
             match line {
                 Line::Section(title) => {
-                    let style = TextStyle { kind: FontKind::Amount, px: 15.0, color: rgb(C_GOLD) };
-                    self.draw_text(pm, ax + rect.x as f32, baseline, title, &style);
+                    self.section_heading(pm, ax + rect.x as f32, baseline, rect.w as f32, title);
                 }
                 Line::Message(text) => {
                     let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
@@ -1420,7 +1414,7 @@ impl Renderer {
                     for (x, caption) in xs.iter().zip(captions) {
                         self.draw_text(pm, ax + *x as f32, baseline, &caption.to_uppercase(), &style);
                     }
-                    self.pill(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0, rgb(C_LINE));
+                    self.fill_device(pm, self.device_rect(ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0), theme::BORDER_ROW, 0xff);
                 }
                 Line::Note(text) => {
                     let style = TextStyle { kind: FontKind::Annotation, px: Self::MARKET_SMALL_PX, color: dim };
@@ -1441,15 +1435,15 @@ impl Renderer {
                         // table, so its greying does not reach them.
                         let color = match cell_ink {
                             Ink::Dim | Ink::Caption => dim,
-                            Ink::Up => rgb(C_UP),
-                            Ink::Down => rgb(C_DOWN),
-                            Ink::Normal => rgb(C_INK),
+                            Ink::Up => theme::color(theme::PRICE_RISE),
+                            Ink::Down => theme::color(theme::PRICE_FALL),
+                            Ink::Normal => theme::color(theme::TEXT),
                         };
                         let style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color };
                         self.draw_text(pm, x, baseline, text, &style);
                     }
                     if is_caption {
-                        self.pill(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0, rgb(C_LINE));
+                        self.fill_device(pm, self.device_rect(ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0), theme::BORDER_ROW, 0xff);
                     }
                 }
                 Line::Group(g) => {
@@ -1469,15 +1463,15 @@ impl Renderer {
                     // A row is as fresh as the part it came from.
                     let row_old = if r.listed { p.uniques_greyed() } else { greyed };
                     let muted = r.tone != Tone::Normal || row_old;
-                    let row_ink = if muted { dim } else { rgb(C_INK) };
+                    let row_ink = if muted { dim } else { theme::color(theme::TEXT) };
                     let text = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: row_ink };
                     self.draw_text(pm, ax + c.name as f32, baseline, &r.name, &text);
                     self.draw_text(pm, ax + c.price as f32, baseline, &r.price, &text);
                     self.draw_text(pm, ax + c.volume as f32, baseline, &r.volume, &text);
                     let moved = match r.change_sign {
                         _ if muted => dim,
-                        1 => rgb(C_UP),
-                        -1 => rgb(C_DOWN),
+                        1 => theme::color(theme::PRICE_RISE),
+                        -1 => theme::color(theme::PRICE_FALL),
                         _ => row_ink,
                     };
                     self.draw_text(pm, ax + c.change as f32, baseline, &r.change, &TextStyle { color: moved, ..text });
@@ -1512,12 +1506,11 @@ impl Renderer {
     ) {
         use crate::craft_ui::{Ink, Style, TABS};
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+        self.surface(pm, ax, ay, lay.w as f32, lay.h as f32);
 
-        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: rgb(C_INK) };
+        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: theme::color(theme::GOLD_LIGHT) };
         self.draw_text(pm, ax + lay.title_pos.0 as f32, ay + lay.title_pos.1 as f32, "Craft", &title);
-        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
-        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
+        self.title_button(pm, &lay.close, ax, ay, "x", 0.0);
         for (rect, view) in &lay.tabs {
             let label = TABS.iter().find(|(v, _)| v == view).map(|(_, l)| *l).unwrap_or("");
             self.choice_pill(pm, ax, ay, rect, label, *view == p.view);
@@ -1527,7 +1520,7 @@ impl Renderer {
         for (rect, _, open) in &lay.rows {
             if *open {
                 let mut lift = Paint::default();
-                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x18));
+                lift.set_color(theme::color_alpha(theme::GOLD, 0x18));
                 if let Some(r) = SkRect::from_xywh(ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32) {
                     pm.fill_rect(r, &lift, self.xf(), None);
                 }
@@ -1535,12 +1528,12 @@ impl Renderer {
         }
 
         let color = |ink: Ink| match ink {
-            Ink::Normal => rgb(C_INK),
-            Ink::Dim => rgb(C_INK2),
-            Ink::Gold => rgb(C_GOLD),
-            Ink::Magic => rgb(C_BLUE_LT),
-            Ink::Warn => rgb(C_DOWN),
-            Ink::Unknown => rgb(C_SUFFIX),
+            Ink::Normal => theme::color(theme::TEXT),
+            Ink::Dim => theme::color(theme::TEXT_DIM),
+            Ink::Gold => theme::color(theme::GOLD),
+            Ink::Magic => theme::color(theme::RARITY_MAGIC),
+            Ink::Warn => theme::color(theme::PRICE_FALL),
+            Ink::Unknown => theme::color(theme::AFFIX_SUFFIX),
         };
         for t in std::iter::once(&lay.status).chain(&lay.texts) {
             let (kind, px) = match t.style {
@@ -1555,24 +1548,20 @@ impl Renderer {
             self.draw_text(pm, ax + t.rect.x as f32, baseline, &t.text, &TextStyle { kind, px, color: color(t.ink) });
         }
 
-        let arrow = TextStyle { kind: FontKind::Amount, px: 14.0, color: rgb(C_INK) };
-        let tier = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: rgb(C_INK) };
+        let tier = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: theme::color(theme::TEXT) };
         for f in &lay.families {
             if !f.greyed {
                 self.eval_check(pm, &f.check, ax, ay, f.ticked);
             }
             let Some(t) = &f.tier else { continue };
             for (rect, glyph) in [(&t.better, "<"), (&t.worse, ">")] {
-                let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-                self.pill(pm, bx, by, rect.w as f32, rect.h as f32, rgb(C_LINE));
-                let gw = self.text_width(FontKind::Amount, glyph, 14.0);
-                self.draw_text(pm, bx + (rect.w as f32 - gw) / 2.0, by + rect.h as f32 - 5.0, glyph, &arrow);
+                self.outlined_button(pm, rect, ax, ay, glyph, 0.0, true);
             }
             let baseline = ay + (t.better.y + t.better.h as i32 - 3) as f32;
             self.draw_text(pm, ax + t.text_x as f32, baseline, &t.text, &tier);
         }
         for b in &lay.buttons {
-            self.small_button(pm, ax, ay, &b.rect, &b.label, b.on);
+            self.outlined_button(pm, &b.rect, ax, ay, &b.label, 0.0, b.on);
         }
     }
 
@@ -1613,9 +1602,9 @@ impl Renderer {
         let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
         let pill_x = ax as f32;
         let pill_y = ay as f32;
-        self.pill(pm, pill_x, pill_y, self.popup_width(popup), pill_h, panel_border());
+        self.surface(pm, pill_x, pill_y, self.popup_width(popup), pill_h);
 
-        let title_color = rgb(C_INK);
+        let title_color = theme::color(theme::TEXT);
         let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: title_color };
         let title_baseline = pill_y + POPUP_PAD + POPUP_TITLE_PX * 0.8;
         self.draw_text(pm, pill_x + POPUP_PAD, title_baseline, &popup.title, &title_style);
