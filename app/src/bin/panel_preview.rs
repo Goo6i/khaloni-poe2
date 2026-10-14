@@ -250,6 +250,7 @@ fn main() -> anyhow::Result<()> {
         table: &table,
         divine_threshold: 1.0,
         built: built.as_ref(),
+        base: None,
     };
     let blocks = appraise::blocks(&fetched);
     let rows: Vec<ListingRow> = blocks.listings.clone();

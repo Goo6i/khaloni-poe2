@@ -1823,6 +1823,9 @@ impl TradeWorker {
             table: &snap.table,
             divine_threshold,
             built: checked.map(|c| &c.built),
+            // The base: `ninja.1` when the item has a name of its own,
+            // else the name it goes by, which is its base.
+            base: checked.map(|c| c.ninja.1.as_deref().unwrap_or(&c.ninja.0)),
         });
         let ninja = checked.and_then(|c| {
             let model = appraise::market_model(&self.svc.market(), floors, now_unix);

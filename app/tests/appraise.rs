@@ -910,6 +910,46 @@ fn a_price_check_search_sends_the_saved_session_and_follows_its_changes() {
     assert!(!heads[2].contains("poesessid"), "a cleared session was still sent:\n{}", heads[2]);
 }
 
+fn fetch_full() -> Vec<Option<serde_json::Value>> {
+    let body: serde_json::Value = serde_json::from_str(include_str!("../../core/tests/fixtures/trade_fetch_full.json")).unwrap();
+    body["result"].as_array().unwrap().iter().cloned().map(Some).collect()
+}
+
+fn fetched_for<'a>(
+    raw: &'a [Option<serde_json::Value>],
+    names: &'a std::collections::HashMap<String, String>,
+    table: &'a PriceTable,
+    base: Option<&'a str>,
+) -> khaloni_poe2::appraise::Fetched<'a> {
+    khaloni_poe2::appraise::Fetched {
+        raw, total: Some(raw.len() as u64), now_unix: 1_790_000_000, my_account: "me", currency_names: names, table, divine_threshold: 100.0, built: None, base,
+    }
+}
+
+#[test]
+fn the_icon_comes_from_a_listing_of_the_checked_base_or_not_at_all() {
+    let raw = fetch_full();
+    let table = table();
+    let names = std::collections::HashMap::new();
+    let icon_of = |i: usize| raw[i].as_ref().unwrap()["item"]["icon"].as_str().map(str::to_string);
+    let first_base = raw[0].as_ref().unwrap()["item"]["baseType"].as_str().unwrap().to_string();
+    let b = khaloni_poe2::appraise::blocks(&fetched_for(&raw, &names, &table, Some(&first_base)));
+    assert_eq!(b.icon, icon_of(0));
+    // A base further down the listings takes the icon of its own first entry.
+    let (i, other) = raw
+        .iter()
+        .enumerate()
+        .find_map(|(i, v)| {
+            let base = v.as_ref()?["item"]["baseType"].as_str()?;
+            (base != first_base).then(|| (i, base.to_string()))
+        })
+        .expect("the fixture holds a second base");
+    let b = khaloni_poe2::appraise::blocks(&fetched_for(&raw, &names, &table, Some(&other)));
+    assert_eq!(b.icon, icon_of(i));
+    let b = khaloni_poe2::appraise::blocks(&fetched_for(&raw, &names, &table, Some("No Such Base")));
+    assert_eq!(b.icon, None);
+}
+
 #[test]
 fn blocks_take_the_first_entrys_icon_and_none_when_no_entry_carries_one() {
     let body: serde_json::Value = serde_json::from_str(include_str!("../../core/tests/fixtures/trade_fetch_full.json")).unwrap();
@@ -921,9 +961,7 @@ fn blocks_take_the_first_entrys_icon_and_none_when_no_entry_carries_one() {
         names: &'a std::collections::HashMap<String, String>,
         table: &'a PriceTable,
     ) -> khaloni_poe2::appraise::Fetched<'a> {
-        khaloni_poe2::appraise::Fetched {
-            raw, total: Some(raw.len() as u64), now_unix: 1_790_000_000, my_account: "me", currency_names: names, table, divine_threshold: 100.0, built: None,
-        }
+        fetched_for(raw, names, table, None)
     }
     let b = khaloni_poe2::appraise::blocks(&fetched(&raw, &names, &table));
     assert!(b.icon.as_deref().is_some_and(|u| u.contains("web.poecdn.com")));

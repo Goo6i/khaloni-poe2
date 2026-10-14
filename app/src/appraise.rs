@@ -360,6 +360,10 @@ pub struct Fetched<'a> {
     /// The checked item as the search was built from it, for the
     /// closest-listings comparison; None prices by name (a unique, a gem).
     pub built: Option<&'a Built>,
+    /// The checked item's base type, so the nameplate's art is that base
+    /// and not whatever the cheapest listing happens to be; None when no
+    /// checked item stands behind the search.
+    pub base: Option<&'a str>,
 }
 
 /// What one search puts under the card.
@@ -381,7 +385,8 @@ pub struct Blocks {
     pub shown: usize,
     pub dropped: usize,
     pub total: Option<u64>,
-    /// The first entry's item art URL, for the nameplate.
+    /// The item art URL for the nameplate: from the first entry of the
+    /// checked base, or the first entry when there is no checked item.
     pub icon: Option<String>,
 }
 
@@ -391,7 +396,15 @@ fn view_exalted(v: &ListingView, f: &Fetched) -> Option<f64> {
 
 /// The blocks for one search, from its fetched entries.
 pub fn blocks(f: &Fetched) -> Blocks {
-    let icon = f.raw.iter().flatten().find_map(|v| v.get("item")?.get("icon")?.as_str().map(str::to_string));
+    let icon = f.raw.iter().flatten().find_map(|v| {
+        let item = v.get("item")?;
+        if let Some(base) = f.base {
+            if item.get("baseType")?.as_str()? != base {
+                return None;
+            }
+        }
+        item.get("icon")?.as_str().map(str::to_string)
+    });
     let mut dropped = 0;
     let views: Vec<ListingView> = f
         .raw
