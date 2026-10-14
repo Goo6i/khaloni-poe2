@@ -147,6 +147,49 @@ pub fn frame(ctx: &egui::Context) {
     }
 }
 
+/// How far in from the viewport's edge a press resizes the window.
+const RESIZE_EDGE: f32 = 6.0;
+
+/// The OS resize edges the undecorated window lost: eight invisible zones
+/// along the viewport's edges and corners, on the foreground layer. A drag
+/// from one asks the window manager to resize from that side. The top zone
+/// lies inside the frame's keep-out (`FRAME_CLEAR`), above the painted title
+/// bar, so the title bar's drag area never meets it.
+pub fn resize_edges(ctx: &egui::Context) {
+    use egui::{CursorIcon as C, ResizeDirection as D};
+    let v = ctx.viewport_rect();
+    let e = RESIZE_EDGE;
+    let (l, r, t, b) = (v.left(), v.right(), v.top(), v.bottom());
+    let zone = |x0: f32, y0: f32, x1: f32, y1: f32| Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y1));
+    let zones = [
+        (zone(l + e, t, r - e, t + e), D::North, C::ResizeNorth),
+        (zone(l + e, b - e, r - e, b), D::South, C::ResizeSouth),
+        (zone(r - e, t + e, r, b - e), D::East, C::ResizeEast),
+        (zone(l, t + e, l + e, b - e), D::West, C::ResizeWest),
+        (zone(r - e, t, r, t + e), D::NorthEast, C::ResizeNorthEast),
+        (zone(l, t, l + e, t + e), D::NorthWest, C::ResizeNorthWest),
+        (zone(r - e, b - e, r, b), D::SouthEast, C::ResizeSouthEast),
+        (zone(l, b - e, l + e, b), D::SouthWest, C::ResizeSouthWest),
+    ];
+    for (rect, dir, cursor) in zones {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            continue;
+        }
+        egui::Area::new(egui::Id::new(("resize-edge", format!("{dir:?}"))))
+            .order(egui::Order::Foreground)
+            .fixed_pos(rect.min)
+            .movable(false)
+            .constrain(false)
+            .show(ctx, |ui| {
+                let (_, resp) = ui.allocate_exact_size(rect.size(), Sense::drag());
+                if resp.drag_started() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+                }
+                resp.on_hover_cursor(cursor);
+            });
+    }
+}
+
 pub struct TitleBar {
     pub close_clicked: bool,
 }

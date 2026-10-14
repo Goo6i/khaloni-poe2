@@ -394,6 +394,7 @@ impl eframe::App for SettingsApp {
         });
 
         crate::settings_style::frame(&ctx);
+        crate::settings_style::resize_edges(&ctx);
 
         self.autosave(&ctx);
     }
