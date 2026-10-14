@@ -1243,6 +1243,14 @@ struct Checked {
     ninja: (String, Option<String>, bool),
 }
 
+/// The base the nameplate's art must belong to: the base the search was
+/// built on (EE2 strips a magic item's affix names to get it), else the
+/// item's own base line, else the name it goes by (an unnamed item's name
+/// is its base).
+fn art_base(c: &Checked) -> &str {
+    c.built.query.type_name.as_deref().or(c.ninja.1.as_deref()).unwrap_or(&c.ninja.0)
+}
+
 /// The trade site's catalogs a price check needs. Each loads on first use
 /// through `TradeClient::cached_data` (validated, written atomically, kept
 /// for a day) and is retried with a growing wait when it fails.
@@ -1823,9 +1831,7 @@ impl TradeWorker {
             table: &snap.table,
             divine_threshold,
             built: checked.map(|c| &c.built),
-            // The base: `ninja.1` when the item has a name of its own,
-            // else the name it goes by, which is its base.
-            base: checked.map(|c| c.ninja.1.as_deref().unwrap_or(&c.ninja.0)),
+            base: checked.map(art_base),
         });
         let ninja = checked.and_then(|c| {
             let model = appraise::market_model(&self.svc.market(), floors, now_unix);
@@ -5253,6 +5259,31 @@ fn overlay_mode(
 
 #[cfg(test)]
 mod main_tests {
+    #[test]
+    fn art_base_follows_the_search_base_not_the_magic_name() {
+        use khaloni_poe2_core::ee2::{data, request, Ee2Data};
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/ee2-parity");
+        let read = |p: &str| std::fs::read_to_string(dir.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+        let mut d = Ee2Data::from_ndjson(&read("data/stats.ndjson"), &read("data/items.ndjson")).expect("ndjson");
+        d.trade_stats = Some(data::TradeStatTexts::from_json(&read("data/trade-stats.json")).expect("stats"));
+        d.trade_items = Some(data::trade_item_names(&read("data/trade-items.json")).expect("items"));
+        let built = request::build(&read("items/ee2-ArmourHighValueRareItem.txt"), &d).expect("builds");
+        let checked = |ninja: (String, Option<String>, bool), type_name: Option<&str>| {
+            let mut built = built.clone();
+            built.query.type_name = type_name.map(String::from);
+            super::Checked { title: String::new(), built, ninja }
+        };
+        // Magic: one header line, so the search's own base wins.
+        let magic = checked(("Rapid Soldier Cuirass of the Falcon".into(), None, false), Some("Soldier Cuirass"));
+        assert_eq!(super::art_base(&magic), "Soldier Cuirass");
+        // Rare: the item's own base line.
+        let rare = checked(("Sol Wrap".into(), Some("Soldier Cuirass".into()), false), None);
+        assert_eq!(super::art_base(&rare), "Soldier Cuirass");
+        // Normal: the name is the base.
+        let normal = checked(("Soldier Cuirass".into(), None, false), None);
+        assert_eq!(super::art_base(&normal), "Soldier Cuirass");
+    }
+
     #[test]
     fn the_wrapper_finds_the_game_command() {
         let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<String>>();
