@@ -357,16 +357,18 @@ pub fn segmented<T: Copy + PartialEq>(ui: &mut Ui, id: &str, options: &[(T, &str
     changed
 }
 
-/// − value + : an outlined button each side of the number.
+/// − value + : an outlined button each side of egui's own DragValue, so
+/// the number can still be typed or dragged.
 pub fn stepper(ui: &mut Ui, value: &mut f64, step: f64, range: RangeInclusive<f64>, suffix: &str) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
+        // The row slot is right to left: + first, so it reads "− value +".
         if button(ui, "+").clicked() {
             *value = (*value + step).clamp(*range.start(), *range.end());
             changed = true;
         }
-        let shown = if value.fract() == 0.0 { format!("{}{suffix}", *value as i64) } else { format!("{value:.1}{suffix}") };
-        ui.label(egui::RichText::new(shown).size(16.0).color(color32(theme::TEXT)));
+        let drag = ui.add(egui::DragValue::new(value).speed(step).range(range.clone()).suffix(suffix));
+        changed |= drag.changed();
         if button(ui, "−").clicked() {
             *value = (*value - step).clamp(*range.start(), *range.end());
             changed = true;
