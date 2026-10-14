@@ -1574,7 +1574,7 @@ impl Renderer {
                     self.draw_text(pm, ax + rect.x as f32, baseline, text, &style);
                 }
                 Line::Caption => {
-                    let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: dim };
+                    let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
                     let xs: &[i32] = if groups {
                         &[c.price, c.volume, c.change, c.spark]
                     } else {
@@ -1596,7 +1596,7 @@ impl Renderer {
                     for ((text, cell_ink), x) in cells.iter().zip(xs) {
                         let x = ax + *x as f32;
                         if *cell_ink == Ink::Caption {
-                            let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: dim };
+                            let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
                             self.draw_text(pm, x, baseline, &text.to_uppercase(), &style);
                             continue;
                         }
