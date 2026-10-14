@@ -301,8 +301,11 @@ fn row_inner(ui: &mut Ui, label: &str, description: Option<&str>, last: bool, co
     });
     ui.add_space(8.0);
     if !last {
+        // One device pixel on a device row, at any scale.
         let r = ui.available_rect_before_wrap();
-        ui.painter().rect_filled(Rect::from_min_size(Pos2::new(r.left(), r.top()), Vec2::new(r.width(), 1.0)), 0.0, color32(theme::BORDER_ROW));
+        let ppp = ui.ctx().pixels_per_point();
+        let y = (r.top() * ppp).round() / ppp;
+        ui.painter().rect_filled(Rect::from_min_size(Pos2::new(r.left(), y), Vec2::new(r.width(), 1.0 / ppp)), 0.0, color32(theme::BORDER_ROW));
         ui.add_space(1.0);
     }
 }

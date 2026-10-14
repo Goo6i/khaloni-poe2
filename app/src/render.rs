@@ -403,6 +403,15 @@ impl Renderer {
         DeviceRect::new(s.device(x), s.device(y), s.device(x + w), s.device(y + h))
     }
 
+    /// A `w`-wide hairline whose top is at logical `y`: one logical px in
+    /// whole device pixels, so every rule is the same height at any scale.
+    pub fn hairline(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, color: u32) {
+        let s = self.device_scale();
+        let top = s.device(y);
+        let rect = DeviceRect::new(s.device(x), top, s.device(x + w), top + s.hairline());
+        self.fill_device(pm, rect, color, 0xff);
+    }
+
     /// Straight-alpha `rgb` at `a` over one premultiplied pixel of `data`.
     #[inline]
     fn over(data: &mut [u8], idx: usize, (r, g, b): (u8, u8, u8), a: u8) {
@@ -739,7 +748,7 @@ impl Renderer {
     /// A hairline rule across the card's inner width, the way the game's
     /// tooltip separates the name block from the properties from the mods.
     fn eval_rule(&self, pm: &mut Pixmap, ax: f32, y: f32, panel_w: f32) {
-        self.fill_device(pm, self.device_rect(ax + 12.0, y, panel_w - 24.0, 1.0), theme::BORDER_ROW, 0xff);
+        self.hairline(pm, ax + 12.0, y, panel_w - 24.0, theme::BORDER_ROW);
     }
 
     /// A checkbox: hollow outline always, a gold square with a dark tick
@@ -840,7 +849,7 @@ impl Renderer {
         for (x, name) in cols.iter().zip(names) {
             self.draw_text(pm, ax + *x as f32, ay + baseline as f32, name, &style);
         }
-        self.fill_device(pm, self.device_rect(ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, 1.0), theme::BORDER_ROW, 0xff);
+        self.hairline(pm, ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, theme::BORDER_ROW);
     }
 
     /// Draws the Evaluate item card with what the search found under it,
@@ -1289,12 +1298,7 @@ impl Renderer {
                         None => self.draw_text(pm, cx, baseline, cell, &style),
                     }
                 }
-                self.fill_device(
-                    pm,
-                    self.device_rect(rx, ry + rect.h as f32 - 1.0, rect.w as f32, 1.0),
-                    theme::BORDER_ROW,
-                    0xff,
-                );
+                self.hairline(pm, rx, ry + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
             }
         }
 
@@ -1382,7 +1386,7 @@ impl Renderer {
             self.draw_prop_line(pm, ax + pos.0 as f32, ay + pos.1 as f32, &format!("{label}: {value}"), EVAL_PROP_PX);
         }
         for &y in &g.rules {
-            self.fill_device(pm, self.device_rect(ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, 1.0), theme::BORDER_ROW, 0xff);
+            self.hairline(pm, ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, theme::BORDER_ROW);
         }
         let badge = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color: dim };
         let text = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
@@ -1579,7 +1583,7 @@ impl Renderer {
                     for (x, caption) in xs.iter().zip(captions) {
                         self.draw_text(pm, ax + *x as f32, baseline, &caption.to_uppercase(), &style);
                     }
-                    self.fill_device(pm, self.device_rect(ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0), theme::BORDER_ROW, 0xff);
+                    self.hairline(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
                 }
                 Line::Note(text) => {
                     let style = TextStyle { kind: FontKind::Annotation, px: Self::MARKET_SMALL_PX, color: dim };
@@ -1608,7 +1612,7 @@ impl Renderer {
                         self.draw_text(pm, x, baseline, text, &style);
                     }
                     if is_caption {
-                        self.fill_device(pm, self.device_rect(ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0), theme::BORDER_ROW, 0xff);
+                        self.hairline(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
                     }
                 }
                 Line::Group(g) => {

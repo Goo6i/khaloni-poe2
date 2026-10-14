@@ -794,3 +794,20 @@ fn an_opening_panel_is_drawn_faint_and_risen_then_settles() {
     let top_early = (10..30u32).find(|yy| early.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
     assert!(top_early > top_late, "early {top_early} should sit below late {top_late}");
 }
+
+#[test]
+fn hairlines_are_one_device_pixel_tall_at_fractional_scales() {
+    use khaloni_poe2::ornament::Scale;
+    use khaloni_poe2::theme;
+    for scale in [1.25_f32, 1.5] {
+        let r = Renderer::new().unwrap();
+        r.set_scale(scale);
+        let want = Scale { device: scale, unit: 1.0 }.hairline();
+        for y in 10..40 {
+            let mut pm = tiny_skia::Pixmap::new(80, 80).unwrap();
+            r.hairline(&mut pm, 0.0, y as f32, 40.0, theme::TEXT);
+            let painted = (0..80).filter(|&row| pm.pixel(5, row).map_or(0, |p| p.alpha()) > 0).count() as i32;
+            assert_eq!(painted, want, "hairline at y={y}, scale {scale}");
+        }
+    }
+}
