@@ -24,6 +24,20 @@ pub enum Denom {
     None,
 }
 
+impl Denom {
+    /// The denomination a currency item is, by its full name: the three
+    /// orbs the overlay carries icons for. Any other name (a Greater
+    /// Exalted Orb included) is no denomination.
+    pub fn of_currency(name: &str) -> Option<Denom> {
+        match name.trim() {
+            "Divine Orb" => Some(Denom::Divine),
+            "Exalted Orb" => Some(Denom::Exalted),
+            "Chaos Orb" => Some(Denom::Chaos),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Priced {
     pub y_top: u32,

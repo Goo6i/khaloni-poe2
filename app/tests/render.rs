@@ -825,6 +825,18 @@ fn the_last_appearing_frame_lands_where_the_settled_frame_does() {
 }
 
 #[test]
+fn the_three_orbs_give_their_embedded_icon_as_art_and_other_currencies_none() {
+    let r = Renderer::new().unwrap();
+    for name in ["Divine Orb", "Exalted Orb", "Chaos Orb"] {
+        let denom = Denom::of_currency(name).unwrap_or_else(|| panic!("{name} is a denomination"));
+        assert!(r.icon_image(denom).is_some_and(|img| img.width() > 0), "{name}");
+    }
+    assert_eq!(Denom::of_currency("Greater Exalted Orb"), None);
+    assert_eq!(Denom::of_currency("Orb of Annulment"), None);
+    assert!(r.icon_image(Denom::None).is_none());
+}
+
+#[test]
 fn hairlines_are_one_device_pixel_tall_at_fractional_scales() {
     use khaloni_poe2::ornament::Scale;
     use khaloni_poe2::theme;

@@ -4416,6 +4416,17 @@ fn overlay_mode(
                 AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra, base_type, expects_art } => {
                     let mut panel = build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), base_type);
                     panel.expects_art = expects_art;
+                    // A currency card's art is the embedded orb icon, for
+                    // the three orbs the overlay carries; other currencies
+                    // have none.
+                    if panel.header.rarity == "Currency" {
+                        let icon = khaloni_poe2::pricing::Denom::of_currency(&panel.header.name)
+                            .and_then(|d| renderer.icon_image(d));
+                        if let Some(img) = icon {
+                            panel.art = Some(khaloni_poe2::evaluate_ui::Art(img));
+                            panel.expects_art = true;
+                        }
+                    }
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)

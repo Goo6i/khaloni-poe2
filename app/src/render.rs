@@ -71,9 +71,9 @@ pub struct Renderer {
     scale: Cell<f32>,
     /// The icon artwork at its source resolution, and the copies resized to
     /// `ICON_SIZE * scale` device pixels that are actually composited.
-    icon_divine: RgbaImage,
-    icon_exalted: RgbaImage,
-    icon_chaos: RgbaImage,
+    icon_divine: std::sync::Arc<RgbaImage>,
+    icon_exalted: std::sync::Arc<RgbaImage>,
+    icon_chaos: std::sync::Arc<RgbaImage>,
     icons_scaled: RefCell<HashMap<(u8, u32), RgbaImage>>,
     /// Item art resized to its device slot, keyed by the image's identity
     /// and the device side. Each entry holds its source Arc so the keyed
@@ -238,9 +238,9 @@ impl Renderer {
             annotation_font,
             glyph_cache: RefCell::new(HashMap::new()),
             scale: Cell::new(1.0),
-            icon_divine: load_icon(ICON_DIVINE_PNG)?,
-            icon_exalted: load_icon(ICON_EXALTED_PNG)?,
-            icon_chaos: load_icon(ICON_CHAOS_PNG)?,
+            icon_divine: std::sync::Arc::new(load_icon(ICON_DIVINE_PNG)?),
+            icon_exalted: std::sync::Arc::new(load_icon(ICON_EXALTED_PNG)?),
+            icon_chaos: std::sync::Arc::new(load_icon(ICON_CHAOS_PNG)?),
             icons_scaled: RefCell::new(HashMap::new()),
             art_scaled: RefCell::new(HashMap::new()),
             sprites: RefCell::new(SpriteCache::new(ornament::CACHE_CAPACITY)),
@@ -286,12 +286,22 @@ impl Renderer {
     }
 
     fn icon_for(&self, denom: Denom) -> Option<&RgbaImage> {
+        self.icon_arc(denom).map(|a| &**a)
+    }
+
+    fn icon_arc(&self, denom: Denom) -> Option<&std::sync::Arc<RgbaImage>> {
         match denom {
             Denom::Divine => Some(&self.icon_divine),
             Denom::Exalted => Some(&self.icon_exalted),
             Denom::Chaos => Some(&self.icon_chaos),
             Denom::None => None,
         }
+    }
+
+    /// The embedded currency icon for `denom`, shared, for a currency
+    /// panel's nameplate art.
+    pub fn icon_image(&self, denom: Denom) -> Option<std::sync::Arc<RgbaImage>> {
+        self.icon_arc(denom).cloned()
     }
 
     fn text_width(&self, kind: FontKind, text: &str, px: f32) -> f32 {
