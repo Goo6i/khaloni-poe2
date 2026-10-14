@@ -399,6 +399,7 @@ fn full_panel(rows: Vec<ListingRow>) -> ev::Panel {
         &mut extras,
     ));
     ev::Panel {
+        header: ev::ItemHeader { base_type: Some("Soldier Cuirass".into()), ..base.header.clone() },
         rows: card_rows,
         extras,
         listings: rows,
@@ -527,6 +528,9 @@ fn every_panel_label_can_be_drawn_by_the_overlay_font() {
     assert!(text.iter().any(|s| s.contains("x3") || s.contains("x ")), "a folded count or a stack value with an x");
     assert!(text.iter().any(|s| s == "searches 4/30 (5 min)"));
     assert!(text.iter().any(|s| s == "thin market"));
+    // The base line under the name, and the group headings as drawn.
+    assert!(text.iter().any(|s| s == "Soldier Cuirass"));
+    assert!(text.iter().any(|s| s.starts_with("MODIFIERS \u{b7} ")), "{text:?}");
     assert!(!text.iter().any(|s| s.contains('×') || s.contains('±')));
     // The extra rows' notes are among them, and no string claims more than
     // the listings show.

@@ -1556,11 +1556,15 @@ pub fn button_at(lay: &Layout, x: i32, y: i32) -> Option<usize> {
 pub fn all_text(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
     let f = panel;
     let lay = layout(panel, measure);
-    let mut out = vec!["x".to_string(), panel.header.name.clone(), format!("Rarity: {}", panel.header.rarity)];
+    let mut out = vec!["x".to_string(), panel.header.name.clone()];
+    out.extend(panel.header.base_type.iter().cloned());
+    out.push(format!("Rarity: {}", panel.header.rarity));
     out.extend(lay.level_pos.iter().map(|(_, t)| t.clone()));
     out.extend(f.stack_value.iter().cloned());
     out.extend(panel.header.base.iter().map(|b| b.label.clone()));
     out.extend(["TIERING".to_string(), "SCORING".to_string()]);
+    // The headings draw in capitals.
+    out.extend(lay.group_heads.iter().map(|(_, t)| t.to_uppercase()));
     for &i in &lay.visible_rows {
         let row = &panel.rows[i];
         out.push(row.text());
