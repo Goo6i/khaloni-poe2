@@ -641,8 +641,8 @@ fn the_plate_button_fills_its_edges_at_mid_height_without_a_seam() {
     let rect = khaloni_poe2::config::Rect { x: 10, y: 10, w: 120, h: 28 };
     r.plate_button(&mut pm, &rect, 0.0, 0.0, "Search", 0.0, true);
     let (pr, pg, pb) = bytes(theme::BG_PANEL);
-    // Two px inside the left and right edges at the vertical middle: plate, not panel.
-    for x in [12u32, 13, 126, 127] {
+    // The notch columns at the left and right edges at the vertical middle: plate, not panel.
+    for x in [10u32, 11, 128, 129] {
         for y in [23u32, 24, 25] {
             let px = rgb_of(&pm, x, y);
             assert_ne!((px.0, px.1, px.2), (pr, pg, pb), "panel shows through the plate at ({x}, {y})");
