@@ -209,6 +209,10 @@ screenshot offline.
 - [Awakened PoE Trade](https://github.com/SnosMe/awakened-poe-trade) and
   [Exiled Exchange 2](https://github.com/Kvan7/Exiled-Exchange-2) for
   establishing the Ctrl+C price-check pattern the F7 flow follows.
+- [PoE2 Oracle](https://github.com/mttzzz/poe2-oracle) (MIT OR Apache-2.0)
+  for the game-styled look: its palette, the double gold frame with corner
+  diamonds and the ornament rasteriser are ported in `app/src/theme.rs` and
+  `app/src/ornament.rs`.
 - [RuneHelper](https://github.com/Denzeriko/RuneHelper) and
   [RuneshapePriceChecker](https://github.com/Barragek0/RuneshapePriceChecker),
   the two Windows tools for this same panel, whose approaches I studied
