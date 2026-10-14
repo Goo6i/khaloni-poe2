@@ -103,14 +103,16 @@ pub fn section_updates(ui: &mut egui::Ui, cfg: &mut Config, ui_state: &mut Updat
     let busy = matches!(ui_state.state, State::Checking | State::Installing);
     st::card(ui, "update_actions", |ui| {
         st::row_last(ui, "", None, |ui| {
-            if let State::Found(u) = ui_state.state.clone() {
-                if ui.add_enabled(!busy, egui::Button::new(format!("Install {}", u.version))).clicked() {
-                    ui_state.install(u);
+            ui.add_enabled_ui(!busy, |ui| {
+                if let State::Found(u) = ui_state.state.clone() {
+                    if st::plate_button(ui, &format!("Install {}", u.version)).clicked() {
+                        ui_state.install(u);
+                    }
                 }
-            }
-            if ui.add_enabled(!busy, egui::Button::new("Check now")).clicked() {
-                ui_state.check();
-            }
+                if st::button(ui, "Check now").clicked() {
+                    ui_state.check();
+                }
+            });
         });
     });
 
@@ -123,7 +125,10 @@ pub fn section_updates(ui: &mut egui::Ui, cfg: &mut Config, ui_state: &mut Updat
             ui.hyperlink_to("Release notes", &u.notes_url);
         }
         State::Installing => st::note(ui, "Downloading and verifying…"),
-        State::Installed(v) => st::warning(ui, &format!("{v} installed — quit from the tray and start it again to use it.")),
+        State::Installed(v) => {
+            let text = format!("{v} installed — quit from the tray and start it again to use it.");
+            ui.label(egui::RichText::new(text).color(st::color32(crate::theme::GOLD_LIGHT)));
+        }
         State::Failed(e) => st::warning(ui, &format!("Update failed: {e}")),
     }
 }
