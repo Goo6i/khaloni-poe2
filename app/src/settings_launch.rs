@@ -8,26 +8,30 @@
 use eframe::egui;
 
 pub fn section_launch(ui: &mut egui::Ui) {
-    ui.add_space(6.0);
-    ui.label(
+    use crate::settings_style as st;
+    st::note(
+        ui,
         "Steam can start the overlay together with Path of Exile 2 and close it \
          the moment the game exits.",
     );
     ui.add_space(4.0);
-    ui.label(
+    st::note(
+        ui,
         "In Steam: right-click Path of Exile 2 → Properties → General → Launch \
          Options, and paste this line:",
     );
     ui.add_space(8.0);
     let line = launch_line();
-    ui.horizontal(|ui| {
-        ui.code(&line);
-        if ui.button("Copy").clicked() {
-            ui.ctx().copy_text(line.clone());
-        }
+    st::card(ui, "launch", |ui| {
+        st::row_last(ui, "", None, |ui| {
+            if st::button(ui, "Copy").clicked() {
+                ui.ctx().copy_text(line.clone());
+            }
+            ui.code(&line);
+        });
     });
-    ui.add_space(8.0);
-    ui.label(
+    st::note(
+        ui,
         "Starting the overlay by hand still works exactly as before; if one is \
          already running when the game starts, the launcher leaves it alone.",
     );
