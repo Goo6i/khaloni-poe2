@@ -280,6 +280,12 @@ pub fn section_heading(ui: &mut Ui, title: &str, description: &str) {
 pub fn group_heading(ui: &mut Ui, title: &str) {
     ui.add_space(8.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::hover());
+    paint_heading(ui, rect, title);
+    ui.add_space(4.0);
+}
+
+/// The diamond, the title in gold capitals and the fading rule, in `rect`.
+fn paint_heading(ui: &Ui, rect: Rect, title: &str) {
     let ppp = ui.ctx().pixels_per_point();
     let scale = Scale { device: ppp, unit: 1.0 };
     let painter = ui.painter().clone();
@@ -294,7 +300,33 @@ pub fn group_heading(ui: &mut Ui, title: &str) {
     if let Some(line) = ornament::fading_line(lr, scale, theme::BORDER_GOLD, false) {
         paint_sprite(ui.ctx(), &painter, &line, ppp);
     }
+}
+
+/// A group heading that folds its body away: a small gold triangle before
+/// the diamond, pointing right when folded and down when open. A click on
+/// the heading toggles it. Returns whether the body is open.
+pub fn fold(ui: &mut Ui, id: &str, title: &str, default_open: bool) -> bool {
+    let key = ui.id().with(("fold", id));
+    let mut open = ui.data(|d| d.get_temp::<bool>(key)).unwrap_or(default_open);
+    ui.add_space(8.0);
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::click());
+    if resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_temp(key, open));
+    }
+    // Fontin has no triangle glyphs, so the marker is a painted shape.
+    let c = Pos2::new(rect.left() + 4.0, rect.center().y);
+    let points = if open {
+        vec![c + Vec2::new(-4.0, -2.0), c + Vec2::new(4.0, -2.0), c + Vec2::new(0.0, 3.0)]
+    } else {
+        vec![c + Vec2::new(-2.0, -4.0), c + Vec2::new(3.0, 0.0), c + Vec2::new(-2.0, 4.0)]
+    };
+    let ink = if resp.hovered() { theme::GOLD_LIGHT } else { theme::GOLD };
+    ui.painter().add(egui::Shape::convex_polygon(points, color32(ink), Stroke::NONE));
+    paint_heading(ui, rect.with_min_x(rect.left() + 14.0), title);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     ui.add_space(4.0);
+    open
 }
 
 /// A card: BG_CARD fill, BORDER_CARD edge, CARD_RADIUS corners; rows inside.
@@ -497,6 +529,35 @@ mod tests {
         assert_eq!(f.families[&egui::FontFamily::Proportional][0], "Fontin");
         assert_eq!(f.families[&egui::FontFamily::Name("FontinSC".into())][0], "Fontin SmallCaps");
         assert!(f.font_data.contains_key("Fontin") && f.font_data.contains_key("Fontin SmallCaps"));
+    }
+
+    #[test]
+    fn a_fold_opens_as_asked_and_a_click_on_its_heading_toggles_it() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(400.0, 300.0));
+        // The small-caps family the heading draws in is bound from the next frame on.
+        let input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let _ = ctx.run_ui(input, |ui| install(ui.ctx()));
+        let frame = |events: Vec<egui::Event>| {
+            let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut seen = (false, false);
+            let _ = ctx.run_ui(input, |ui| {
+                seen = (fold(ui, "closed", "Closed", false), fold(ui, "open", "Open", true));
+            });
+            seen
+        };
+        assert_eq!(frame(Vec::new()), (false, true));
+        // The first heading sits under 8 px of space, 18 px tall.
+        let at = egui::pos2(60.0, 17.0);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(vec![egui::Event::PointerMoved(at), button(true)]);
+        frame(vec![button(false)]);
+        assert_eq!(frame(Vec::new()), (true, true), "the click opened the first fold only");
     }
 
     #[test]

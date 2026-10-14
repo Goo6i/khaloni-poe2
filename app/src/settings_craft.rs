@@ -304,7 +304,9 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
     let mut scan = None;
     for (i, p) in doc.profiles.iter_mut().enumerate() {
         let title = if p.name.trim().is_empty() { format!("profile {}", i + 1) } else { p.name.clone() };
-        st::group_heading(ui, &title);
+        if !st::fold(ui, &format!("craft-profile-{i}"), &title, false) {
+            continue;
+        }
         st::card(ui, &format!("craft-profile-{i}"), |ui| {
             let (r, s) = profile_editor(ui, i, p, &mut state.dirty);
             if r {

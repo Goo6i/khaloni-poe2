@@ -559,12 +559,14 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
     use crate::settings_style as st;
     // The player's own results, apart from the market's figures and above
     // them, so they show whatever state the price cache is in.
-    st::group_heading(ui, "My runs");
-    st::card(ui, "market-my-runs", |ui| {
-        ui.add_space(8.0);
-        section_my_runs(ui, cfg, &mut state.runs);
-        ui.add_space(8.0);
-    });
+    // Folded until asked for: unfolding is what reads the run log.
+    if st::fold(ui, "market-my-runs", "My runs", false) {
+        st::card(ui, "market-my-runs", |ui| {
+            ui.add_space(8.0);
+            section_my_runs(ui, cfg, &mut state.runs);
+            ui.add_space(8.0);
+        });
+    }
     state.ensure(cfg);
 
     // Floors first: they decide what every table below may say.
