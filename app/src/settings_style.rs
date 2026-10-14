@@ -79,8 +79,6 @@ pub fn install(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Small, egui::FontId::new(13.0, egui::FontFamily::Proportional));
         s.text_styles.insert(egui::TextStyle::Button, egui::FontId::new(14.0, egui::FontFamily::Proportional));
     });
-    // Hairlines land on device pixels only without feathering.
-    ctx.tessellation_options_mut(|o| o.feathering = false);
     ctx.data_mut(|d| d.insert_temp(id, true));
 }
 
