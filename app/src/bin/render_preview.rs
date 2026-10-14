@@ -84,6 +84,7 @@ fn main() -> anyhow::Result<()> {
             item_level: Some(81),
             requires_level: Some(67),
             base: Some(ev::BaseToggle { label: "Expert Dualstring Bow".into(), enabled: true }),
+            base_type: None,
         },
         rows: vec![
             weapon_row("Physical DPS", 412.6, ev::EquipKey::Pdps, true),
@@ -151,6 +152,7 @@ fn main() -> anyhow::Result<()> {
             item_level: Some(74),
             requires_level: None,
             base: None,
+            base_type: None,
         },
         show_hidden: true,
         strictness: ev::Strictness::Quick,
@@ -191,8 +193,8 @@ fn main() -> anyhow::Result<()> {
     ];
     r.draw_frame(&mut pm, &labels, "1 div = 487 ex", false);
 
-    r.draw_evaluate(&mut pm, &ep, &elay, (x1, y), None, "");
-    r.draw_evaluate(&mut pm, &ep2, &elay2, (x2, y), Some((1, ev::Field::Max)), "42");
+    r.draw_evaluate(&mut pm, &ep, &elay, (x1, y), None, "", std::time::Instant::now());
+    r.draw_evaluate(&mut pm, &ep2, &elay2, (x2, y), Some((1, ev::Field::Max)), "42", std::time::Instant::now());
 
     let out = std::env::args().nth(1).unwrap_or_else(|| "/tmp/overlay-preview.png".to_string());
     pm.save_png(&out)?;

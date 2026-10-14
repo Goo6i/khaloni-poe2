@@ -181,27 +181,27 @@ impl CraftUi {
 }
 
 fn planner_settings(ui: &mut egui::Ui, cfg: &mut Config) {
-    ui.label(egui::RichText::new("Planner").strong());
-    egui::Grid::new("craft-planner").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-        ui.label("Runs per strategy");
-        ui.add(egui::DragValue::new(&mut cfg.craft_runs).range(CRAFT_RUNS_RANGE.0..=CRAFT_RUNS_RANGE.1).speed(100.0));
-        ui.end_row();
-        ui.label("Give up after (x the median uses)");
-        ui.add(
-            egui::DragValue::new(&mut cfg.craft_give_up_times)
-                .range(CRAFT_GIVE_UP_RANGE.0..=CRAFT_GIVE_UP_RANGE.1)
-                .speed(0.5),
-        );
-        ui.end_row();
-        ui.label("Observed model: minimum listings");
-        ui.add(
-            egui::DragValue::new(&mut cfg.craft_observed_min)
-                .range(CRAFT_OBSERVED_MIN_RANGE.0..=CRAFT_OBSERVED_MIN_RANGE.1)
-                .speed(10.0),
-        );
-        ui.end_row();
+    use crate::settings_style as st;
+    st::group_heading(ui, "Planner");
+    st::card(ui, "craft-planner", |ui| {
+        st::row(ui, "Runs per strategy", None, |ui| {
+            let mut v = cfg.craft_runs as f64;
+            if st::stepper(ui, &mut v, 100.0, CRAFT_RUNS_RANGE.0 as f64..=CRAFT_RUNS_RANGE.1 as f64, "") {
+                cfg.craft_runs = v as usize;
+            }
+        });
+        st::row(ui, "Give up after (x the median uses)", None, |ui| {
+            st::stepper(ui, &mut cfg.craft_give_up_times, 0.5, CRAFT_GIVE_UP_RANGE.0..=CRAFT_GIVE_UP_RANGE.1, "");
+        });
+        st::row_last(ui, "Observed model: minimum listings", None, |ui| {
+            let mut v = cfg.craft_observed_min as f64;
+            if st::stepper(ui, &mut v, 10.0, CRAFT_OBSERVED_MIN_RANGE.0 as f64..=CRAFT_OBSERVED_MIN_RANGE.1 as f64, "") {
+                cfg.craft_observed_min = v as u32;
+            }
+        });
     });
-    ui.small(
+    st::note(
+        ui,
         "More runs give steadier figures and slower plans: at 20,000 a slow strategy takes several seconds. A run \
          gives up once it has used this many times the median of the runs that finished. A class's observed \
          figures are used once this many of its listings are recorded.",
@@ -209,64 +209,75 @@ fn planner_settings(ui: &mut egui::Ui, cfg: &mut Config) {
 }
 
 fn profile_editor(ui: &mut egui::Ui, i: usize, p: &mut Profile, dirty: &mut bool) -> (bool, bool) {
+    use crate::settings_style as st;
     let (mut remove, mut scan) = (false, false);
-    egui::Grid::new(("craft-profile", i)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-        ui.label("Name");
-        *dirty |= ui.text_edit_singleline(&mut p.name).changed();
-        ui.end_row();
-        ui.label("Item class");
-        *dirty |= ui.text_edit_singleline(&mut p.class).changed();
-        ui.end_row();
-        ui.label("Base (empty: the whole class)");
+    st::row(ui, "Name", None, |ui| {
+        *dirty |= st::text_field(ui, &mut p.name).changed();
+    });
+    st::row(ui, "Item class", None, |ui| {
+        *dirty |= st::text_field(ui, &mut p.class).changed();
+    });
+    st::row(ui, "Base (empty: the whole class)", None, |ui| {
         let mut base = p.base.clone().unwrap_or_default();
-        if ui.text_edit_singleline(&mut base).changed() {
+        if st::text_field(ui, &mut base).changed() {
             p.base = (!base.trim().is_empty()).then(|| base.trim().to_string());
             *dirty = true;
         }
-        ui.end_row();
-        ui.label("Item level at least");
-        *dirty |= ui.add(egui::DragValue::new(&mut p.min_ilvl).range(0..=100)).changed();
-        ui.end_row();
-        ui.label("Margin wanted (%)");
-        *dirty |= ui.add(egui::DragValue::new(&mut p.margin).range(0.0..=1000.0).speed(1.0)).changed();
-        ui.end_row();
     });
-    ui.label("Wanted modifiers (mod family, worst acceptable tier; tier 1 is the best)");
+    st::row(ui, "Item level at least", None, |ui| {
+        let mut v = f64::from(p.min_ilvl);
+        if st::stepper(ui, &mut v, 1.0, 0.0..=100.0, "") {
+            p.min_ilvl = v as u32;
+            *dirty = true;
+        }
+    });
+    st::row_last(ui, "Margin wanted (%)", None, |ui| {
+        *dirty |= st::stepper(ui, &mut p.margin, 1.0, 0.0..=1000.0, "");
+    });
+    ui.add_space(4.0);
+    st::note(ui, "Wanted modifiers (mod family, worst acceptable tier; tier 1 is the best)");
     let mut drop = None;
     for (j, w) in p.wants.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            *dirty |= ui.add(egui::TextEdit::singleline(&mut w.family).desired_width(260.0)).changed();
-            ui.label("T");
-            *dirty |= ui.add(egui::DragValue::new(&mut w.min_tier).range(1..=30)).changed();
-            if ui.small_button("remove").clicked() {
-                drop = Some(j);
-            }
+        ui.push_id((i, j), |ui| {
+            st::row(ui, "", None, |ui| {
+                if st::button(ui, "remove").clicked() {
+                    drop = Some(j);
+                }
+                let mut tier = f64::from(w.min_tier);
+                if st::stepper(ui, &mut tier, 1.0, 1.0..=30.0, "") {
+                    w.min_tier = tier as u8;
+                    *dirty = true;
+                }
+                ui.label("T");
+                let width = (ui.available_width() - 8.0).max(120.0);
+                *dirty |= ui.add(egui::TextEdit::singleline(&mut w.family).desired_width(width)).changed();
+            });
         });
     }
     if let Some(j) = drop {
         p.wants.remove(j);
         *dirty = true;
     }
-    ui.horizontal(|ui| {
-        if ui.small_button("add a modifier").clicked() {
+    st::row_last(ui, "", None, |ui| {
+        scan = st::button(ui, "Scan").clicked();
+        if st::button(ui, "remove this profile").clicked() {
+            remove = true;
+        }
+        if st::button(ui, "add a modifier").clicked() {
             p.wants.push(Wanted { family: String::new(), min_tier: 1 });
             *dirty = true;
         }
-        if ui.small_button("remove this profile").clicked() {
-            remove = true;
-        }
-        scan = ui.button("Scan").clicked();
     });
     (remove, scan)
 }
 
 pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi) {
-    ui.heading("Crafting");
-    ui.add_space(6.0);
+    use crate::settings_style as st;
     planner_settings(ui, cfg);
     ui.add_space(14.0);
-    ui.label(egui::RichText::new("Flip profiles").strong());
-    ui.small(
+    st::group_heading(ui, "Flip profiles");
+    st::note(
+        ui,
         "A profile names a finished item. A scan runs one search for it (its listings are the resale) and one \
          relaxed search per wanted modifier and tier; each listing found is costed by the planner. Scans run only \
          when you ask, one profile at a time.",
@@ -274,26 +285,29 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
     state.ensure();
     state.start_data();
     let Some(dir) = config_dir() else {
-        ui.colored_label(egui::Color32::RED, "no config directory: profiles cannot be kept");
+        st::warning(ui, "no config directory: profiles cannot be kept");
         return;
     };
     let path = craft_flow::profiles_path(&dir);
-    ui.small(format!("kept in {}", path.display()));
+    st::note(ui, &format!("kept in {}", path.display()));
     ui.add_space(6.0);
 
     let mut doc = state.doc.take().unwrap_or_default();
     if let Some(why) = &doc.file_error {
-        ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), why);
+        st::warning(ui, why);
     }
     for e in &doc.errors {
-        ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), format!("not loaded: {e} (kept in the file as it is)"));
+        st::warning(ui, &format!("not loaded: {e} (kept in the file as it is)"));
     }
 
     let mut remove = None;
     let mut scan = None;
     for (i, p) in doc.profiles.iter_mut().enumerate() {
         let title = if p.name.trim().is_empty() { format!("profile {}", i + 1) } else { p.name.clone() };
-        egui::CollapsingHeader::new(title).id_salt(("craft-profile-head", i)).default_open(false).show(ui, |ui| {
+        if !st::fold(ui, &format!("craft-profile-{i}"), &title, false) {
+            continue;
+        }
+        st::card(ui, &format!("craft-profile-{i}"), |ui| {
             let (r, s) = profile_editor(ui, i, p, &mut state.dirty);
             if r {
                 remove = Some(i);
@@ -303,24 +317,24 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
             }
             if let Some((name, statement)) = &state.statement {
                 if *name == p.name {
+                    ui.add_space(8.0);
                     match statement {
                         Ok(text) => {
                             ui.label(text);
                             let can_send = !state.dirty;
-                            if ui.add_enabled(can_send, egui::Button::new("Send to the overlay")).clicked() {
+                            if ui.add_enabled_ui(can_send, |ui| st::button(ui, "Send to the overlay")).inner.clicked() {
                                 state.sent = Some(
                                     craft_flow::request_scan(&dir, &p.name)
                                         .map(|()| "sent: the overlay's craft panel shows the budget and a Run scan button".to_string()),
                                 );
                             }
                             if !can_send {
-                                ui.small("save the profiles first: the overlay reads the saved file");
+                                st::note(ui, "save the profiles first: the overlay reads the saved file");
                             }
                         }
-                        Err(why) => {
-                            ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), why);
-                        }
+                        Err(why) => st::warning(ui, why),
                     }
+                    ui.add_space(8.0);
                 }
             }
         });
@@ -337,7 +351,7 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        if ui.button("Add a profile").clicked() {
+        if st::plate_button(ui, "Add a profile").clicked() {
             doc.profiles.push(Profile {
                 name: format!("profile {}", doc.profiles.len() + 1),
                 class: "Body Armour".to_string(),
@@ -348,14 +362,14 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
             });
             state.dirty = true;
         }
-        if ui.add_enabled(state.dirty, egui::Button::new("Save profiles")).clicked() {
+        if ui.add_enabled_ui(state.dirty, |ui| st::button(ui, "Save profiles")).inner.clicked() {
             let saved = doc.save(&path);
             if saved.is_ok() {
                 state.dirty = false;
             }
             state.saved = Some(saved);
         }
-        if ui.button("Reload from the file").clicked() {
+        if st::button(ui, "Reload from the file").clicked() {
             doc = ProfilesDoc::load(&path);
             state.dirty = false;
             state.saved = None;
@@ -363,18 +377,14 @@ pub fn section_crafting(ui: &mut egui::Ui, cfg: &mut Config, state: &mut CraftUi
         }
     });
     match &state.saved {
-        Some(Ok(())) if !state.dirty => {
-            ui.weak("profiles saved");
-        }
-        Some(Err(why)) => {
-            ui.colored_label(egui::Color32::RED, format!("not saved: {why}"));
-        }
+        Some(Ok(())) if !state.dirty => st::note(ui, "profiles saved"),
+        Some(Err(why)) => st::warning(ui, &format!("not saved: {why}")),
         _ => {}
     }
     if let Some(sent) = &state.sent {
         match sent {
-            Ok(text) => ui.weak(text),
-            Err(why) => ui.colored_label(egui::Color32::RED, why),
+            Ok(text) => st::note(ui, text),
+            Err(why) => st::warning(ui, why),
         };
     }
     state.doc = Some(doc);

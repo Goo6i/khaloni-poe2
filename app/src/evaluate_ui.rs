@@ -40,8 +40,18 @@ use khaloni_poe2_core::value::format_amount;
 pub use khaloni_poe2_core::listing::{Card, CardLine, LineKind, SellerState};
 
 const PAD: i32 = 12;
-/// The name line is drawn in the large font; this is its whole band.
-const TITLE_H: i32 = 30;
+/// The strip above the nameplate that holds the close button.
+pub const TITLE_BAR_H: i32 = 28;
+const BANNER_PAD_TOP: i32 = 12;
+/// The name line band (EVAL_NAME_PX 24 in the renderer).
+const NAME_H: i32 = 26;
+const BASE_H: i32 = 20;
+const BANNER_PAD_BOTTOM: i32 = 6;
+/// The ornament rule under the banner, diamond included.
+const RULE_H: i32 = 9;
+/// The item art's edge.
+pub const ART: i32 = 48;
+const GROUP_HEAD_H: i32 = 22;
 /// Rarity and the item-level lines: plain text, no hit targets.
 const LINE_H: i32 = 18;
 const ROW_H: i32 = 26;
@@ -158,6 +168,17 @@ pub enum RowGroup {
     Implicit,
     #[default]
     Explicit,
+}
+
+impl RowGroup {
+    /// The section heading over the group's rows.
+    pub fn title(self) -> &'static str {
+        match self {
+            RowGroup::Property => "Properties",
+            RowGroup::Implicit => "Implicits",
+            RowGroup::Explicit => "Modifiers",
+        }
+    }
 }
 
 /// One line of the card. Covers both derived stats (DPS, total Attributes)
@@ -466,6 +487,31 @@ pub struct BulkBlock {
     pub note: String,
 }
 
+/// The item's art, shared with the worker that fetched it. Equal when it is
+/// the same image, so a panel clone per tick costs a pointer compare.
+#[derive(Debug, Clone)]
+pub struct Art(pub std::sync::Arc<image::RgbaImage>);
+
+impl Art {
+    pub fn new(img: image::RgbaImage) -> Art {
+        Art(std::sync::Arc::new(img))
+    }
+}
+
+impl PartialEq for Art {
+    fn eq(&self, other: &Art) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+/// Puts late-arriving art on the panel it was fetched for; art for a panel
+/// that has since been replaced is dropped.
+pub fn apply_art(panel: &mut Panel, title: &str, art: Art) {
+    if panel.header.name == title {
+        panel.art = Some(art);
+    }
+}
+
 /// The item header block, worded exactly as the tooltip does.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ItemHeader {
@@ -476,6 +522,9 @@ pub struct ItemHeader {
     pub requires_level: Option<u32>,
     /// Category constraint toggle, when the search has a category.
     pub base: Option<BaseToggle>,
+    /// The base under the name, for rares and uniques; None for an item
+    /// whose name is its base.
+    pub base_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,6 +539,12 @@ pub struct BaseToggle {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Panel {
     pub header: ItemHeader,
+    /// The item's art, drawn in the nameplate when present.
+    pub art: Option<Art>,
+    /// Art is on its way (the item runs a trade search, whose listings
+    /// carry the icon): the slot is reserved now, so nothing shifts when
+    /// it arrives.
+    pub expects_art: bool,
     pub rows: Vec<StatRow>,
     /// The filters of the extra rows, addressed by `Target::Extra`; a
     /// ticked one has `disabled` false. Kept here and not in the query, so
@@ -530,6 +585,13 @@ pub struct Panel {
     /// edge, when the caller knows it: the hover card goes left of the
     /// panel when it would not fit on the right. None puts it on the right.
     pub screen_right: Option<i32>,
+    /// When the panel opened: it rises and fades in over `theme::APPEAR`.
+    pub opened_at: Option<std::time::Instant>,
+    /// When `hover` last changed: the row's lift eases over `theme::TRANSITION`.
+    pub hover_at: Option<std::time::Instant>,
+    /// The button under the pointer (index into `Layout::buttons`) and when
+    /// it came under it.
+    pub button_hover: Option<(usize, std::time::Instant)>,
 }
 
 /// A table under the card: the caption line, the left edge of each
@@ -612,6 +674,16 @@ pub struct CardGeom {
 pub struct Layout {
     pub size: (i32, i32),
     pub close: Rect,
+    /// The strip above the nameplate, holding the close button.
+    pub title_bar: Rect,
+    /// The nameplate banner under it, spanning the panel.
+    pub banner: Rect,
+    /// The art slot inside the banner, when the panel has art.
+    pub art: Option<Rect>,
+    /// The base line under the name, when the header has a base type.
+    pub base_type_pos: Option<(i32, i32)>,
+    /// The ornament rule's centre line under the banner.
+    pub banner_rule_y: i32,
     /// Name, rarity line, and the level lines.
     pub name_pos: (i32, i32),
     pub rarity_pos: (i32, i32),
@@ -627,8 +699,8 @@ pub struct Layout {
     pub rows: Vec<RowGeom>,
     /// Indices into `Panel::rows` that `rows` describes.
     pub visible_rows: Vec<usize>,
-    /// Hairline y positions between row groups (implicit vs explicit).
-    pub dividers: Vec<i32>,
+    /// One heading per row group present: its baseline and its text.
+    pub group_heads: Vec<(i32, String)>,
     /// "Show N more" / "Hide" toggle, when the item has hidden rows.
     pub hidden_toggle: Option<(Rect, String)>,
     pub strictness: Vec<(Rect, Strictness)>,
@@ -943,7 +1015,11 @@ fn content_width(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> i32 {
         .max(LABEL_MIN_W);
     // The name draws in the large font; approximate its advance so a long
     // rare name does not overrun the close box.
-    let name_w = measure(&panel.header.name) * 3 / 2 + CLOSE + GAP;
+    let name_w = if panel.expects_art || panel.art.is_some() {
+        ART + 10 + measure(&panel.header.name) * 3 / 2 + 10 + ART
+    } else {
+        measure(&panel.header.name) * 3 / 2 + CLOSE + GAP
+    };
     let row_w = PAD
         + GUT_L
         + CHECK
@@ -1035,10 +1111,28 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
     let w = content_width(panel, measure);
     let h = &panel.header;
 
-    // --- title bar -------------------------------------------------------
-    let name_pos = (PAD, PAD + TITLE_H - 10);
-    let close = Rect { x: w - PAD - CLOSE, y: PAD, w: CLOSE as u32, h: CLOSE as u32 };
-    let mut y = PAD + TITLE_H;
+    // --- title strip, then the nameplate banner -----------------------------
+    let title_bar = Rect { x: 0, y: 0, w: w as u32, h: TITLE_BAR_H as u32 };
+    let close = Rect { x: w - PAD - CLOSE, y: (TITLE_BAR_H - CLOSE) / 2, w: CLOSE as u32, h: CLOSE as u32 };
+    let banner_top = TITLE_BAR_H;
+    let mut y = banner_top + BANNER_PAD_TOP;
+    let name_pos = (PAD, y + NAME_H - 6);
+    y += NAME_H;
+    let base_type_pos = h.base_type.as_ref().map(|_| {
+        let p = (PAD, y + BASE_H - 6);
+        y += BASE_H;
+        p
+    });
+    // The art column is as tall as the name block at least.
+    let art = (f.expects_art || f.art.is_some())
+        .then_some(Rect { x: PAD, y: banner_top + BANNER_PAD_TOP, w: ART as u32, h: ART as u32 });
+    if art.is_some() {
+        y = y.max(banner_top + BANNER_PAD_TOP + ART);
+    }
+    y += BANNER_PAD_BOTTOM;
+    let banner = Rect { x: 0, y: banner_top, w: w as u32, h: (y - banner_top) as u32 };
+    let banner_rule_y = y + RULE_H / 2;
+    y += RULE_H;
 
     // --- header block: rarity, then only the level lines the item has ----
     let rarity_pos = (PAD, y + LINE_H - 5);
@@ -1086,16 +1180,17 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
     // --- row band --------------------------------------------------------
     let visible_rows = panel.visible_rows();
     let mut rows = Vec::with_capacity(visible_rows.len());
-    let mut dividers = Vec::new();
+    let mut group_heads = Vec::new();
     let mut prev_group: Option<RowGroup> = None;
     for &ri in &visible_rows {
         let group = panel.rows[ri].group;
-        // A block change gets a hairline with air on both sides, so the
-        // implicit and explicit blocks read apart like the tooltip's own.
-        if prev_group.is_some_and(|p| p != group) {
+        // Each block opens with its heading, so the groups read apart like
+        // the tooltip's own.
+        if prev_group != Some(group) {
             y += DIV_GAP;
-            dividers.push(y);
-            y += DIV_GAP;
+            let count = visible_rows.iter().filter(|&&j| panel.rows[j].group == group).count();
+            group_heads.push((y + GROUP_HEAD_H - 7, format!("{} · {count}", group.title())));
+            y += GROUP_HEAD_H;
         }
         prev_group = Some(group);
         let baseline = y + ROW_H - 8;
@@ -1290,6 +1385,11 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
     Layout {
         size,
         close,
+        title_bar,
+        banner,
+        art,
+        base_type_pos,
+        banner_rule_y,
         name_pos,
         rarity_pos,
         level_pos,
@@ -1300,7 +1400,7 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
         scoring_head_pos,
         rows,
         visible_rows,
-        dividers,
+        group_heads,
         hidden_toggle,
         strictness,
         buttons,
@@ -1428,17 +1528,43 @@ pub fn hover_hit(lay: &Layout, x: i32, y: i32) -> Option<usize> {
     row_under(lay, x, y)
 }
 
+/// How far an animation that began at `start` has come at `now`, eased,
+/// 0 at the start and 1 once `window` has passed. No start is settled.
+pub fn eased(start: Option<std::time::Instant>, now: std::time::Instant, window: std::time::Duration) -> f32 {
+    start.map_or(1.0, |s| crate::theme::ease(now.saturating_duration_since(s).as_secs_f32() / window.as_secs_f32()))
+}
+
+/// Whether a frame drawn at `now` would differ from the last: an animation
+/// is live within its window after its start.
+pub fn animating(panel: &Panel, now: std::time::Instant) -> bool {
+    let live = |start: Option<std::time::Instant>, window: std::time::Duration| {
+        start.is_some_and(|s| now.saturating_duration_since(s) < window)
+    };
+    live(panel.opened_at, crate::theme::APPEAR)
+        || live(panel.hover_at, crate::theme::TRANSITION)
+        || live(panel.button_hover.map(|(_, at)| at), crate::theme::TRANSITION)
+}
+
+/// The button under (`x`, `y`) in panel-local px.
+pub fn button_at(lay: &Layout, x: i32, y: i32) -> Option<usize> {
+    lay.buttons.iter().position(|(r, _, _)| inside(r, x, y))
+}
+
 /// Every string the panel draws, for checks against the overlay face and
 /// for the preview's label listing. Order follows the layout, top down,
 /// then the hover card.
 pub fn all_text(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
     let f = panel;
     let lay = layout(panel, measure);
-    let mut out = vec!["x".to_string(), panel.header.name.clone(), format!("Rarity: {}", panel.header.rarity)];
+    let mut out = vec!["x".to_string(), panel.header.name.clone()];
+    out.extend(panel.header.base_type.iter().cloned());
+    out.push(format!("Rarity: {}", panel.header.rarity));
     out.extend(lay.level_pos.iter().map(|(_, t)| t.clone()));
     out.extend(f.stack_value.iter().cloned());
     out.extend(panel.header.base.iter().map(|b| b.label.clone()));
     out.extend(["TIERING".to_string(), "SCORING".to_string()]);
+    // The headings draw in capitals.
+    out.extend(lay.group_heads.iter().map(|(_, t)| t.to_uppercase()));
     for &i in &lay.visible_rows {
         let row = &panel.rows[i];
         out.push(row.text());
@@ -1629,6 +1755,7 @@ mod tests {
                 item_level: Some(82),
                 requires_level: Some(65),
                 base: None,
+                base_type: None,
             },
             rows,
             ..Panel::default()
@@ -1933,6 +2060,7 @@ mod group_divider_tests {
                 item_level: None,
                 requires_level: None,
                 base: None,
+                base_type: None,
             },
             rows,
             ..Panel::default()
@@ -1940,24 +2068,25 @@ mod group_divider_tests {
     }
 
     #[test]
-    fn a_hairline_separates_blocks_and_only_blocks() {
+    fn a_heading_opens_each_block_and_only_blocks() {
         let p = panel_of(vec![
             grouped_row("implicit A", RowGroup::Implicit, 0),
             grouped_row("implicit B", RowGroup::Implicit, 1),
             grouped_row("explicit C", RowGroup::Explicit, 2),
         ]);
         let lay = layout(&p, &|s| s.len() as i32 * 7);
-        // One divider: between B and C, never between A and B.
-        assert_eq!(lay.dividers.len(), 1);
+        // One heading per block: Implicits over A, Modifiers between B and C.
+        let titles: Vec<&str> = lay.group_heads.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(titles, ["Implicits · 2", "Modifiers · 1"]);
         let b_bottom = lay.rows[1].check.y + lay.rows[1].check.h as i32;
         let c_top = lay.rows[2].check.y;
-        assert!(lay.dividers[0] > b_bottom && lay.dividers[0] < c_top);
+        assert!(lay.group_heads[1].0 > b_bottom && lay.group_heads[1].0 < c_top);
 
-        // A single-block card draws no divider at all.
+        // A single-block card has the one heading and no more.
         let p = panel_of(vec![
             grouped_row("A", RowGroup::Explicit, 0),
             grouped_row("B", RowGroup::Explicit, 1),
         ]);
-        assert!(layout(&p, &|s| s.len() as i32 * 7).dividers.is_empty());
+        assert_eq!(layout(&p, &|s| s.len() as i32 * 7).group_heads.len(), 1);
     }
 }

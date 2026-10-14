@@ -1128,6 +1128,12 @@ enum AppraiseDone {
         /// Every modifier line EE2 gives no row of its own, as a row the
         /// user can tick into the search.
         extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+        /// The item's base type when it has a name of its own, for the
+        /// nameplate; None when the name is the base.
+        base_type: Option<String>,
+        /// A trade search follows, whose listings carry the item's art: the
+        /// nameplate reserves the art slot now.
+        expects_art: bool,
     },
     /// Listings for the panel with this title. Boxed: a search's answer
     /// carries every block of the card and dwarfs the other variants.
@@ -1139,6 +1145,9 @@ enum AppraiseDone {
     },
     /// What each mod is worth, for the panel with this title.
     Attributed { title: String, outcome: Result<Vec<khaloni_poe2::evaluate_ui::AttributionRow>, String> },
+    /// The item's art for the panel with this title, once it has loaded;
+    /// sent after the `Result`, so the listings never wait for the CDN.
+    Art { title: String, art: khaloni_poe2::evaluate_ui::Art },
     /// Something the user should read that belongs to no panel (a reward
     /// row's gem could not be priced, and why).
     Note(String),
@@ -1234,6 +1243,14 @@ struct Checked {
     ninja: (String, Option<String>, bool),
 }
 
+/// The base the nameplate's art must belong to: the base the search was
+/// built on (EE2 strips a magic item's affix names to get it), else the
+/// item's own base line, else the name it goes by (an unnamed item's name
+/// is its base).
+fn art_base(c: &Checked) -> &str {
+    c.built.query.type_name.as_deref().or(c.ninja.1.as_deref()).unwrap_or(&c.ninja.0)
+}
+
 /// The trade site's catalogs a price check needs. Each loads on first use
 /// through `TradeClient::cached_data` (validated, written atomically, kept
 /// for a day) and is retried with a growing wait when it fails.
@@ -1262,6 +1279,9 @@ struct TradeWorker {
     league: String,
     current: khaloni_poe2::league::Current,
     cache_dir: std::path::PathBuf,
+    /// Fetches item art from GGG's CDN: short timeout, so a slow image
+    /// never holds the next price check.
+    art_http: reqwest::blocking::Client,
     gem_map: GemMap,
     svc: prices::PriceService,
     exch_names: Arc<std::sync::OnceLock<Vec<String>>>,
@@ -1329,6 +1349,8 @@ impl TradeWorker {
                         facts: None,
                         unsearchable: Vec::new(),
                         extra: Vec::new(),
+                        base_type: None,
+                        expects_art: false,
                     });
                 }
                 let _ = self.done_tx.send(AppraiseDone::Result { title, outcome: Err(why), strictness });
@@ -1512,6 +1534,8 @@ impl TradeWorker {
                     }),
                     unsearchable: Vec::new(),
                     extra: Vec::new(),
+                    base_type: None,
+                    expects_art: false,
                 });
                 let answer = self.exchange_price(&name);
                 let offers = answer.as_ref().ok().and_then(|a| a.as_ref()).map(|(_, view)| view.offers.len());
@@ -1583,6 +1607,7 @@ impl TradeWorker {
                 } else {
                     (item.name.clone(), item.base_type.clone(), hover::is_corrupted(&item.raw))
                 };
+                let base_type = ninja.1.clone();
                 self.last_check = Some(Checked { title: title.clone(), built: built.clone(), ninja });
                 let unsearchable = built.unsearchable_totals();
                 // Nothing on this item could be read into the search: the
@@ -1598,6 +1623,8 @@ impl TradeWorker {
                         facts: Some(facts),
                         unsearchable,
                         extra: built.extra,
+                        base_type,
+                        expects_art: false,
                     });
                     let _ = self.done_tx.send(AppraiseDone::Result {
                         title,
@@ -1609,7 +1636,7 @@ impl TradeWorker {
                     });
                     return;
                 }
-                self.seed_and_search(title, built.query, built.labels, facts, unsearchable, built.extra);
+                self.seed_and_search(title, built.query, built.labels, facts, unsearchable, built.extra, base_type);
             }
             AppraiseReq::Upgrade { item, generation } => {
                 if generation < self.generation.load(Ordering::Acquire) {
@@ -1636,11 +1663,15 @@ impl TradeWorker {
                     Err(_) => Vec::new(),
                 };
                 let facts = ItemFacts::read(&item, props, false);
-                self.seed_and_search(title, q, labels, facts, Vec::new(), Vec::new());
+                let base_type = item.base_type.clone().filter(|b| !item.name.is_empty() && *b != item.name);
+                self.seed_and_search(title, q, labels, facts, Vec::new(), Vec::new(), base_type);
             }
             AppraiseReq::Exact { title, query, strictness } => {
                 let outcome = self.search(&query, &title).map(Box::new);
+                let icon = outcome.as_ref().ok().and_then(|d| d.blocks.icon.clone());
+                let art_title = title.clone();
                 let _ = self.done_tx.send(AppraiseDone::Result { title, outcome, strictness });
+                self.fetch_art(art_title, icon);
             }
         }
     }
@@ -1648,6 +1679,7 @@ impl TradeWorker {
     /// The panel opens now, with every row, before the search: the user
     /// reads and adjusts the selection while the listings are fetched
     /// instead of waiting on the request to see the mods at all.
+    #[allow(clippy::too_many_arguments)]
     fn seed_and_search(
         &mut self,
         title: String,
@@ -1656,6 +1688,7 @@ impl TradeWorker {
         facts: ItemFacts,
         unsearchable: Vec<String>,
         extra: Vec<khaloni_poe2_core::ee2::request::ExtraRow>,
+        base_type: Option<String>,
     ) {
         let _ = self.done_tx.send(AppraiseDone::Seed {
             title: title.clone(),
@@ -1664,12 +1697,43 @@ impl TradeWorker {
             facts: Some(facts),
             unsearchable,
             extra,
+            base_type,
+            expects_art: true,
         });
         let outcome = self.search(&query, &title).map(Box::new);
+        let icon = outcome.as_ref().ok().and_then(|d| d.blocks.icon.clone());
+        let art_title = title.clone();
         let _ = self.done_tx.send(AppraiseDone::Result {
             title,
             outcome,
             strictness: khaloni_poe2::evaluate_ui::Strictness::Quick,
+        });
+        self.fetch_art(art_title, icon);
+    }
+
+    /// Loads the item's art off the worker's thread and sends it for the
+    /// panel with this title. Called after the search's `Result` is sent:
+    /// the listings never wait for the CDN, and the next check is not held
+    /// by a slow image.
+    fn fetch_art(&self, title: String, icon: Option<String>) {
+        let Some(url) = icon else { return };
+        let tx = self.done_tx.clone();
+        let dir = self.cache_dir.clone();
+        let http = self.art_http.clone();
+        let _ = std::thread::Builder::new().name("item-art".into()).spawn(move || {
+            let fetch = |u: &str| -> Result<Vec<u8>, String> {
+                let resp = http.get(u).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("status {}", resp.status()));
+                }
+                resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
+            };
+            match khaloni_poe2::art::load_or_fetch(&dir, &url, &fetch) {
+                Ok(img) => {
+                    let _ = tx.send(AppraiseDone::Art { title, art: khaloni_poe2::evaluate_ui::Art::new(img) });
+                }
+                Err(e) => eprintln!("art: {e}"),
+            }
         });
     }
 
@@ -1767,6 +1831,7 @@ impl TradeWorker {
             table: &snap.table,
             divine_threshold,
             built: checked.map(|c| &c.built),
+            base: checked.map(art_base),
         });
         let ninja = checked.and_then(|c| {
             let model = appraise::market_model(&self.svc.market(), floors, now_unix);
@@ -2647,6 +2712,7 @@ fn off_output(point: (i32, i32), output_pos: (i32, i32), size: (u32, u32)) -> bo
 
 /// The Evaluate card for a freshly built query: one row per filter, led by
 /// the item's computed figures, closed by the lines that cannot be searched.
+#[allow(clippy::too_many_arguments)]
 fn build_panel(
     title: String,
     query: &khaloni_poe2_core::trade::Query,
@@ -2655,6 +2721,7 @@ fn build_panel(
     unsearchable: Vec<String>,
     extra: &[khaloni_poe2_core::ee2::request::ExtraRow],
     reference: Option<&khaloni_poe2::refcache::Reference>,
+    base_type: Option<String>,
 ) -> khaloni_poe2::evaluate_ui::Panel {
     // Affix index once per panel, not once per row: it is a map over the
     // whole affix export (tens of thousands of entries) and every row looks
@@ -2749,6 +2816,7 @@ fn build_panel(
             item_level: facts.as_ref().and_then(|f| f.item_level),
             requires_level: facts.as_ref().and_then(|f| f.requires_level),
             base,
+            base_type,
         },
         rows,
         extras,
@@ -3208,6 +3276,11 @@ fn overlay_mode(
             league: cfg.league.clone(),
             current: current_league.clone(),
             cache_dir: cache.clone(),
+            art_http: reqwest::blocking::Client::builder()
+                .user_agent("khaloni-poe2")
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new()),
             gem_map: gem_map.clone(),
             svc: svc.clone(),
             exch_names: exch_names.clone(),
@@ -3597,6 +3670,9 @@ fn overlay_mode(
     // expiry (which changes nothing else about the frame) still forces the
     // repaint that clears it.
     let mut last_frame: Option<FrameState> = None;
+    // The panel was animating on the last tick: the tick where it stops
+    // repaints once more, so the settled frame replaces the last eased one.
+    let mut was_animating = false;
     // Latest rumours from the recognizer worker (capture-physical px boxes).
     let mut latest_rumours: Vec<khaloni_poe2::rumours::RumourHit> = Vec::new();
     let dbg = std::env::var("KHALONI_DEBUG").is_ok();
@@ -4319,6 +4395,12 @@ fn overlay_mode(
                         notices.push_back(text);
                     }
                 }
+                AppraiseDone::Art { title, art } => {
+                    if let Some((panel, _, _)) = apanel.as_mut() {
+                        khaloni_poe2::evaluate_ui::apply_art(panel, &title, art);
+                    }
+                    sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
+                }
                 AppraiseDone::Attributed { title, outcome } => {
                     let Some((panel, _, _)) = apanel.as_mut() else { continue };
                     if panel.header.name != title {
@@ -4337,9 +4419,20 @@ fn overlay_mode(
                 // Seed: open the interactive panel where the "searching
                 // trade..." popup was anchored, with every row and no
                 // listings yet.
-                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra } => {
-                    let panel =
-                        build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get());
+                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra, base_type, expects_art } => {
+                    let mut panel = build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), base_type);
+                    panel.expects_art = expects_art;
+                    // A currency card's art is the embedded orb icon, for
+                    // the three orbs the overlay carries; other currencies
+                    // have none.
+                    if panel.header.rarity == "Currency" {
+                        let icon = khaloni_poe2::pricing::Denom::of_currency(&panel.header.name)
+                            .and_then(|d| renderer.icon_image(d));
+                        if let Some(img) = icon {
+                            panel.art = Some(khaloni_poe2::evaluate_ui::Art(img));
+                            panel.expects_art = true;
+                        }
+                    }
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)
@@ -4350,8 +4443,8 @@ fn overlay_mode(
                     // Fresh check: forget any earlier drag so the panel opens
                     // at its placed position, never where it was last dragged.
                     close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
-                    let mut panel = panel;
                     panel.screen_right = Some(overlay.output_pos().0 + overlay.size().0 as i32 - pos.0);
+                    panel.opened_at = Some(std::time::Instant::now());
                     apanel = Some((panel, *query, pos));
                     overlay.set_keyboard(false)?;
                     sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
@@ -4591,6 +4684,7 @@ fn overlay_mode(
                     // at it does.
                     Some(khaloni_poe2::evaluate_ui::Action::HoverRow(i)) => {
                         panel.hover = Some(i);
+                        panel.hover_at = Some(std::time::Instant::now());
                     }
                     // One search at a time: a press while one runs is not
                     // sent (the button is drawn switched off meanwhile).
@@ -4755,8 +4849,13 @@ fn overlay_mode(
                     None if over_card => p.hover,
                     None => None,
                 };
+                let button = khaloni_poe2::evaluate_ui::button_at(&lay, local.0, local.1);
+                if button != p.button_hover.map(|(i, _)| i) {
+                    p.button_hover = button.map(|i| (i, std::time::Instant::now()));
+                }
                 if hover != p.hover {
                     p.hover = hover;
+                    p.hover_at = Some(std::time::Instant::now());
                     sync_input_region(overlay, &renderer, &apanel, &mkt_panel, &craft_panel)?;
                 }
             }
@@ -5108,7 +5207,10 @@ fn overlay_mode(
             // visibility) actually changed since the last tick. Including
             // the popup here is what makes its 6s expiry repaint the frame
             // to clear it, even though nothing else about the rows changed.
-            if resized || frame_state != last_frame {
+            let now = std::time::Instant::now();
+            let animating = apanel.as_ref().is_some_and(|(p, _, _)| khaloni_poe2::evaluate_ui::animating(p, now));
+            let settling = std::mem::replace(&mut was_animating, animating) && !animating;
+            if resized || animating || settling || frame_state != last_frame {
                 match &frame_state {
                     Some((placed, rate, stale, popup, panel, rumours, edit_state, mkt_state, craft_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
@@ -5125,7 +5227,7 @@ fn overlay_mode(
                             });
                             let ed = edit_state.as_ref().map(|(i, f, _)| (*i, *f));
                             let buf = edit_state.as_ref().map(|(_, _, b)| b.as_str()).unwrap_or("");
-                            renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf);
+                            renderer.draw_evaluate(pm, p, &lay, *anchor, ed, buf, now);
                         }
                         if let Some((p, anchor)) = mkt_state {
                             let lay = khaloni_poe2::market_ui::layout(p, &|s| {
@@ -5157,6 +5259,31 @@ fn overlay_mode(
 
 #[cfg(test)]
 mod main_tests {
+    #[test]
+    fn art_base_follows_the_search_base_not_the_magic_name() {
+        use khaloni_poe2_core::ee2::{data, request, Ee2Data};
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/ee2-parity");
+        let read = |p: &str| std::fs::read_to_string(dir.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+        let mut d = Ee2Data::from_ndjson(&read("data/stats.ndjson"), &read("data/items.ndjson")).expect("ndjson");
+        d.trade_stats = Some(data::TradeStatTexts::from_json(&read("data/trade-stats.json")).expect("stats"));
+        d.trade_items = Some(data::trade_item_names(&read("data/trade-items.json")).expect("items"));
+        let built = request::build(&read("items/ee2-ArmourHighValueRareItem.txt"), &d).expect("builds");
+        let checked = |ninja: (String, Option<String>, bool), type_name: Option<&str>| {
+            let mut built = built.clone();
+            built.query.type_name = type_name.map(String::from);
+            super::Checked { title: String::new(), built, ninja }
+        };
+        // Magic: one header line, so the search's own base wins.
+        let magic = checked(("Rapid Soldier Cuirass of the Falcon".into(), None, false), Some("Soldier Cuirass"));
+        assert_eq!(super::art_base(&magic), "Soldier Cuirass");
+        // Rare: the item's own base line.
+        let rare = checked(("Sol Wrap".into(), Some("Soldier Cuirass".into()), false), None);
+        assert_eq!(super::art_base(&rare), "Soldier Cuirass");
+        // Normal: the name is the base.
+        let normal = checked(("Soldier Cuirass".into(), None, false), None);
+        assert_eq!(super::art_base(&normal), "Soldier Cuirass");
+    }
+
     #[test]
     fn the_wrapper_finds_the_game_command() {
         let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<String>>();
@@ -5210,7 +5337,7 @@ mod main_tests {
     #[test]
     fn closing_the_panel_clears_everything_that_belongs_to_it() {
         use khaloni_poe2::evaluate_ui::Field;
-        let panel = super::build_panel("Horror Bane".into(), &Default::default(), &[], None, Vec::new(), &[], None);
+        let panel = super::build_panel("Horror Bane".into(), &Default::default(), &[], None, Vec::new(), &[], None, None);
         let mut apanel = Some((panel, khaloni_poe2_core::trade::Query::default(), (10, 10)));
         let mut editing = Some((2usize, Field::Min));
         let mut buf = String::from("41");
@@ -5248,7 +5375,7 @@ mod main_tests {
         };
         let labels = [label("23 to Accuracy Rating"), label("12% reduced Attribute Requirements")];
         let panel =
-            super::build_panel("X".into(), &query, &labels, None, vec!["Some unsearchable line".into()], &[], None);
+            super::build_panel("X".into(), &query, &labels, None, vec!["Some unsearchable line".into()], &[], None, None);
         assert_eq!(panel.rows[0].min, Some(23.0));
         assert_eq!((panel.rows[1].min, panel.rows[1].max), (None, Some(12.0)), "no bound is not a bound of 0");
         assert_eq!(panel.rows[2].min, None);
@@ -5288,7 +5415,7 @@ mod main_tests {
         };
         let extra =
             [line("+142 to maximum Life", "explicit.stat_3299347043"), line("+30 to Strength", "explicit.stat_4080418644")];
-        let mut panel = super::build_panel("X".into(), &query, &labels, None, Vec::new(), &extra, None);
+        let mut panel = super::build_panel("X".into(), &query, &labels, None, Vec::new(), &extra, None, None);
         let rows: Vec<usize> =
             (0..panel.rows.len()).filter(|i| matches!(panel.rows[*i].target, Some(Target::Extra(_)))).collect();
         assert_eq!(rows.len(), 2, "both lines are rows");

@@ -142,6 +142,7 @@ fn panel(name: &str, rarity: &str, rows: Vec<ev::StatRow>, status: &str) -> ev::
             item_level: Some(81),
             requires_level: Some(65),
             base: Some(ev::BaseToggle { label: "Category: Body Armour".into(), enabled: true }),
+            base_type: Some("Soldier Cuirass".into()),
         },
         rows,
         status: status.into(),
@@ -208,7 +209,7 @@ fn render(r: &Renderer, p: &ev::Panel, path: &std::path::Path, drawn: &mut Strin
     // A mid-dark backdrop standing in for the game, so the panel's own
     // translucent fill reads the way it does in play.
     pm.fill(Color::from_rgba8(0x2A, 0x2E, 0x33, 0xFF));
-    r.draw_evaluate(&mut pm, p, &lay, (20 - x0, 20), None, "");
+    r.draw_evaluate(&mut pm, p, &lay, (20 - x0, 20), None, "", std::time::Instant::now());
     pm.save_png(path)?;
     println!("{} {}x{}", path.display(), w, h);
     Ok(())
@@ -249,6 +250,7 @@ fn main() -> anyhow::Result<()> {
         table: &table,
         divine_threshold: 1.0,
         built: built.as_ref(),
+        base: None,
     };
     let blocks = appraise::blocks(&fetched);
     let rows: Vec<ListingRow> = blocks.listings.clone();
@@ -260,6 +262,9 @@ fn main() -> anyhow::Result<()> {
         listings: rows.clone(),
         ladder: blocks.ladder.clone(),
         budget_text: "searches 4/30 (5 min)".into(),
+        // A green square in the art slot, so the slot's place is visible.
+        art: Some(ev::Art::new(image::RgbaImage::from_pixel(48, 48, image::Rgba([60, 170, 80, 255])))),
+        expects_art: true,
         ..panel("Sol Wrap", "Rare", armour_rows(), &status)
     };
 

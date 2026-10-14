@@ -279,6 +279,7 @@ fn a_line_without_a_trade_id_draws_no_checkbox_and_no_value_wells() {
             item_level: Some(82),
             requires_level: None,
             base: None,
+            base_type: None,
         },
         rows,
         extras,
@@ -287,7 +288,7 @@ fn a_line_without_a_trade_id_draws_no_checkbox_and_no_value_wells() {
     let r = Renderer::new().unwrap();
     let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
     let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32 + 20, lay.size.1 as u32 + 20).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (10, 10), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (10, 10), None, "", std::time::Instant::now());
 
     let colours = |pm: &tiny_skia::Pixmap, rect: &khaloni_poe2::config::Rect| {
         let mut seen = std::collections::BTreeSet::new();
@@ -345,6 +346,7 @@ fn listing_panel() -> ev::Panel {
             item_level: Some(81),
             requires_level: Some(65),
             base: Some(ev::BaseToggle { label: "Category: Body Armour".into(), enabled: true }),
+            base_type: None,
         },
         rows: vec![
             ev::StatRow {
@@ -397,6 +399,7 @@ fn full_panel(rows: Vec<ListingRow>) -> ev::Panel {
         &mut extras,
     ));
     ev::Panel {
+        header: ev::ItemHeader { base_type: Some("Soldier Cuirass".into()), ..base.header.clone() },
         rows: card_rows,
         extras,
         listings: rows,
@@ -460,7 +463,7 @@ fn the_card_draws_every_line_with_its_tier_badge() {
     let w = (ax + card.rect.x + card.rect.w as i32 + 10) as u32;
     let h = (ay + lay.size.1.max(card.rect.y + card.rect.h as i32) + 10) as u32;
     let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
-    r.draw_evaluate(&mut pm, &panel, &lay, (ax, ay), None, "");
+    r.draw_evaluate(&mut pm, &panel, &lay, (ax, ay), None, "", std::time::Instant::now());
 
     let painted_in = |x0: i32, y0: i32, x1: i32, y1: i32, keep: &dyn Fn(u8, u8, u8) -> bool| {
         let mut n = 0;
@@ -525,6 +528,9 @@ fn every_panel_label_can_be_drawn_by_the_overlay_font() {
     assert!(text.iter().any(|s| s.contains("x3") || s.contains("x ")), "a folded count or a stack value with an x");
     assert!(text.iter().any(|s| s == "searches 4/30 (5 min)"));
     assert!(text.iter().any(|s| s == "thin market"));
+    // The base line under the name, and the group headings as drawn.
+    assert!(text.iter().any(|s| s == "Soldier Cuirass"));
+    assert!(text.iter().any(|s| s.starts_with("MODIFIERS \u{b7} ")), "{text:?}");
     assert!(!text.iter().any(|s| s.contains('×') || s.contains('±')));
     // The extra rows' notes are among them, and no string claims more than
     // the listings show.
@@ -559,4 +565,290 @@ fn a_long_closest_line_wraps_inside_the_panel() {
     }
     let drawn = ev::all_text(&panel, &measure);
     assert!(g.texts.iter().all(|t| drawn.contains(t)), "the labels list the wrapped lines as drawn");
+}
+
+use khaloni_poe2::ornament::{FrameMetrics, Scale};
+use khaloni_poe2::theme;
+
+fn rgb_of(pm: &tiny_skia::Pixmap, x: u32, y: u32) -> (u8, u8, u8, u8) {
+    let p = pm.pixel(x, y).expect("inside");
+    // tiny-skia stores premultiplied; demultiply for an opaque pixel.
+    (p.red(), p.green(), p.blue(), p.alpha())
+}
+
+fn bytes(c: u32) -> (u8, u8, u8) {
+    (((c >> 16) & 0xff) as u8, ((c >> 8) & 0xff) as u8, (c & 0xff) as u8)
+}
+
+#[test]
+fn the_frame_outer_line_lands_on_the_surface_edge_at_every_scale() {
+    let r = Renderer::new().unwrap();
+    for scale in [1.0f32, 1.25, 1.5, 2.0] {
+        r.set_scale(scale);
+        let (w, h) = ((200.0 * scale).ceil() as u32, (100.0 * scale).ceil() as u32);
+        let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
+        r.surface(&mut pm, 0.0, 0.0, 200.0, 100.0);
+        let metrics = FrameMetrics::new(Scale { device: scale, unit: 1.0 });
+        let mid = h / 2;
+        let (gr, gg, gb) = bytes(theme::BORDER_GOLD);
+        let (pr, pg, pb) = bytes(theme::BG_PANEL);
+        // Outer line: the first column, dim gold, one hairline wide.
+        assert_eq!(rgb_of(&pm, 0, mid), (gr, gg, gb, 255), "scale {scale}: outer line");
+        let after_outer = metrics.line as u32;
+        assert_eq!(rgb_of(&pm, after_outer, mid), (pr, pg, pb, 255), "scale {scale}: panel right after the outer line");
+        // Inner line: `gap` in, gold over panel at 30 %, then panel again.
+        let inner = metrics.gap as u32;
+        assert_ne!(rgb_of(&pm, inner, mid), (pr, pg, pb, 255), "scale {scale}: inner line painted");
+        assert_eq!(rgb_of(&pm, inner + metrics.line as u32, mid), (pr, pg, pb, 255), "scale {scale}: panel after inner line");
+        // The last column is the outer line too.
+        assert_eq!(rgb_of(&pm, w - 1, mid), (gr, gg, gb, 255), "scale {scale}: right outer line");
+    }
+}
+
+#[test]
+fn a_section_heading_paints_a_gold_diamond_before_its_text_and_a_rule_after() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(400, 40).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    r.section_heading(&mut pm, 10.0, 24.0, 380.0, "Prefixes · 3");
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // Something gold-ish in the first 8 px (the diamond).
+    let diamond = (10..18u32).any(|x| (14..26u32).any(|y| rgb_of(&pm, x, y).0 > pr + 40));
+    assert!(diamond, "no diamond painted");
+    // The rule runs to the right edge: painted near x=380, fading, so lighter than panel.
+    let rule_px = rgb_of(&pm, 120, 19);
+    assert!(rule_px.0 > pr, "rule not painted at x=120: {rule_px:?}");
+    assert_eq!(rgb_of(&pm, 395, 5), (pr, pg, pb, 255), "nothing above the heading row");
+}
+
+#[test]
+fn a_top_tier_badge_is_filled_gold_and_a_lower_one_is_outlined() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(200, 40).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    let w1 = r.tier_badge(&mut pm, 10.0, 10.0, "P1", theme::AFFIX_PREFIX, true);
+    let w2 = r.tier_badge(&mut pm, 100.0, 10.0, "S3", theme::AFFIX_SUFFIX, false);
+    assert!(w1 > 16.0 && w2 > 16.0);
+    let (tr, tg, tb) = bytes(theme::TIER_TOP);
+    // Inside the top badge, away from its text: the gold fill.
+    assert_eq!(rgb_of(&pm, 12, 12), (tr, tg, tb, 255), "top badge fill");
+    // Inside the outlined badge, away from its text and edge: still panel.
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    assert_eq!(rgb_of(&pm, 103, 13), (pr, pg, pb, 255), "outlined badge keeps the panel inside");
+}
+
+#[test]
+fn the_plate_button_fills_its_edges_at_mid_height_without_a_seam() {
+    let r = Renderer::new().unwrap();
+    let mut pm = tiny_skia::Pixmap::new(160, 60).unwrap();
+    pm.fill(theme::color(theme::BG_PANEL));
+    let rect = khaloni_poe2::config::Rect { x: 10, y: 10, w: 120, h: 28 };
+    r.plate_button(&mut pm, &rect, 0.0, 0.0, "Search", 0.0, true);
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // The notch columns at the left and right edges at the vertical middle: plate, not panel.
+    for x in [10u32, 11, 128, 129] {
+        for y in [23u32, 24, 25] {
+            let px = rgb_of(&pm, x, y);
+            assert_ne!((px.0, px.1, px.2), (pr, pg, pb), "panel shows through the plate at ({x}, {y})");
+        }
+    }
+    // The top of the plate is lighter than its bottom (the gradient runs down).
+    let top = rgb_of(&pm, 60, 13);
+    let bottom = rgb_of(&pm, 60, 35);
+    assert!(top.0 > bottom.0, "gradient top {top:?} should be lighter than bottom {bottom:?}");
+}
+
+#[test]
+fn a_one_line_popup_still_frames_cleanly() {
+    // Narrower than two frame arms in height: corners meet halfway and
+    // nothing is painted outside the popup's rect.
+    let r = Renderer::new().unwrap();
+    let popup = Popup { title: "Exalted Orb".into(), lines: vec![], expires: std::time::Instant::now() };
+    let (w, h) = r.popup_size(&popup);
+    let mut pm = tiny_skia::Pixmap::new((w + 20) as u32, (h + 20) as u32).unwrap();
+    r.draw_popup(&mut pm, &popup, (10, 10));
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    let (gr, gg, gb) = bytes(theme::BORDER_GOLD);
+    // The popup is shorter than two frame arms, so its middle row lies in
+    // the corners' fade: the outer line there is somewhere between the
+    // frame's dim gold and the corner's bright gold, and opaque.
+    let (br, _, _) = bytes(theme::GOLD);
+    let left = rgb_of(&pm, 10, 10 + h as u32 / 2);
+    assert!(left.3 == 255 && left.0 >= gr && left.0 <= br, "left outer line {left:?} not gold between {gr} and {br}");
+    let _ = (gg, gb);
+    assert_eq!(rgb_of(&pm, 10 + w as u32 / 2, 10 + h as u32 / 2), (pr, pg, pb, 255), "opaque panel inside");
+    assert_eq!(pm.pixel(5, 5).unwrap().alpha(), 0, "nothing painted outside");
+    assert_eq!(pm.pixel(10 + w as u32 + 5, 10 + h as u32 / 2).unwrap().alpha(), 0, "nothing painted right of it");
+}
+
+#[test]
+fn the_popup_title_is_drawn_in_the_name_face_on_the_dark_surface() {
+    let r = Renderer::new().unwrap();
+    let popup = sample_popup();
+    let (w, h) = r.popup_size(&popup);
+    let mut pm = tiny_skia::Pixmap::new(w as u32, h as u32).unwrap();
+    r.draw_popup(&mut pm, &popup, (0, 0));
+    let (pr, pg, pb) = bytes(theme::BG_PANEL);
+    // The title row holds pixels lighter than the panel (the text).
+    let lit = (12..w as u32 - 12).any(|x| (12..34u32).any(|y| rgb_of(&pm, x, y).0 > pr + 60));
+    assert!(lit, "no title drawn");
+    let _ = (pg, pb);
+}
+
+#[test]
+fn the_nameplate_is_tinted_with_the_rarity_colour_at_its_top() {
+    let r = Renderer::new().unwrap();
+    let panel = listing_panel(); // rarity "Rare"
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
+    let top = theme::blend(theme::BG_NAMEPLATE, theme::RARITY_RARE, theme::BANNER_TINT);
+    let (tr, tg, tb) = bytes(top);
+    // A pixel in the banner's top row, left of the name, right of the frame.
+    let y = (lay.banner.y + 1) as u32;
+    let got = rgb_of(&pm, 14, y);
+    assert!((got.0 as i32 - tr as i32).abs() <= 1 && (got.1 as i32 - tg as i32).abs() <= 1 && (got.2 as i32 - tb as i32).abs() <= 1,
+        "banner top {got:?} is not the rare tint {:?}", (tr, tg, tb));
+    // Its bottom row is the plain nameplate.
+    let (nr, ng, nb) = bytes(theme::BG_NAMEPLATE);
+    let bottom = rgb_of(&pm, 14, (lay.banner.y + lay.banner.h as i32 - 1) as u32);
+    assert!((bottom.0 as i32 - nr as i32).abs() <= 1 && (bottom.1 as i32 - ng as i32).abs() <= 1 && (bottom.2 as i32 - nb as i32).abs() <= 1, "banner bottom {bottom:?}");
+}
+
+#[test]
+fn group_headings_and_badge_pills_are_drawn_for_every_visible_group() {
+    let r = Renderer::new().unwrap();
+    let panel = full_panel(fixture_listing_rows());
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
+    let (pr, _, _) = bytes(theme::BG_PANEL);
+    for (baseline, _) in &lay.group_heads {
+        let y = (*baseline - 4) as u32;
+        let gold = (12..20u32).any(|x| rgb_of(&pm, x, y).0 > pr + 40);
+        assert!(gold, "no heading diamond at baseline {baseline}");
+    }
+}
+
+#[test]
+fn the_art_cache_keeps_its_source_alive_so_a_reused_address_cannot_alias() {
+    // Draw art A, drop every outside reference to it, allocate art B of the
+    // same size (which may land at A's address), draw B: B's pixels must
+    // show, never A's.
+    let r = Renderer::new().unwrap();
+    let green = {
+        let mut img = image::RgbaImage::new(64, 64);
+        for p in img.pixels_mut() { *p = image::Rgba([0, 200, 0, 255]); }
+        img
+    };
+    let red = {
+        let mut img = image::RgbaImage::new(64, 64);
+        for p in img.pixels_mut() { *p = image::Rgba([200, 0, 0, 255]); }
+        img
+    };
+    let slot = khaloni_poe2::config::Rect { x: 0, y: 0, w: 48, h: 48 };
+    let mut pm = tiny_skia::Pixmap::new(48, 48).unwrap();
+    {
+        let a = std::sync::Arc::new(green);
+        r.draw_art(&mut pm, &a, &slot, 0.0, 0.0);
+    }
+    for _ in 0..16 {
+        let b = std::sync::Arc::new(red.clone());
+        let mut pm2 = tiny_skia::Pixmap::new(48, 48).unwrap();
+        r.draw_art(&mut pm2, &b, &slot, 0.0, 0.0);
+        let c = rgb_of(&pm2, 24, 24);
+        assert!(c.0 > 150 && c.1 < 60, "stale art drawn: {c:?}");
+    }
+}
+
+#[test]
+fn art_is_drawn_inside_its_slot_when_the_panel_has_it() {
+    let r = Renderer::new().unwrap();
+    let mut panel = listing_panel();
+    let mut img = image::RgbaImage::new(64, 64);
+    for p in img.pixels_mut() { *p = image::Rgba([0, 200, 0, 255]); }
+    panel.art = Some(ev::Art::new(img));
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let slot = lay.art.expect("slot");
+    let mut pm = tiny_skia::Pixmap::new(lay.size.0 as u32, lay.size.1 as u32).unwrap();
+    r.draw_evaluate(&mut pm, &panel, &lay, (0, 0), None, "", std::time::Instant::now());
+    let centre = rgb_of(&pm, (slot.x + 24) as u32, (slot.y + 24) as u32);
+    assert!(centre.1 > 150 && centre.0 < 60, "art not composited: {centre:?}");
+}
+
+#[test]
+fn an_opening_panel_is_drawn_faint_and_risen_then_settles() {
+    use std::time::{Duration, Instant};
+    let r = Renderer::new().unwrap();
+    let mut panel = listing_panel();
+    let t0 = Instant::now();
+    panel.opened_at = Some(t0);
+    let lay = ev::layout(&panel, &|s| r.evaluate_label_width(s));
+    let size = ((lay.size.0 + 20) as u32, (lay.size.1 + 20) as u32);
+    let mut early = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut early, &panel, &lay, (10, 10), None, "", t0 + Duration::from_millis(10));
+    let mut late = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut late, &panel, &lay, (10, 10), None, "", t0 + Duration::from_secs(1));
+    let mid = (10 + lay.size.0 / 2) as u32;
+    let y = (10 + lay.size.1 / 2) as u32;
+    assert!(early.pixel(mid, y).unwrap().alpha() < late.pixel(mid, y).unwrap().alpha(), "early frame is fainter");
+    assert_eq!(late.pixel(mid, y).unwrap().alpha(), 255, "settled frame is opaque");
+    // Risen: the top frame line is lower early than late.
+    let top_late = (10..30u32).find(|yy| late.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+    let top_early = (10..30u32).find(|yy| early.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+    assert!(top_early > top_late, "early {top_early} should sit below late {top_late}");
+}
+
+#[test]
+fn the_last_appearing_frame_lands_where_the_settled_frame_does() {
+    use std::time::{Duration, Instant};
+    let r = Renderer::new().unwrap();
+    // 2 * 1.25 = 2.5 device px: the overlay rounds that half toward zero.
+    r.set_scale(1.25);
+    let settled = listing_panel();
+    let lay = ev::layout(&settled, &|s| r.evaluate_label_width(s));
+    let size = ((lay.size.0 as f32 * 1.25) as u32 + 20, (lay.size.1 as f32 * 1.25) as u32 + 20);
+    let t0 = Instant::now();
+    let opening = ev::Panel { opened_at: Some(t0), ..settled.clone() };
+    let mut last = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut last, &opening, &lay, (2, 2), None, "", t0 + theme::APPEAR - Duration::from_millis(1));
+    let mut direct = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut direct, &settled, &lay, (2, 2), None, "", t0);
+    let edge = |pm: &tiny_skia::Pixmap| {
+        let y = size.1 / 2;
+        let x = (0..size.0).find(|x| pm.pixel(*x, y).unwrap().alpha() > 0).unwrap();
+        let mid = size.0 / 2;
+        let top = (0..size.1).find(|yy| pm.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+        (x, top)
+    };
+    assert_eq!(edge(&last), edge(&direct));
+}
+
+#[test]
+fn the_three_orbs_give_their_embedded_icon_as_art_and_other_currencies_none() {
+    let r = Renderer::new().unwrap();
+    for name in ["Divine Orb", "Exalted Orb", "Chaos Orb"] {
+        let denom = Denom::of_currency(name).unwrap_or_else(|| panic!("{name} is a denomination"));
+        assert!(r.icon_image(denom).is_some_and(|img| img.width() > 0), "{name}");
+    }
+    assert_eq!(Denom::of_currency("Greater Exalted Orb"), None);
+    assert_eq!(Denom::of_currency("Orb of Annulment"), None);
+    assert!(r.icon_image(Denom::None).is_none());
+}
+
+#[test]
+fn hairlines_are_one_device_pixel_tall_at_fractional_scales() {
+    use khaloni_poe2::ornament::Scale;
+    use khaloni_poe2::theme;
+    for scale in [1.25_f32, 1.5] {
+        let r = Renderer::new().unwrap();
+        r.set_scale(scale);
+        let want = Scale { device: scale, unit: 1.0 }.hairline();
+        for y in 10..40 {
+            let mut pm = tiny_skia::Pixmap::new(80, 80).unwrap();
+            r.hairline(&mut pm, 0.0, y as f32, 40.0, theme::TEXT);
+            let painted = (0..80).filter(|&row| pm.pixel(5, row).map_or(0, |p| p.alpha()) > 0).count() as i32;
+            assert_eq!(painted, want, "hairline at y={y}, scale {scale}");
+        }
+    }
 }

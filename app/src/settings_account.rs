@@ -10,93 +10,112 @@ use crate::config::{Config, LiveSearch};
 use crate::wealth::WealthSnapshot;
 
 pub fn section_account(ui: &mut egui::Ui, cfg: &mut Config, wealth: &[WealthSnapshot]) {
-    ui.heading("Account");
-    ui.add_space(6.0);
-
-    ui.horizontal(|ui| {
-        ui.label("POESESSID");
-        // Masked like a password: this cookie is a full login credential.
-        ui.add(
-            egui::TextEdit::singleline(&mut cfg.poesessid)
-                .password(true)
-                .hint_text("session cookie"),
+    use crate::settings_style as st;
+    st::card(ui, "account", |ui| {
+        st::row(
+            ui,
+            "POESESSID",
+            Some(
+                "Your session cookie is stored locally in your config file and sent \
+                 only to pathofexile.com. It unlocks live-search alerts and the \
+                 wealth tracker; leave it empty to keep both off.",
+            ),
+            |ui| {
+                // Masked like a password: this cookie is a full login credential.
+                ui.add(
+                    egui::TextEdit::singleline(&mut cfg.poesessid)
+                        .password(true)
+                        .desired_width(220.0)
+                        .hint_text("session cookie"),
+                );
+            },
         );
-    });
-    ui.small(
-        "Your session cookie is stored locally in your config file and sent \
-         only to pathofexile.com. It unlocks live-search alerts and the \
-         wealth tracker; leave it empty to keep both off.",
-    );
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label("Account name");
-        ui.add(
-            egui::TextEdit::singleline(&mut cfg.account_name)
-                .hint_text("for the wealth tracker"),
-        );
+        st::row_last(ui, "Account name", None, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut cfg.account_name)
+                    .desired_width(220.0)
+                    .hint_text("for the wealth tracker"),
+            );
+        });
     });
 
-    ui.add_space(12.0);
-    ui.label("Live searches");
-    ui.small("Paste a trade-site search URL; new listings raise an alert.");
+    st::group_heading(ui, "Live searches");
+    st::note(ui, "Paste a trade-site search URL; new listings raise an alert.");
+    ui.add_space(4.0);
     let mut remove: Option<usize> = None;
-    for i in 0..cfg.live_searches.len() {
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(&mut cfg.live_searches[i].name)
-                    .desired_width(120.0)
-                    .hint_text("name"),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut cfg.live_searches[i].url)
-                    .hint_text("https://www.pathofexile.com/trade2/search/poe2/…"),
-            );
-            if ui.button("✕").clicked() {
-                remove = Some(i);
+    if !cfg.live_searches.is_empty() {
+        st::card(ui, "live_searches", |ui| {
+            let n = cfg.live_searches.len();
+            for i in 0..n {
+                let search = &mut cfg.live_searches[i];
+                // Same red-hint rule the poll worker applies: a URL that does not
+                // parse is silently skipped there, so surface it here instead.
+                let bad_url = !search.url.trim().is_empty() && parse_search_url(&search.url).is_none();
+                let body = |ui: &mut egui::Ui| {
+                    if st::button(ui, "✕").clicked() {
+                        remove = Some(i);
+                    }
+                    let w = (ui.available_width() - 136.0).max(120.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut search.url)
+                            .desired_width(w)
+                            .hint_text("https://www.pathofexile.com/trade2/search/poe2/…"),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut search.name)
+                            .desired_width(120.0)
+                            .hint_text("name"),
+                    );
+                };
+                ui.push_id(i, |ui| {
+                    if i + 1 == n && !bad_url {
+                        st::row_last(ui, "", None, body)
+                    } else {
+                        st::row(ui, "", None, body)
+                    }
+                    if bad_url {
+                        st::warning(ui, "  not a trade search URL (…/trade2/search/poe2/<league>/<id>)");
+                    }
+                });
             }
         });
-        // Same red-hint rule the poll worker applies: a URL that does not
-        // parse is silently skipped there, so surface it here instead.
-        let url = &cfg.live_searches[i].url;
-        if !url.trim().is_empty() && parse_search_url(url).is_none() {
-            ui.colored_label(
-                egui::Color32::RED,
-                "  not a trade search URL (…/trade2/search/poe2/<league>/<id>)",
-            );
-        }
     }
     if let Some(i) = remove {
         cfg.live_searches.remove(i);
     }
-    if ui.button("+ Add search").clicked() {
+    if st::button(ui, "+ Add search").clicked() {
         cfg.live_searches.push(LiveSearch {
             name: String::new(),
             url: String::new(),
         });
     }
 
-    ui.add_space(12.0);
-    ui.label("Wealth");
+    st::group_heading(ui, "Wealth");
     match wealth.last() {
         None => {
-            ui.small(
+            st::note(
+                ui,
                 "No snapshots yet — the tracker records your stash value \
                  every 30 minutes once the cookie and account name are set.",
             );
         }
         Some(latest) => {
-            ui.strong(format!("{:.1} ex", latest.total_ex));
-            egui::Grid::new("wealth_history")
-                .num_columns(2)
-                .spacing([16.0, 4.0])
-                .show(ui, |ui| {
-                    // Newest first, capped at 10 rows: a readout, not a chart.
-                    for snap in wealth.iter().rev().take(10) {
-                        ui.weak(ymd_hm_utc(snap.at_epoch_s));
-                        ui.label(format!("{:.1} ex", snap.total_ex));
-                        ui.end_row();
-                    }
-                });
+            st::card(ui, "wealth", |ui| {
+                ui.add_space(8.0);
+                ui.strong(format!("{:.1} ex", latest.total_ex));
+                egui::Grid::new("wealth_history")
+                    .num_columns(2)
+                    .spacing([16.0, 4.0])
+                    .show(ui, |ui| {
+                        // Newest first, capped at 10 rows: a readout, not a chart.
+                        for snap in wealth.iter().rev().take(10) {
+                            ui.weak(ymd_hm_utc(snap.at_epoch_s));
+                            ui.label(format!("{:.1} ex", snap.total_ex));
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(8.0);
+            });
         }
     }
 }

@@ -1,12 +1,20 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use fontdue::{Font, FontSettings, Metrics};
 use image::RgbaImage;
-use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Rect as SkRect, Stroke, Transform};
+use tiny_skia::{
+    Color, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap, Point, Rect as SkRect, SpreadMode, Stroke,
+    Transform,
+};
 
 use crate::hover::Popup;
+use crate::ornament::{
+    self, DeviceRect, FrameMetrics, Placed as OrnamentPlaced, Scale, SpriteCache, FRAME_CLEAR, RULE_DIAMOND,
+};
 use crate::pricing::{Denom, Tier};
+use crate::theme::{self, blend};
 
 #[derive(Clone, PartialEq)]
 pub struct Placed {
@@ -52,6 +60,9 @@ struct TextStyle {
     color: Color,
 }
 
+/// An art image kept alive beside its device-size copy.
+type ScaledArt = (std::sync::Arc<RgbaImage>, RgbaImage);
+
 pub struct Renderer {
     amount_font: Font,
     annotation_font: Font,
@@ -60,10 +71,15 @@ pub struct Renderer {
     scale: Cell<f32>,
     /// The icon artwork at its source resolution, and the copies resized to
     /// `ICON_SIZE * scale` device pixels that are actually composited.
-    icon_divine: RgbaImage,
-    icon_exalted: RgbaImage,
-    icon_chaos: RgbaImage,
+    icon_divine: std::sync::Arc<RgbaImage>,
+    icon_exalted: std::sync::Arc<RgbaImage>,
+    icon_chaos: std::sync::Arc<RgbaImage>,
     icons_scaled: RefCell<HashMap<(u8, u32), RgbaImage>>,
+    /// Item art resized to its device slot, keyed by the image's identity
+    /// and the device side. Each entry holds its source Arc so the keyed
+    /// address cannot be freed and reused while the entry lives.
+    art_scaled: RefCell<HashMap<(usize, u32), ScaledArt>>,
+    sprites: RefCell<SpriteCache<Rc<RgbaImage>>>,
 }
 
 const FONTIN_REGULAR: &[u8] = include_bytes!("../assets/fonts/Fontin-Regular.ttf");
@@ -77,6 +93,10 @@ const OLD_PX: f32 = 13.0;
 const TOTAL_PX: f32 = 20.0;
 const ICON_SIZE: u32 = 30;
 const ICON_GAP: f32 = 4.0;
+/// Horizontal inset of the evaluate panel's content from its edge.
+const PAD_F: f32 = 12.0;
+/// The currency icon beside a price in a listing row.
+const ROW_ICON: u32 = 18;
 const PILL_PAD_X: f32 = 8.0;
 const PILL_CORNER: f32 = 4.0;
 const PILL_BORDER_WIDTH: f32 = 1.5;
@@ -91,31 +111,16 @@ const POPUP_LINE_PX: f32 = 18.0;
 const POPUP_PAD: f32 = 12.0;
 const POPUP_ROW_GAP: f32 = 6.0;
 
-// Shared design system with the control panel (settings-mockup.html): warm
-// near-black chrome, bronze hairlines, off-white text, grey/blue/gold value
-// tiers. The overlay reads as one tool with the settings window.
-const C_PANEL: (u8, u8, u8, u8) = (0x1C, 0x16, 0x0F, 238); // pill/panel fill (near-opaque over the game)
-const C_INK: (u8, u8, u8) = (0xEA, 0xE0, 0xCB); // primary text
-const C_INK2: (u8, u8, u8) = (0xB3, 0xA3, 0x82); // secondary / descriptions
-const C_LINE: (u8, u8, u8) = (0x37, 0x2C, 0x1E); // subtle hairline
-const C_BRONZE: (u8, u8, u8) = (0x6B, 0x56, 0x37); // default border
-const C_GOLD: (u8, u8, u8) = (0xC9, 0xA2, 0x27); // jackpot / best
-const C_BLUE: (u8, u8, u8) = (0x2E, 0x5A, 0x8A); // decent border
-const C_BLUE_LT: (u8, u8, u8) = (0x7F, 0xA8, 0xD6); // decent text (readable on dark)
-const C_JUNK_LT: (u8, u8, u8) = (0xB7, 0xAB, 0x97); // junk text
-const C_RED: (u8, u8, u8) = (0x8B, 0x3A, 0x2E); // stale / danger
-const C_UNIQUE: (u8, u8, u8) = (0xAF, 0x60, 0x25); // unique item name, the game's own orange
-// Suffix badges: a warm amber against the prefixes' C_BLUE_LT, so the two
-// affix families split cool/warm at a glance without inventing a hue
-// outside the design system.
-const C_SUFFIX: (u8, u8, u8) = (0xD9, 0x9A, 0x4A);
-// Dark inset behind an editable value box (same well as the reference
-// panel's search field).
-const C_WELL: (u8, u8, u8) = (0x12, 0x0D, 0x08);
-// Market moves: a soft green and a soft red that both read on the dark
-// panel beside the gold headings.
-const C_UP: (u8, u8, u8) = (0x7F, 0xB8, 0x6A);
-const C_DOWN: (u8, u8, u8) = (0xD9, 0x7A, 0x5F);
+// Reward-row pill palette (unchanged by the restyle; see theme.rs).
+const C_PANEL: (u8, u8, u8, u8) = theme::REWARD_PANEL;
+const C_INK: (u8, u8, u8) = theme::REWARD_INK;
+const C_LINE: (u8, u8, u8) = theme::REWARD_LINE;
+const C_BRONZE: (u8, u8, u8) = theme::REWARD_BRONZE;
+const C_GOLD: (u8, u8, u8) = theme::REWARD_GOLD;
+const C_BLUE: (u8, u8, u8) = theme::REWARD_BLUE;
+const C_BLUE_LT: (u8, u8, u8) = theme::REWARD_BLUE_LT;
+const C_JUNK_LT: (u8, u8, u8) = theme::REWARD_JUNK_LT;
+const C_RED: (u8, u8, u8) = theme::REWARD_RED;
 
 // Evaluate item-card type scale: a large small-caps name, tooltip-sized
 // property lines, and deliberately small gutter type so the mod text stays
@@ -131,6 +136,27 @@ const EVAL_NOTE_PX: f32 = 13.0;
 
 fn rgb(c: (u8, u8, u8)) -> Color {
     Color::from_rgba8(c.0, c.1, c.2, 0xFF)
+}
+
+/// Splits a price cell at its unit word: `"12 div (x)"` becomes the amount
+/// `"12"`, the currency, and the rest `" (x)"`. A cell with no unit word
+/// ("no price", a bare number) is `None` and draws as text.
+fn split_price_unit(cell: &str) -> Option<(&str, Denom, &str)> {
+    let mut start = 0;
+    for word in cell.split(' ') {
+        let end = start + word.len();
+        let denom = match word {
+            "div" => Some(Denom::Divine),
+            "ex" => Some(Denom::Exalted),
+            "chaos" => Some(Denom::Chaos),
+            _ => None,
+        };
+        if let Some(d) = denom.filter(|_| start > 0) {
+            return Some((&cell[..start - 1], d, &cell[end..]));
+        }
+        start = end + 1;
+    }
+    None
 }
 
 /// Formats a value-box number: whole numbers show without a decimal point
@@ -212,10 +238,12 @@ impl Renderer {
             annotation_font,
             glyph_cache: RefCell::new(HashMap::new()),
             scale: Cell::new(1.0),
-            icon_divine: load_icon(ICON_DIVINE_PNG)?,
-            icon_exalted: load_icon(ICON_EXALTED_PNG)?,
-            icon_chaos: load_icon(ICON_CHAOS_PNG)?,
+            icon_divine: std::sync::Arc::new(load_icon(ICON_DIVINE_PNG)?),
+            icon_exalted: std::sync::Arc::new(load_icon(ICON_EXALTED_PNG)?),
+            icon_chaos: std::sync::Arc::new(load_icon(ICON_CHAOS_PNG)?),
             icons_scaled: RefCell::new(HashMap::new()),
+            art_scaled: RefCell::new(HashMap::new()),
+            sprites: RefCell::new(SpriteCache::new(ornament::CACHE_CAPACITY)),
         })
     }
 
@@ -235,6 +263,8 @@ impl Renderer {
         // Entries for the old scale would never be read again.
         self.glyph_cache.borrow_mut().clear();
         self.icons_scaled.borrow_mut().clear();
+        self.art_scaled.borrow_mut().clear();
+        *self.sprites.borrow_mut() = SpriteCache::new(ornament::CACHE_CAPACITY);
         true
     }
 
@@ -256,12 +286,22 @@ impl Renderer {
     }
 
     fn icon_for(&self, denom: Denom) -> Option<&RgbaImage> {
+        self.icon_arc(denom).map(|a| &**a)
+    }
+
+    fn icon_arc(&self, denom: Denom) -> Option<&std::sync::Arc<RgbaImage>> {
         match denom {
             Denom::Divine => Some(&self.icon_divine),
             Denom::Exalted => Some(&self.icon_exalted),
             Denom::Chaos => Some(&self.icon_chaos),
             Denom::None => None,
         }
+    }
+
+    /// The embedded currency icon for `denom`, shared, for a currency
+    /// panel's nameplate art.
+    pub fn icon_image(&self, denom: Denom) -> Option<std::sync::Arc<RgbaImage>> {
+        self.icon_arc(denom).cloned()
     }
 
     fn text_width(&self, kind: FontKind, text: &str, px: f32) -> f32 {
@@ -328,9 +368,14 @@ impl Renderer {
     /// logical pixels. The artwork is resized from its source resolution
     /// to the device size, not stretched from the 1x copy.
     fn composite_icon(&self, pm: &mut Pixmap, denom: Denom, x: i32, y: i32) {
+        self.composite_icon_sized(pm, denom, x, y, ICON_SIZE);
+    }
+
+    /// [`Renderer::composite_icon`] at `side_logical` logical pixels square.
+    fn composite_icon_sized(&self, pm: &mut Pixmap, denom: Denom, x: i32, y: i32, side_logical: u32) {
         let Some(source) = self.icon_for(denom) else { return };
         let scale = self.scale.get();
-        let side = ((ICON_SIZE as f32) * scale).round().max(1.0) as u32;
+        let side = ((side_logical as f32) * scale).round().max(1.0) as u32;
         let mut scaled = self.icons_scaled.borrow_mut();
         let icon = scaled.entry((denom as u8, side)).or_insert_with(|| {
             image::imageops::resize(source, side, side, image::imageops::FilterType::Lanczos3)
@@ -351,21 +396,128 @@ impl Renderer {
                 continue;
             }
             let idx = ((px_y * w + px_x) * 4) as usize;
-            let sa = u32::from(a);
-            let sr = u32::from(r) * sa / 255;
-            let sg = u32::from(g) * sa / 255;
-            let sb = u32::from(b) * sa / 255;
-            let inv = 255 - sa;
-            data[idx] = (sr + u32::from(data[idx]) * inv / 255) as u8;
-            data[idx + 1] = (sg + u32::from(data[idx + 1]) * inv / 255) as u8;
-            data[idx + 2] = (sb + u32::from(data[idx + 2]) * inv / 255) as u8;
-            data[idx + 3] = (sa + u32::from(data[idx + 3]) * inv / 255) as u8;
+            Self::over(data, idx, (r, g, b), a);
         }
     }
 
     fn pill(&self, pm: &mut Pixmap, x: f32, y_top: f32, w: f32, h: f32, border: Color) {
-        let Some(rect) = SkRect::from_xywh(x, y_top, w, h) else { return };
-        let r = PILL_CORNER.min(w / 2.0).min(h / 2.0);
+        self.rounded(pm, x, y_top, w, h, PILL_CORNER, Some(pill_fill_color()), Some((border, PILL_BORDER_WIDTH)));
+    }
+
+    fn device_scale(&self) -> Scale {
+        Scale { device: self.scale.get(), unit: 1.0 }
+    }
+
+    fn device_rect(&self, x: f32, y: f32, w: f32, h: f32) -> DeviceRect {
+        let s = self.device_scale();
+        DeviceRect::new(s.device(x), s.device(y), s.device(x + w), s.device(y + h))
+    }
+
+    /// A `w`-wide hairline whose top is at logical `y`: one logical px in
+    /// whole device pixels, so every rule is the same height at any scale.
+    pub fn hairline(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, color: u32) {
+        let s = self.device_scale();
+        let top = s.device(y);
+        let rect = DeviceRect::new(s.device(x), top, s.device(x + w), top + s.hairline());
+        self.fill_device(pm, rect, color, 0xff);
+    }
+
+    /// Straight-alpha `rgb` at `a` over one premultiplied pixel of `data`.
+    #[inline]
+    fn over(data: &mut [u8], idx: usize, (r, g, b): (u8, u8, u8), a: u8) {
+        let sa = u32::from(a);
+        let inv = 255 - sa;
+        data[idx] = (u32::from(r) * sa / 255 + u32::from(data[idx]) * inv / 255) as u8;
+        data[idx + 1] = (u32::from(g) * sa / 255 + u32::from(data[idx + 1]) * inv / 255) as u8;
+        data[idx + 2] = (u32::from(b) * sa / 255 + u32::from(data[idx + 2]) * inv / 255) as u8;
+        data[idx + 3] = (sa + u32::from(data[idx + 3]) * inv / 255) as u8;
+    }
+
+    /// A quad of `color` at `alpha` over `rect` (device px).
+    fn fill_device(&self, pm: &mut Pixmap, rect: DeviceRect, color: u32, alpha: u8) {
+        let (w, h) = (pm.width() as i32, pm.height() as i32);
+        let rgb = (((color >> 16) & 0xff) as u8, ((color >> 8) & 0xff) as u8, (color & 0xff) as u8);
+        let data = pm.data_mut();
+        for y in rect.top.max(0)..rect.bottom.min(h) {
+            for x in rect.left.max(0)..rect.right.min(w) {
+                Self::over(data, ((y * w + x) * 4) as usize, rgb, alpha);
+            }
+        }
+    }
+
+    /// `placed`'s sprite from the cache (rasterised on first use), blitted
+    /// where it shows. Sprite pixels are BGRA straight alpha.
+    fn blit_sprite(&self, pm: &mut Pixmap, placed: &OrnamentPlaced) {
+        let (pixels, _evicted) = self.sprites.borrow_mut().get(placed.sprite, |s| Rc::new(ornament::rasterize(s)));
+        let (w, h) = (pm.width() as i32, pm.height() as i32);
+        let shown = placed.shown;
+        let data = pm.data_mut();
+        for y in shown.top.max(0)..shown.bottom.min(h) {
+            for x in shown.left.max(0)..shown.right.min(w) {
+                let image::Rgba([b, g, r, a]) =
+                    *pixels.get_pixel((x - placed.rect.left) as u32, (y - placed.rect.top) as u32);
+                if a == 0 {
+                    continue;
+                }
+                Self::over(data, ((y * w + x) * 4) as usize, (r, g, b), a);
+            }
+        }
+    }
+
+    pub fn game_frame(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32) {
+        let scale = self.device_scale();
+        let parts = ornament::frame(self.device_rect(x, y, w, h), FrameMetrics::new(scale));
+        for line in &parts.lines {
+            if !line.rect.is_empty() {
+                self.fill_device(pm, line.rect, line.color, line.alpha);
+            }
+        }
+        for corner in &parts.corners {
+            self.blit_sprite(pm, corner);
+        }
+    }
+
+    /// A lens surface: opaque panel fill in the double gold frame.
+    pub fn surface(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32) {
+        self.fill_device(pm, self.device_rect(x, y, w, h), theme::BG_PANEL, 0xff);
+        self.game_frame(pm, x, y, w, h);
+    }
+
+    pub fn ornament_rule(&self, pm: &mut Pixmap, x: f32, y_center: f32, w: f32, color: u32) {
+        let scale = self.device_scale();
+        let rect = self.device_rect(x, y_center - RULE_DIAMOND / 2.0, w, RULE_DIAMOND);
+        for part in ornament::rule(rect, scale, color, theme::GOLD).iter().flatten() {
+            self.blit_sprite(pm, part);
+        }
+    }
+
+    /// A group heading: a 6 px diamond, the title in capitals in GOLD small
+    /// caps, and a rule fading out to `x + w`, all on the row's axis.
+    pub fn section_heading(&self, pm: &mut Pixmap, x: f32, baseline: f32, w: f32, text: &str) {
+        const DIAMOND: f32 = 6.0;
+        const GAP: f32 = 7.0;
+        const PX: f32 = 12.5;
+        let scale = self.device_scale();
+        let axis = baseline - PX * 0.35;
+        let mark = self.device_rect(x, axis - DIAMOND / 2.0, DIAMOND, DIAMOND);
+        self.blit_sprite(pm, &ornament::diamond(mark, DIAMOND, scale, theme::GOLD, true));
+        let title = text.to_uppercase();
+        let style = TextStyle { kind: FontKind::Amount, px: PX, color: theme::color(theme::GOLD) };
+        let tx = x + DIAMOND + GAP;
+        self.draw_text(pm, tx, baseline, &title, &style);
+        let tw = self.text_width(FontKind::Amount, &title, PX);
+        let rule_x = tx + tw + GAP;
+        if rule_x < x + w {
+            let rect = self.device_rect(rule_x, axis - 0.5, x + w - rule_x, 1.0);
+            if let Some(line) = ornament::fading_line(rect, scale, theme::BORDER_GOLD, false) {
+                self.blit_sprite(pm, &line);
+            }
+        }
+    }
+
+    fn rounded_path(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Option<tiny_skia::Path> {
+        let rect = SkRect::from_xywh(x, y, w, h)?;
+        let r = radius.min(w / 2.0).min(h / 2.0);
         let mut pb = PathBuilder::new();
         pb.move_to(rect.left() + r, rect.top());
         pb.line_to(rect.right() - r, rect.top());
@@ -377,18 +529,115 @@ impl Renderer {
         pb.line_to(rect.left(), rect.top() + r);
         pb.quad_to(rect.left(), rect.top(), rect.left() + r, rect.top());
         pb.close();
-        let Some(path) = pb.finish() else { return };
+        pb.finish()
+    }
 
-        let mut fill_paint = Paint::default();
-        fill_paint.set_color(pill_fill_color());
-        fill_paint.anti_alias = true;
-        pm.fill_path(&path, &fill_paint, tiny_skia::FillRule::Winding, self.xf(), None);
+    #[allow(clippy::too_many_arguments)]
+    fn rounded(&self, pm: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, radius: f32,
+               fill: Option<Color>, stroke: Option<(Color, f32)>) {
+        let Some(path) = Self::rounded_path(x, y, w, h, radius) else { return };
+        if let Some(c) = fill {
+            let mut paint = Paint::default();
+            paint.set_color(c);
+            paint.anti_alias = true;
+            pm.fill_path(&path, &paint, tiny_skia::FillRule::Winding, self.xf(), None);
+        }
+        if let Some((c, width)) = stroke {
+            let mut paint = Paint::default();
+            paint.set_color(c);
+            paint.anti_alias = true;
+            pm.stroke_path(&path, &paint, &Stroke { width, ..Default::default() }, self.xf(), None);
+        }
+    }
 
-        let mut border_paint = Paint::default();
-        border_paint.set_color(border);
-        border_paint.anti_alias = true;
-        let stroke = Stroke { width: PILL_BORDER_WIDTH, ..Default::default() };
-        pm.stroke_path(&path, &border_paint, &stroke, self.xf(), None);
+    /// "P1" in a pill: gold-filled with dark ink for a top tier, otherwise
+    /// an outline in BORDER_FIELD with the letter in `color`. Returns the
+    /// pill's width.
+    pub fn tier_badge(&self, pm: &mut Pixmap, x: f32, y_top: f32, text: &str, color_: u32, top: bool) -> f32 {
+        const PX: f32 = 11.0;
+        const PAD: f32 = 4.0;
+        const H: f32 = 16.0;
+        let tw = self.text_width(FontKind::Amount, text, PX);
+        let w = tw + PAD * 2.0;
+        if top {
+            self.rounded(pm, x, y_top, w, H, 3.0, Some(theme::color(theme::TIER_TOP)), None);
+        } else {
+            self.rounded(pm, x + 0.5, y_top + 0.5, w - 1.0, H - 1.0, 3.0, None, Some((theme::color(theme::BORDER_FIELD), 1.0)));
+        }
+        let ink = if top { theme::BADGE_INK } else { color_ };
+        let style = TextStyle { kind: FontKind::Amount, px: PX, color: theme::color(ink) };
+        self.draw_text(pm, x + PAD, y_top + H - 4.0, text, &style);
+        w
+    }
+
+    /// A min/max box: BG_FIELD well in a BORDER_FIELD edge, GOLD while focused.
+    pub fn value_field(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, text: &str, focused: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        let edge = if focused { theme::GOLD } else { theme::BORDER_FIELD };
+        self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS,
+                     Some(theme::color(theme::BG_FIELD)), Some((theme::color(edge), 1.0)));
+        let style = TextStyle { kind: FontKind::Amount, px: EVAL_BOX_PX, color: theme::color(theme::TEXT) };
+        self.draw_text(pm, x + 5.0, y + h - 5.0, text, &style);
+    }
+
+    /// The bronze plate button (Search): a two-stop gradient lifted toward
+    /// gold by `hover` (0..1), a BORDER_GOLD edge, the label centred in
+    /// GOLD_LIGHT small caps. Switched off: BORDER_FIELD edge, TEXT_DIM label.
+    #[allow(clippy::too_many_arguments)]
+    pub fn plate_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, label: &str, hover: f32, enabled: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        if enabled {
+            let top = blend(theme::PLATE_TOP, theme::GOLD, 0.16 * hover);
+            let bottom = blend(theme::PLATE_BOTTOM, theme::GOLD, 0.08 * hover);
+            // One rounded path under a vertical gradient (logical points; the
+            // fill goes through `xf` like every path).
+            if let Some(path) = Self::rounded_path(x, y, w, h, theme::CONTROL_RADIUS) {
+                let shader = LinearGradient::new(
+                    Point::from_xy(x, y),
+                    Point::from_xy(x, y + h),
+                    vec![GradientStop::new(0.0, theme::color(top)), GradientStop::new(1.0, theme::color(bottom))],
+                    SpreadMode::Pad,
+                    Transform::identity(),
+                );
+                if let Some(shader) = shader {
+                    let paint = Paint { shader, anti_alias: true, ..Default::default() };
+                    pm.fill_path(&path, &paint, tiny_skia::FillRule::Winding, self.xf(), None);
+                }
+            }
+            self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, None, Some((theme::color(theme::BORDER_GOLD), 1.0)));
+        } else {
+            self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, Some(theme::color(theme::BG_FIELD)), Some((theme::color(theme::BORDER_FIELD), 1.0)));
+        }
+        let ink = if enabled { theme::GOLD_LIGHT } else { theme::TEXT_DIM };
+        let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, label, 16.0);
+        self.draw_text(pm, x + (w - tw).max(0.0) / 2.0, y + h - 8.0, label, &style);
+    }
+
+    /// A secondary button: BORDER_FIELD outline, TEXT label, label lifting
+    /// to GOLD_LIGHT with `hover`; `on` false draws it switched off.
+    #[allow(clippy::too_many_arguments)]
+    pub fn outlined_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, label: &str, hover: f32, on: bool) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        let edge = if on { blend(theme::BORDER_FIELD, theme::GOLD, 0.6 * hover) } else { theme::BORDER_ROW };
+        let fill = theme::color_alpha(theme::BG_BUTTON_HOVER, (hover * 255.0) as u8);
+        self.rounded(pm, x + 0.5, y + 0.5, w - 1.0, h - 1.0, theme::CONTROL_RADIUS, Some(fill), Some((theme::color(edge), 1.0)));
+        let ink = if on { blend(theme::TEXT, theme::GOLD_LIGHT, hover) } else { theme::TEXT_MUTED };
+        let style = TextStyle { kind: FontKind::Amount, px: 14.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, label, 14.0);
+        self.draw_text(pm, x + (w - tw).max(0.0) / 2.0, y + h - 7.0, label, &style);
+    }
+
+    /// A title-bar glyph button (x): no edge at rest, BG_BUTTON_HOVER with `hover`.
+    pub fn title_button(&self, pm: &mut Pixmap, rect: &crate::config::Rect, ax: f32, ay: f32, glyph: &str, hover: f32) {
+        let (x, y, w, h) = (ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32);
+        if hover > 0.0 {
+            self.rounded(pm, x, y, w, h, theme::CONTROL_RADIUS, Some(theme::color_alpha(theme::BG_BUTTON_HOVER, (hover * 255.0) as u8)), None);
+        }
+        let ink = blend(theme::TEXT_DIM, theme::GOLD_LIGHT, hover);
+        let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: theme::color(ink) };
+        let tw = self.text_width(FontKind::Amount, glyph, 16.0);
+        self.draw_text(pm, x + (w - tw) / 2.0, y + h / 2.0 + 5.0, glyph, &style);
     }
 
     pub fn draw_frame(&self, pm: &mut Pixmap, labels: &[Placed], total: &str, stale: bool) {
@@ -497,10 +746,10 @@ impl Renderer {
             Some(i) => text.split_at(i + 1),
             None => (text, ""),
         };
-        let label_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK2) };
+        let label_style = TextStyle { kind: FontKind::Amount, px, color: theme::color(theme::TEXT_DIM) };
         self.draw_text(pm, x, baseline, label, &label_style);
         if !value.is_empty() {
-            let value_style = TextStyle { kind: FontKind::Amount, px, color: rgb(C_INK) };
+            let value_style = TextStyle { kind: FontKind::Amount, px, color: theme::color(theme::TEXT) };
             let lw = self.text_width(FontKind::Amount, label, px);
             self.draw_text(pm, x + lw, baseline, value, &value_style);
         }
@@ -509,21 +758,74 @@ impl Renderer {
     /// A hairline rule across the card's inner width, the way the game's
     /// tooltip separates the name block from the properties from the mods.
     fn eval_rule(&self, pm: &mut Pixmap, ax: f32, y: f32, panel_w: f32) {
-        self.pill(pm, ax + 12.0, y, panel_w - 24.0, 1.0, rgb(C_LINE));
+        self.hairline(pm, ax + 12.0, y, panel_w - 24.0, theme::BORDER_ROW);
     }
 
-    /// A checkbox: hollow outline always, filled square when on. Same
-    /// treatment every checkbox in the overlay uses.
+    /// A checkbox: hollow outline always, a gold square with a dark tick
+    /// when on. Same treatment every checkbox in the overlay uses.
     fn eval_check(&self, pm: &mut Pixmap, r: &crate::config::Rect, ax: f32, ay: f32, on: bool) {
         let (cx, cy) = (ax + r.x as f32, ay + r.y as f32);
         let side = r.w as f32;
-        self.pill(pm, cx, cy, side, side, if on { rgb(C_INK) } else { rgb(C_INK2) });
         if on {
-            let mut inner = Paint::default();
-            inner.set_color(rgb(C_INK));
+            self.rounded(pm, cx, cy, side, side, 2.0, Some(theme::color(theme::GOLD)), None);
+            let mut tick = Paint::default();
+            tick.set_color(theme::color(theme::BG_TITLE));
             if let Some(rect) = SkRect::from_xywh(cx + 4.0, cy + 4.0, side - 8.0, side - 8.0) {
-                pm.fill_rect(rect, &inner, self.xf(), None);
+                pm.fill_rect(rect, &tick, self.xf(), None);
             }
+        } else {
+            let edge = theme::color(theme::TEXT_MUTED);
+            self.rounded(pm, cx, cy, side, side, 2.0, None, Some((edge, PILL_BORDER_WIDTH)));
+        }
+    }
+
+    /// The name colour by rarity, as an `0xRRGGBB`.
+    fn rarity_rgb(rarity: &str) -> u32 {
+        if rarity.eq_ignore_ascii_case("rare") {
+            theme::RARITY_RARE
+        } else if rarity.eq_ignore_ascii_case("magic") {
+            theme::RARITY_MAGIC
+        } else if rarity.eq_ignore_ascii_case("unique") {
+            theme::RARITY_UNIQUE
+        } else if rarity.eq_ignore_ascii_case("currency") {
+            theme::CURRENCY_NAME
+        } else if rarity.eq_ignore_ascii_case("gem") {
+            theme::GEM_NAME
+        } else {
+            theme::RARITY_NORMAL
+        }
+    }
+
+    /// The item's art in `rect`: resized to the device slot (contain), cached
+    /// by the image's identity and the device side.
+    pub fn draw_art(&self, pm: &mut Pixmap, art: &std::sync::Arc<RgbaImage>, rect: &crate::config::Rect, ax: f32, ay: f32) {
+        let scale = self.scale.get();
+        let side = ((rect.w as f32) * scale).round().max(1.0) as u32;
+        let key = (std::sync::Arc::as_ptr(art) as usize, side);
+        let mut cache = self.art_scaled.borrow_mut();
+        if !cache.contains_key(&key) && cache.len() >= 8 {
+            cache.clear();
+        }
+        let (_keep, scaled) = cache.entry(key).or_insert_with(|| {
+            let (iw, ih) = (art.width().max(1), art.height().max(1));
+            let s = (side as f32 / iw as f32).min(side as f32 / ih as f32);
+            let (w, h) = (((iw as f32) * s).round().max(1.0) as u32, ((ih as f32) * s).round().max(1.0) as u32);
+            (art.clone(), image::imageops::resize(art.as_ref(), w, h, image::imageops::FilterType::Lanczos3))
+        });
+        let x0 = ((ax + rect.x as f32) * scale).round() as i32 + (side as i32 - scaled.width() as i32) / 2;
+        let y0 = ((ay + rect.y as f32) * scale).round() as i32 + (side as i32 - scaled.height() as i32) / 2;
+        let (w, h) = (pm.width() as i32, pm.height() as i32);
+        let data = pm.data_mut();
+        for (ix, iy, px) in scaled.enumerate_pixels() {
+            let [r, g, b, a] = px.0;
+            if a == 0 {
+                continue;
+            }
+            let (x, y) = (x0 + ix as i32, y0 + iy as i32);
+            if x < 0 || y < 0 || x >= w || y >= h {
+                continue;
+            }
+            Self::over(data, ((y * w + x) * 4) as usize, (r, g, b), a);
         }
     }
 
@@ -531,21 +833,20 @@ impl Renderer {
     /// for magic (the dark border blue disappears into the panel fill),
     /// the game's own orange for unique, plain ink otherwise.
     fn rarity_color(rarity: &str) -> Color {
-        if rarity.eq_ignore_ascii_case("rare") {
-            rgb(C_GOLD)
+        let c = if rarity.eq_ignore_ascii_case("rare") {
+            theme::RARITY_RARE
         } else if rarity.eq_ignore_ascii_case("magic") {
-            rgb(C_BLUE_LT)
+            theme::RARITY_MAGIC
         } else if rarity.eq_ignore_ascii_case("unique") {
-            rgb(C_UNIQUE)
+            theme::RARITY_UNIQUE
+        } else if rarity.eq_ignore_ascii_case("currency") {
+            theme::CURRENCY_NAME
+        } else if rarity.eq_ignore_ascii_case("gem") {
+            theme::GEM_NAME
         } else {
-            rgb(C_INK)
-        }
-    }
-
-    /// A block heading under the card, in the market view's section gold.
-    fn section(&self, pm: &mut Pixmap, x: f32, baseline: f32, text: &str) {
-        let style = TextStyle { kind: FontKind::Amount, px: 15.0, color: rgb(C_GOLD) };
-        self.draw_text(pm, x, baseline, text, &style);
+            theme::RARITY_NORMAL
+        };
+        theme::color(c)
     }
 
     /// A table's caption line: small-caps column names with a hairline
@@ -554,22 +855,11 @@ impl Renderer {
     fn captions(&self, pm: &mut Pixmap, anchor: (f32, f32), at: (i32, &[i32]), names: &[&str], w: f32) {
         let (ax, ay) = anchor;
         let (baseline, cols) = at;
-        let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: rgb(C_INK2) };
+        let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
         for (x, name) in cols.iter().zip(names) {
             self.draw_text(pm, ax + *x as f32, ay + baseline as f32, name, &style);
         }
-        self.pill(pm, ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, 1.0, rgb(C_LINE));
-    }
-
-    /// A small button: gold border and ink when live, hairline and muted
-    /// when switched off, its label centred.
-    fn small_button(&self, pm: &mut Pixmap, ax: f32, ay: f32, rect: &crate::config::Rect, label: &str, on: bool) {
-        let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-        let (bw, bh) = (rect.w as f32, rect.h as f32);
-        self.pill(pm, bx, by, bw, bh, if on { border_color(Tier::Jackpot) } else { rgb(C_LINE) });
-        let style = TextStyle { kind: FontKind::Amount, px: 14.0, color: if on { rgb(C_INK) } else { rgb(C_INK2) } };
-        let tw = self.text_width(FontKind::Amount, label, 14.0);
-        self.draw_text(pm, bx + (bw - tw).max(0.0) / 2.0, by + bh - 7.0, label, &style);
+        self.hairline(pm, ax + 12.0, ay + baseline as f32 + 4.0, w - 24.0, theme::BORDER_ROW);
     }
 
     /// Draws the Evaluate item card with what the search found under it,
@@ -582,6 +872,7 @@ impl Renderer {
     ///
     /// `editing` names the box being typed into as (index into `panel.rows`,
     /// field).
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_evaluate(
         &self,
         pm: &mut Pixmap,
@@ -590,30 +881,116 @@ impl Renderer {
         anchor: (i32, i32),
         editing: Option<(usize, crate::evaluate_ui::Field)>,
         edit_buf: &str,
+        now: std::time::Instant,
+    ) {
+        let appear = crate::evaluate_ui::eased(panel.opened_at, now, theme::APPEAR);
+        if appear >= 1.0 {
+            self.draw_evaluate_into(pm, panel, lay, anchor, editing, edit_buf, now);
+            return;
+        }
+        // Opening: draw the panel, and the hover card beside it if there is
+        // one, into a scratch pixmap sized to their union (the card can sit
+        // left of the panel, at negative x), then lay it over `pm` faint and
+        // lowered.
+        let scale = self.scale.get();
+        let (mut x0, mut y0, mut x1, mut y1) = (0, 0, lay.size.0, lay.size.1);
+        if let Some(c) = lay.card.as_ref().filter(|_| panel.hover.is_some()) {
+            x0 = x0.min(c.rect.x);
+            y0 = y0.min(c.rect.y);
+            x1 = x1.max(c.rect.x + c.rect.w as i32);
+            y1 = y1.max(c.rect.y + c.rect.h as i32);
+        }
+        let (dw, dh) = (((x1 - x0) as f32 * scale).ceil() as u32, ((y1 - y0) as f32 * scale).ceil() as u32);
+        let Some(mut tmp) = Pixmap::new(dw.max(1), dh.max(1)) else { return };
+        self.draw_evaluate_into(&mut tmp, panel, lay, (-x0, -y0), editing, edit_buf, now);
+        // The panel's origin lands on the device pixel the direct draw
+        // puts it on, rounded the same way, so the settled frame does not
+        // jump when the animation ends.
+        let s = self.device_scale();
+        let rise = ((1.0 - appear) * theme::APPEAR_RISE * scale).round() as i32;
+        let paint = tiny_skia::PixmapPaint { opacity: appear, ..Default::default() };
+        pm.draw_pixmap(
+            s.device(anchor.0 as f32) - s.device(-x0 as f32),
+            s.device(anchor.1 as f32) - s.device(-y0 as f32) + rise,
+            tmp.as_ref(),
+            &paint,
+            Transform::identity(),
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_evaluate_into(
+        &self,
+        pm: &mut Pixmap,
+        panel: &crate::evaluate_ui::Panel,
+        lay: &crate::evaluate_ui::Layout,
+        anchor: (i32, i32),
+        editing: Option<(usize, crate::evaluate_ui::Field)>,
+        edit_buf: &str,
+        now: std::time::Instant,
     ) {
         use crate::evaluate_ui::{AffixKind, Field, SellerState};
         let f = panel;
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        let ink = rgb(C_INK);
-        let dim = rgb(C_INK2);
+        let ink = theme::color(theme::TEXT);
+        let dim = theme::color(theme::TEXT_DIM);
         let w = lay.size.0 as f32;
-        self.pill(pm, ax, ay, w, lay.size.1 as f32, panel_border());
+        self.surface(pm, ax, ay, w, lay.size.1 as f32);
 
-        // Close X.
-        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: ink };
-        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
+        // Title strip: BG_TITLE under the frame's inner line, and the close.
+        let tb = &lay.title_bar;
+        self.fill_device(
+            pm,
+            self.device_rect(ax + FRAME_CLEAR, ay + FRAME_CLEAR, w - 2.0 * FRAME_CLEAR, tb.h as f32 - FRAME_CLEAR),
+            theme::BG_TITLE,
+            0xff,
+        );
+        self.title_button(pm, &lay.close, ax, ay, "x", 0.0);
 
-        // Item name: centered like the game's tooltip header, coloured by
-        // rarity, but falling back to the layout's left edge when centering
-        // would run the name under the close X.
-        let name_color = Self::rarity_color(&panel.header.rarity);
-        let name_style = TextStyle { kind: FontKind::Amount, px: EVAL_NAME_PX, color: name_color };
+        // Nameplate: the name colour at BANNER_TINT fading to none down the
+        // band, row by row, then the rule at BANNER_EDGE.
+        let name_rgb = Self::rarity_rgb(&panel.header.rarity);
+        let b = &lay.banner;
+        let rows = b.h.max(1) as f32;
+        for row in 0..b.h as i32 {
+            let t = 1.0 - row as f32 / rows;
+            let c = blend(theme::BG_NAMEPLATE, name_rgb, theme::BANNER_TINT * t);
+            self.fill_device(
+                pm,
+                self.device_rect(ax + FRAME_CLEAR, ay + (b.y + row) as f32, w - 2.0 * FRAME_CLEAR, 1.0),
+                c,
+                0xff,
+            );
+        }
+        self.ornament_rule(
+            pm,
+            ax + 16.0,
+            ay + lay.banner_rule_y as f32,
+            w - 32.0,
+            blend(theme::BG_NAMEPLATE, name_rgb, theme::BANNER_EDGE),
+        );
+
+        if let (Some(slot), Some(art)) = (&lay.art, &panel.art) {
+            self.draw_art(pm, &art.0, slot, ax, ay);
+        }
+
+        // Name centred in the banner (between the art column and its mirror
+        // when there is art), in the rarity colour; the base under it.
+        let name_style = TextStyle { kind: FontKind::Amount, px: EVAL_NAME_PX, color: theme::color(name_rgb) };
+        let (span_l, span_r) = match &lay.art {
+            Some(a) => (ax + (a.x + a.w as i32 + 10) as f32, ax + w - (a.x + a.w as i32 + 10) as f32),
+            None => (ax + PAD_F, ax + w - PAD_F),
+        };
         let nw = self.text_width(FontKind::Amount, &panel.header.name, EVAL_NAME_PX);
-        let left = ax + lay.name_pos.0 as f32;
-        let centered = ax + (w - nw) / 2.0;
-        let limit = ax + lay.close.x as f32 - 8.0 - nw;
-        let nx = if centered >= left && centered <= limit { centered } else { left };
+        let nx = (span_l + (span_r - span_l - nw) / 2.0).max(span_l);
         self.draw_text(pm, nx, ay + lay.name_pos.1 as f32, &panel.header.name, &name_style);
+        if let (Some(pos), Some(base)) = (&lay.base_type_pos, &panel.header.base_type) {
+            let base_style = TextStyle { kind: FontKind::Amount, px: 17.0, color: theme::color(name_rgb) };
+            let bw = self.text_width(FontKind::Amount, base, 17.0);
+            let bx = (span_l + (span_r - span_l - bw) / 2.0).max(span_l);
+            self.draw_text(pm, bx, ay + pos.1 as f32, base, &base_style);
+        }
 
         // Property block: rarity, then whatever level lines the layout asked
         // for, all sharing the rarity line's left edge.
@@ -682,10 +1059,10 @@ impl Renderer {
         );
         self.eval_rule(pm, ax, ay + head_y as f32 + 5.0, w);
 
-        // Block separators (implicit vs explicit), from the same layout
+        // Group headings, from the same layout
         // the hitboxes use so the line can never sit on a row.
-        for &dy in &lay.dividers {
-            self.eval_rule(pm, ax, ay + dy as f32, lay.size.0 as f32);
+        for (baseline, title) in &lay.group_heads {
+            self.section_heading(pm, ax + PAD_F, ay + *baseline as f32, w - 2.0 * PAD_F, title);
         }
         for (g, &i) in lay.rows.iter().zip(&lay.visible_rows) {
             let Some(row) = panel.rows.get(i) else { continue };
@@ -698,16 +1075,16 @@ impl Renderer {
             }
 
             if let Some(badge) = row.badge {
-                let color = match badge.kind {
-                    AffixKind::Prefix => rgb(C_BLUE_LT),
-                    AffixKind::Suffix => rgb(C_SUFFIX),
-                    AffixKind::Other => dim,
+                let color_u32 = match badge.kind {
+                    AffixKind::Prefix => theme::AFFIX_PREFIX,
+                    AffixKind::Suffix => theme::AFFIX_SUFFIX,
+                    AffixKind::Other => theme::TEXT_DIM,
                 };
                 // "P9" / "S1", from the model's own formatter so the drawn
                 // badge and the layout's column width agree.
                 let text = crate::evaluate_ui::badge_text(&badge);
-                let style = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color };
-                self.draw_text(pm, ax + g.badge_pos.0 as f32, ay + g.badge_pos.1 as f32, &text, &style);
+                let top = badge.tier == 1 && badge.kind != AffixKind::Other;
+                self.tier_badge(pm, ax + g.badge_pos.0 as f32, ay + g.badge_pos.1 as f32 - 13.0, &text, color_u32, top);
             }
 
             let (lx, ly) = (ax + g.label_pos.0 as f32, ay + g.label_pos.1 as f32);
@@ -754,7 +1131,7 @@ impl Renderer {
                 let color = if off {
                     dim
                 } else if score >= 4.0 {
-                    rgb(C_GOLD)
+                    theme::color(theme::GOLD)
                 } else if score >= 2.0 {
                     ink
                 } else {
@@ -773,7 +1150,6 @@ impl Renderer {
             // Min/max: dark wells, so they read as fields you can type in.
             // The focused one shows the live buffer with a caret and takes a
             // gold border.
-            let box_style = TextStyle { kind: FontKind::Amount, px: EVAL_BOX_PX, color: ink };
             // Weapon bounds are open-ended minimums: no max box, so the
             // card cannot suggest an upper bound the search will not send.
             let has_max = row.target.is_some_and(crate::evaluate_ui::Target::has_max);
@@ -783,27 +1159,14 @@ impl Renderer {
             ] {
                 let Some(val) = val else { continue };
                 let focused = editing == Some((i, field));
-                let (bx0, by0) = (ax + bx.x as f32, ay + bx.y as f32);
-                let (bw, bh) = (bx.w as f32, bx.h as f32);
-                self.pill(pm, bx0, by0, bw, bh, if focused { rgb(C_GOLD) } else { rgb(C_LINE) });
-                let mut well = Paint::default();
-                well.set_color(rgb(C_WELL));
-                if let Some(r) = SkRect::from_xywh(bx0 + 1.5, by0 + 1.5, bw - 3.0, bh - 3.0) {
-                    pm.fill_rect(r, &well, self.xf(), None);
-                }
                 let shown = if focused { format!("{edit_buf}_") } else { val };
-                self.draw_text(pm, bx0 + 5.0, by0 + bh - 5.0, &shown, &box_style);
+                self.value_field(pm, bx, ax, ay, &shown, focused);
             }
         }
 
         // "Show N more" / "Hide": a quiet outlined link, not a call to action.
         if let Some((rect, label)) = &lay.hidden_toggle {
-            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-            let (bw, bh) = (rect.w as f32, rect.h as f32);
-            self.pill(pm, bx, by, bw, bh, rgb(C_LINE));
-            let style = TextStyle { kind: FontKind::Amount, px: 13.0, color: dim };
-            let tw = self.text_width(FontKind::Amount, label, 13.0);
-            self.draw_text(pm, bx + (bw - tw).max(0.0) / 2.0, by + bh - 6.0, label, &style);
+            self.outlined_button(pm, rect, ax, ay, label, 0.0, true);
         }
 
         // Strictness: two radios inside the rects the layout hands back — a
@@ -814,43 +1177,38 @@ impl Renderer {
             let selected = *s == panel.strictness;
             let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
             let (bw, bh) = (rect.w as f32, rect.h as f32);
-            self.pill(pm, bx, by, bw, bh, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
-            if selected {
-                let mut lift = Paint::default();
-                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
-                lift.anti_alias = true;
-                if let Some(r) = SkRect::from_xywh(bx + 1.0, by + 1.0, bw - 2.0, bh - 2.0) {
-                    pm.fill_rect(r, &lift, self.xf(), None);
-                }
-            }
+            let lift = selected.then(|| theme::color_alpha(theme::GOLD, 0x29));
+            let edge = theme::color(if selected { theme::GOLD } else { theme::BORDER_FIELD });
+            self.rounded(pm, bx + 0.5, by + 0.5, bw - 1.0, bh - 1.0, theme::CONTROL_RADIUS, lift, Some((edge, 1.0)));
             let side = (bh - 10.0).max(6.0);
             let mx = bx + 6.0;
             let my = by + (bh - side) / 2.0;
-            self.pill(pm, mx, my, side, side, if selected { rgb(C_GOLD) } else { dim });
+            let marker = theme::color(if selected { theme::GOLD } else { theme::TEXT_MUTED });
+            self.rounded(pm, mx + 0.5, my + 0.5, side - 1.0, side - 1.0, 2.0, None, Some((marker, 1.0)));
             if selected {
-                let mut inner = Paint::default();
-                inner.set_color(rgb(C_GOLD));
-                if let Some(r) = SkRect::from_xywh(mx + 3.0, my + 3.0, side - 6.0, side - 6.0) {
-                    pm.fill_rect(r, &inner, self.xf(), None);
-                }
+                self.rounded(pm, mx + 3.0, my + 3.0, side - 6.0, side - 6.0, 1.0, Some(marker), None);
             }
             let style = TextStyle {
                 kind: FontKind::Amount,
                 px: 14.0,
-                color: if selected { ink } else { dim },
+                color: theme::color(if selected { theme::GOLD_LIGHT } else { theme::TEXT_DIM }),
             };
             self.draw_text(pm, mx + side + 6.0, by + bh - 6.0, s.label(), &style);
         }
 
-        for (rect, action, label) in &lay.buttons {
-            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
+        for (i, (rect, action, label)) in lay.buttons.iter().enumerate() {
+            let hover = panel
+                .button_hover
+                .filter(|(j, _)| *j == i)
+                .map_or(0.0, |(_, at)| crate::evaluate_ui::eased(Some(at), now, theme::TRANSITION));
             // Search reads as switched off while one is running: a press
             // on it is not sent (see `Panel::searching`).
             let off = panel.searching && *action == crate::evaluate_ui::Action::Search;
-            let border = if off { rgb(C_LINE) } else { border_color(Tier::Jackpot) };
-            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, border);
-            let style = TextStyle { kind: FontKind::Amount, px: 16.0, color: if off { dim } else { ink } };
-            self.draw_text(pm, bx + 12.0, by + rect.h as f32 - 8.0, label, &style);
+            if *action == crate::evaluate_ui::Action::Search {
+                self.plate_button(pm, rect, ax, ay, label, hover, !off);
+            } else {
+                self.outlined_button(pm, rect, ax, ay, label, hover, true);
+            }
         }
         if !panel.status.is_empty() {
             let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
@@ -860,7 +1218,7 @@ impl Renderer {
         // cap.
         if let Some(pos) = lay.budget_pos {
             let style =
-                TextStyle { kind: FontKind::Annotation, px: 15.0, color: if f.budget_low { stale_color() } else { dim } };
+                TextStyle { kind: FontKind::Annotation, px: 15.0, color: if f.budget_low { theme::color(theme::TEXT_WARNING) } else { dim } };
             self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, &f.budget_text, &style);
         }
 
@@ -870,13 +1228,13 @@ impl Renderer {
         // poe.ninja: the price, the direction in the market view's colours,
         // then the band, the volume and the caveat in one dim line.
         if let (Some(g), Some(n)) = (&lay.ninja, &f.ninja) {
-            self.section(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, "poe.ninja");
+            self.section_heading(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, w - 2.0 * PAD_F, "poe.ninja");
             let price = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
             let (px_, py) = (ax + g.price_pos.0 as f32, ay + g.price_pos.1 as f32);
             self.draw_text(pm, px_, py, &n.price, &price);
             let moved = match n.direction.as_str() {
-                "rising" => rgb(C_UP),
-                "falling" => rgb(C_DOWN),
+                "rising" => theme::color(theme::PRICE_RISE),
+                "falling" => theme::color(theme::PRICE_FALL),
                 _ => dim,
             };
             let pw = self.text_width(FontKind::Annotation, &n.price, POPUP_LINE_PX);
@@ -891,10 +1249,19 @@ impl Renderer {
         // the button that searches in exalted and divine only.
         if let (Some(g), Some(p)) = (&lay.price_fixed, &f.price_fixed) {
             let s = &g.strip;
-            self.pill(pm, ax + s.x as f32, ay + s.y as f32, s.w as f32, s.h as f32, stale_color());
+            self.rounded(
+                pm,
+                ax + s.x as f32 + 0.5,
+                ay + s.y as f32 + 0.5,
+                s.w as f32 - 1.0,
+                s.h as f32 - 1.0,
+                theme::CONTROL_RADIUS,
+                Some(theme::color_alpha(theme::TEXT_WARNING, 0x22)),
+                Some((theme::color(theme::TEXT_WARNING), 1.0)),
+            );
             let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: ink };
             self.draw_text(pm, ax + g.text_pos.0 as f32, ay + g.text_pos.1 as f32, &p.text, &style);
-            self.small_button(pm, ax, ay, &g.button, &p.button, true);
+            self.outlined_button(pm, &g.button, ax, ay, &p.button, 0.0, true);
         }
 
         // The listings table. An offline seller's row recedes whole; the
@@ -904,11 +1271,13 @@ impl Renderer {
             for (i, (rect, row)) in t.rows.iter().zip(&f.listings).enumerate() {
                 let (rx, ry) = (ax + rect.x as f32, ay + rect.y as f32);
                 if f.hover == Some(i) {
-                    let mut lift = Paint::default();
-                    lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
-                    if let Some(r) = SkRect::from_xywh(rx, ry, rect.w as f32, rect.h as f32) {
-                        pm.fill_rect(r, &lift, self.xf(), None);
-                    }
+                    let lift = crate::evaluate_ui::eased(f.hover_at, now, theme::TRANSITION);
+                    self.fill_device(
+                        pm,
+                        self.device_rect(rx, ry, rect.w as f32, rect.h as f32),
+                        theme::BG_BUTTON_HOVER,
+                        (lift * 255.0) as u8,
+                    );
                 }
                 let baseline = ry + rect.h as f32 - 6.0;
                 let offline = row.state == SellerState::Offline;
@@ -917,24 +1286,40 @@ impl Renderer {
                 let colors = [
                     row_ink,
                     row_ink,
-                    if row.mine && !offline { rgb(C_GOLD) } else { row_ink },
+                    if row.mine && !offline { theme::color(theme::GOLD) } else { row_ink },
                     match row.state {
-                        SellerState::Online => rgb(C_UP),
-                        SellerState::Afk => rgb(C_SUFFIX),
+                        SellerState::Online => theme::color(theme::STATUS_ONLINE),
+                        SellerState::Afk => theme::color(theme::STATUS_AFK),
                         SellerState::Offline => dim,
                     },
                     dim,
                 ];
-                for ((cell, x), color) in cells.iter().zip(&t.cols).zip(colors) {
-                    self.draw_text(pm, ax + *x as f32, baseline, cell, &TextStyle { color, ..row_face });
+                for (n, ((cell, x), color)) in cells.iter().zip(&t.cols).zip(colors).enumerate() {
+                    let style = TextStyle { color, ..row_face };
+                    let cx = ax + *x as f32;
+                    // The price cell swaps its unit word for the currency's
+                    // icon: "12 div (x)" draws "12", the icon, then " (x)".
+                    match n.eq(&0).then(|| split_price_unit(cell)).flatten() {
+                        Some((amount, denom, rest)) => {
+                            self.draw_text(pm, cx, baseline, amount, &style);
+                            let ix = cx + self.text_width(FontKind::Annotation, amount, 16.0) + ICON_GAP;
+                            let iy = baseline - 16.0 * 0.35 - ROW_ICON as f32 / 2.0 + 2.0;
+                            self.composite_icon_sized(pm, denom, ix.round() as i32, iy.round() as i32, ROW_ICON);
+                            if !rest.is_empty() {
+                                self.draw_text(pm, ix + ROW_ICON as f32, baseline, rest, &style);
+                            }
+                        }
+                        None => self.draw_text(pm, cx, baseline, cell, &style),
+                    }
                 }
+                self.hairline(pm, rx, ry + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
             }
         }
 
         // Closest listings: the lines name listings and prices; the note
         // says how the nearest differs when none is close.
         if let (Some(g), Some(c)) = (&lay.closest, &f.closest) {
-            self.section(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, "Closest listings");
+            self.section_heading(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, w - 2.0 * PAD_F, "Closest listings");
             for (pos, line) in g.lines.iter().zip(&g.texts) {
                 self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, line, &row_face);
             }
@@ -946,8 +1331,8 @@ impl Renderer {
         // What each mod is worth: the button beside the heading, then per
         // mod the two cheapest prices and the listings they came from.
         if let Some(g) = &lay.attribution {
-            self.section(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, crate::evaluate_ui::ATTRIBUTE_LABEL);
-            self.small_button(pm, ax, ay, &g.button, crate::evaluate_ui::ATTRIBUTE_BUTTON, f.attribute_enabled);
+            self.section_heading(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, w - 2.0 * PAD_F, crate::evaluate_ui::ATTRIBUTE_LABEL);
+            self.outlined_button(pm, &g.button, ax, ay, crate::evaluate_ui::ATTRIBUTE_BUTTON, 0.0, f.attribute_enabled);
             if let Some(cap) = g.caption_pos {
                 self.captions(pm, (ax, ay), (cap.1, &g.cols), &crate::evaluate_ui::ATTRIBUTION_CAPTIONS, w);
             }
@@ -963,7 +1348,7 @@ impl Renderer {
         // Bulk offers for a stackable, cheapest first.
         if let (Some(g), Some(b)) = (&lay.bulk, &f.bulk) {
             let t = &g.table;
-            self.section(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, "Bulk offers");
+            self.section_heading(pm, ax + g.head_pos.0 as f32, ay + g.head_pos.1 as f32, w - 2.0 * PAD_F, "Bulk offers");
             self.captions(pm, (ax, ay), (t.caption_pos.1, &t.cols), &crate::evaluate_ui::BULK_CAPTIONS, w);
             for (rect, o) in t.rows.iter().zip(&b.offers) {
                 let baseline = ay + rect.y as f32 + rect.h as f32 - 6.0;
@@ -997,10 +1382,12 @@ impl Renderer {
     ) {
         use crate::evaluate_ui::LineKind;
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        let ink = rgb(C_INK);
-        let dim = rgb(C_INK2);
+        let ink = theme::color(theme::TEXT);
+        let dim = theme::color(theme::TEXT_DIM);
         let r = &g.rect;
-        self.pill(pm, ax + r.x as f32, ay + r.y as f32, r.w as f32, r.h as f32, panel_border());
+        let (cx, cy, cw, ch) = (ax + r.x as f32, ay + r.y as f32, r.w as f32, r.h as f32);
+        self.fill_device(pm, self.device_rect(cx, cy, cw, ch), theme::BG_ITEM_CARD, 0xff);
+        self.game_frame(pm, cx, cy, cw, ch);
         let title = TextStyle { kind: FontKind::Amount, px: 20.0, color: Self::rarity_color(&card.rarity) };
         self.draw_text(pm, ax + g.title_pos.0 as f32, ay + g.title_pos.1 as f32, crate::evaluate_ui::card_title(card), &title);
         if let Some(pos) = g.base_pos {
@@ -1013,7 +1400,7 @@ impl Renderer {
             self.draw_prop_line(pm, ax + pos.0 as f32, ay + pos.1 as f32, &format!("{label}: {value}"), EVAL_PROP_PX);
         }
         for &y in &g.rules {
-            self.pill(pm, ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, 1.0, rgb(C_LINE));
+            self.hairline(pm, ax + r.x as f32 + 12.0, ay + y as f32, r.w as f32 - 24.0, theme::BORDER_ROW);
         }
         let badge = TextStyle { kind: FontKind::Amount, px: EVAL_BADGE_PX, color: dim };
         let text = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: ink };
@@ -1022,18 +1409,18 @@ impl Renderer {
             let mut bx = ax + g.badge_x as f32;
             for tier in &line.tiers {
                 let color = match tier.chars().next() {
-                    Some('P') => rgb(C_BLUE_LT),
-                    Some('S') => rgb(C_SUFFIX),
+                    Some('P') => theme::color(theme::AFFIX_PREFIX),
+                    Some('S') => theme::color(theme::AFFIX_SUFFIX),
                     _ => dim,
                 };
                 self.draw_text(pm, bx, y, tier, &TextStyle { color, ..badge });
                 bx += self.text_width(FontKind::Amount, tier, EVAL_BADGE_PX) + 4.0;
             }
             let color = match line.kind {
-                LineKind::Implicit | LineKind::Enchant | LineKind::Crafted => rgb(C_BLUE_LT),
-                LineKind::Rune => rgb(C_SUFFIX),
-                LineKind::Desecrated | LineKind::Mutated => rgb(C_DOWN),
-                LineKind::Fractured => rgb(C_GOLD),
+                LineKind::Implicit | LineKind::Enchant | LineKind::Crafted => theme::color(theme::TEXT_VALUE),
+                LineKind::Rune => theme::color(theme::AFFIX_SUFFIX),
+                LineKind::Desecrated | LineKind::Mutated => theme::color(theme::PRICE_FALL),
+                LineKind::Fractured => theme::color(theme::GOLD),
                 LineKind::Pseudo => dim,
                 LineKind::Explicit => ink,
             };
@@ -1055,20 +1442,17 @@ impl Renderer {
     ) {
         let (px_, py) = (ax + rect.x as f32, ay + rect.y as f32);
         let (pw, ph) = (rect.w as f32, rect.h as f32);
-        self.pill(pm, px_, py, pw, ph, if selected { rgb(C_GOLD) } else { rgb(C_LINE) });
-        if selected {
-            let mut lift = Paint::default();
-            lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x2E));
-            lift.anti_alias = true;
-            if let Some(r) = SkRect::from_xywh(px_ + 1.0, py + 1.0, pw - 2.0, ph - 2.0) {
-                pm.fill_rect(r, &lift, self.xf(), None);
-            }
-        }
-        let style = TextStyle {
-            kind: FontKind::Amount,
-            px: 13.0,
-            color: if selected { rgb(C_INK) } else { rgb(C_INK2) },
+        let (fill, edge, ink) = if selected {
+            (
+                theme::color_alpha(theme::GOLD, 0x29),
+                theme::color_alpha(theme::GOLD, 0x99),
+                theme::GOLD_LIGHT,
+            )
+        } else {
+            (theme::color(theme::BG_FIELD), theme::color(theme::BORDER_FIELD), theme::TEXT_DIM)
         };
+        self.rounded(pm, px_ + 0.5, py + 0.5, pw - 1.0, ph - 1.0, theme::CONTROL_RADIUS, Some(fill), Some((edge, 1.0)));
+        let style = TextStyle { kind: FontKind::Amount, px: 13.0, color: theme::color(ink) };
         self.draw_text(pm, px_ + 8.0, py + ph - 5.0, label, &style);
     }
 
@@ -1151,25 +1535,24 @@ impl Renderer {
         use crate::market_ui::{Line, Tone};
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
         let greyed = p.greyed();
-        let dim = rgb(C_INK2);
-        let ink = if greyed { dim } else { rgb(C_INK) };
-        let up = if greyed { dim } else { rgb(C_UP) };
-        let down = if greyed { dim } else { rgb(C_DOWN) };
+        let dim = theme::color(theme::TEXT_DIM);
+        let ink = if greyed { dim } else { theme::color(theme::TEXT) };
+        let up = if greyed { dim } else { theme::color(theme::PRICE_RISE) };
+        let down = if greyed { dim } else { theme::color(theme::PRICE_FALL) };
         let signed = |sign: i8| match sign {
             1 => up,
             -1 => down,
             _ => ink,
         };
-        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+        self.surface(pm, ax, ay, lay.w as f32, lay.h as f32);
 
-        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: rgb(C_INK) };
+        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: theme::color(theme::GOLD_LIGHT) };
         self.draw_text(pm, ax + lay.title_pos.0 as f32, ay + lay.title_pos.1 as f32, "Market", &title);
-        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
-        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
+        self.title_button(pm, &lay.close, ax, ay, "x", 0.0);
         let f = &p.fresh;
         let aged = p.tab != crate::market_ui::Tab::MyRuns
             && (f.stale || f.uniques_stale || greyed || p.uniques_greyed());
-        let status_color = if aged { stale_color() } else { dim };
+        let status_color = if aged { theme::color(theme::TEXT_WARNING) } else { dim };
         let status = TextStyle { kind: FontKind::Annotation, px: 14.0, color: status_color };
         self.draw_text(pm, ax + lay.status_pos.0 as f32, ay + lay.status_pos.1 as f32, &p.status(), &status);
 
@@ -1177,15 +1560,12 @@ impl Renderer {
             let label = crate::market_ui::TABS.iter().find(|(t, _)| t == tab).map(|(_, l)| *l).unwrap_or("");
             self.choice_pill(pm, ax, ay, rect, label, *tab == p.tab);
         }
-        let arrow = TextStyle { kind: FontKind::Amount, px: 16.0, color: rgb(C_INK) };
         for (rect, glyph) in [(&lay.back, "<"), (&lay.prev, "<"), (&lay.next, ">")] {
             let Some(rect) = rect else { continue };
-            let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-            self.pill(pm, bx, by, rect.w as f32, rect.h as f32, rgb(C_LINE));
-            self.draw_text(pm, bx + 7.0, by + rect.h as f32 - 5.0, glyph, &arrow);
+            self.outlined_button(pm, rect, ax, ay, glyph, 0.0, true);
         }
         if let Some(pos) = lay.heading_pos {
-            let style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
+            let style = TextStyle { kind: FontKind::Amount, px: 18.0, color: theme::color(theme::TEXT) };
             self.draw_text(pm, ax + pos.0 as f32, ay + pos.1 as f32, &crate::market_ui::heading_text(p), &style);
         }
         if let Some(pos) = lay.page_pos {
@@ -1201,15 +1581,14 @@ impl Renderer {
             let baseline = top + rect.h as f32 - 5.0;
             match line {
                 Line::Section(title) => {
-                    let style = TextStyle { kind: FontKind::Amount, px: 15.0, color: rgb(C_GOLD) };
-                    self.draw_text(pm, ax + rect.x as f32, baseline, title, &style);
+                    self.section_heading(pm, ax + rect.x as f32, baseline, rect.w as f32, title);
                 }
                 Line::Message(text) => {
                     let style = TextStyle { kind: FontKind::Annotation, px: 15.0, color: dim };
                     self.draw_text(pm, ax + rect.x as f32, baseline, text, &style);
                 }
                 Line::Caption => {
-                    let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: dim };
+                    let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
                     let xs: &[i32] = if groups {
                         &[c.price, c.volume, c.change, c.spark]
                     } else {
@@ -1218,7 +1597,7 @@ impl Renderer {
                     for (x, caption) in xs.iter().zip(captions) {
                         self.draw_text(pm, ax + *x as f32, baseline, &caption.to_uppercase(), &style);
                     }
-                    self.pill(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0, rgb(C_LINE));
+                    self.hairline(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
                 }
                 Line::Note(text) => {
                     let style = TextStyle { kind: FontKind::Annotation, px: Self::MARKET_SMALL_PX, color: dim };
@@ -1231,7 +1610,7 @@ impl Renderer {
                     for ((text, cell_ink), x) in cells.iter().zip(xs) {
                         let x = ax + *x as f32;
                         if *cell_ink == Ink::Caption {
-                            let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: dim };
+                            let style = TextStyle { kind: FontKind::Amount, px: EVAL_COL_PX, color: theme::color(theme::TEXT_MUTED) };
                             self.draw_text(pm, x, baseline, &text.to_uppercase(), &style);
                             continue;
                         }
@@ -1239,15 +1618,15 @@ impl Renderer {
                         // table, so its greying does not reach them.
                         let color = match cell_ink {
                             Ink::Dim | Ink::Caption => dim,
-                            Ink::Up => rgb(C_UP),
-                            Ink::Down => rgb(C_DOWN),
-                            Ink::Normal => rgb(C_INK),
+                            Ink::Up => theme::color(theme::PRICE_RISE),
+                            Ink::Down => theme::color(theme::PRICE_FALL),
+                            Ink::Normal => theme::color(theme::TEXT),
                         };
                         let style = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color };
                         self.draw_text(pm, x, baseline, text, &style);
                     }
                     if is_caption {
-                        self.pill(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, 1.0, rgb(C_LINE));
+                        self.hairline(pm, ax + rect.x as f32, top + rect.h as f32 - 1.0, rect.w as f32, theme::BORDER_ROW);
                     }
                 }
                 Line::Group(g) => {
@@ -1267,15 +1646,15 @@ impl Renderer {
                     // A row is as fresh as the part it came from.
                     let row_old = if r.listed { p.uniques_greyed() } else { greyed };
                     let muted = r.tone != Tone::Normal || row_old;
-                    let row_ink = if muted { dim } else { rgb(C_INK) };
+                    let row_ink = if muted { dim } else { theme::color(theme::TEXT) };
                     let text = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: row_ink };
                     self.draw_text(pm, ax + c.name as f32, baseline, &r.name, &text);
                     self.draw_text(pm, ax + c.price as f32, baseline, &r.price, &text);
                     self.draw_text(pm, ax + c.volume as f32, baseline, &r.volume, &text);
                     let moved = match r.change_sign {
                         _ if muted => dim,
-                        1 => rgb(C_UP),
-                        -1 => rgb(C_DOWN),
+                        1 => theme::color(theme::PRICE_RISE),
+                        -1 => theme::color(theme::PRICE_FALL),
                         _ => row_ink,
                     };
                     self.draw_text(pm, ax + c.change as f32, baseline, &r.change, &TextStyle { color: moved, ..text });
@@ -1310,12 +1689,11 @@ impl Renderer {
     ) {
         use crate::craft_ui::{Ink, Style, TABS};
         let (ax, ay) = (anchor.0 as f32, anchor.1 as f32);
-        self.pill(pm, ax, ay, lay.w as f32, lay.h as f32, panel_border());
+        self.surface(pm, ax, ay, lay.w as f32, lay.h as f32);
 
-        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: rgb(C_INK) };
+        let title = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: theme::color(theme::GOLD_LIGHT) };
         self.draw_text(pm, ax + lay.title_pos.0 as f32, ay + lay.title_pos.1 as f32, "Craft", &title);
-        let x_style = TextStyle { kind: FontKind::Amount, px: 18.0, color: rgb(C_INK) };
-        self.draw_text(pm, ax + lay.close.x as f32 + 4.0, ay + lay.close.y as f32 + 15.0, "x", &x_style);
+        self.title_button(pm, &lay.close, ax, ay, "x", 0.0);
         for (rect, view) in &lay.tabs {
             let label = TABS.iter().find(|(v, _)| v == view).map(|(_, l)| *l).unwrap_or("");
             self.choice_pill(pm, ax, ay, rect, label, *view == p.view);
@@ -1325,7 +1703,7 @@ impl Renderer {
         for (rect, _, open) in &lay.rows {
             if *open {
                 let mut lift = Paint::default();
-                lift.set_color(Color::from_rgba8(C_GOLD.0, C_GOLD.1, C_GOLD.2, 0x18));
+                lift.set_color(theme::color_alpha(theme::GOLD, 0x18));
                 if let Some(r) = SkRect::from_xywh(ax + rect.x as f32, ay + rect.y as f32, rect.w as f32, rect.h as f32) {
                     pm.fill_rect(r, &lift, self.xf(), None);
                 }
@@ -1333,12 +1711,12 @@ impl Renderer {
         }
 
         let color = |ink: Ink| match ink {
-            Ink::Normal => rgb(C_INK),
-            Ink::Dim => rgb(C_INK2),
-            Ink::Gold => rgb(C_GOLD),
-            Ink::Magic => rgb(C_BLUE_LT),
-            Ink::Warn => rgb(C_DOWN),
-            Ink::Unknown => rgb(C_SUFFIX),
+            Ink::Normal => theme::color(theme::TEXT),
+            Ink::Dim => theme::color(theme::TEXT_DIM),
+            Ink::Gold => theme::color(theme::GOLD),
+            Ink::Magic => theme::color(theme::RARITY_MAGIC),
+            Ink::Warn => theme::color(theme::PRICE_FALL),
+            Ink::Unknown => theme::color(theme::AFFIX_SUFFIX),
         };
         for t in std::iter::once(&lay.status).chain(&lay.texts) {
             let (kind, px) = match t.style {
@@ -1353,24 +1731,20 @@ impl Renderer {
             self.draw_text(pm, ax + t.rect.x as f32, baseline, &t.text, &TextStyle { kind, px, color: color(t.ink) });
         }
 
-        let arrow = TextStyle { kind: FontKind::Amount, px: 14.0, color: rgb(C_INK) };
-        let tier = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: rgb(C_INK) };
+        let tier = TextStyle { kind: FontKind::Annotation, px: POPUP_LINE_PX, color: theme::color(theme::TEXT) };
         for f in &lay.families {
             if !f.greyed {
                 self.eval_check(pm, &f.check, ax, ay, f.ticked);
             }
             let Some(t) = &f.tier else { continue };
             for (rect, glyph) in [(&t.better, "<"), (&t.worse, ">")] {
-                let (bx, by) = (ax + rect.x as f32, ay + rect.y as f32);
-                self.pill(pm, bx, by, rect.w as f32, rect.h as f32, rgb(C_LINE));
-                let gw = self.text_width(FontKind::Amount, glyph, 14.0);
-                self.draw_text(pm, bx + (rect.w as f32 - gw) / 2.0, by + rect.h as f32 - 5.0, glyph, &arrow);
+                self.outlined_button(pm, rect, ax, ay, glyph, 0.0, true);
             }
             let baseline = ay + (t.better.y + t.better.h as i32 - 3) as f32;
             self.draw_text(pm, ax + t.text_x as f32, baseline, &t.text, &tier);
         }
         for b in &lay.buttons {
-            self.small_button(pm, ax, ay, &b.rect, &b.label, b.on);
+            self.outlined_button(pm, &b.rect, ax, ay, &b.label, 0.0, b.on);
         }
     }
 
@@ -1411,9 +1785,9 @@ impl Renderer {
         let pill_h = content_h + POPUP_PAD * 2.0 - POPUP_ROW_GAP;
         let pill_x = ax as f32;
         let pill_y = ay as f32;
-        self.pill(pm, pill_x, pill_y, self.popup_width(popup), pill_h, panel_border());
+        self.surface(pm, pill_x, pill_y, self.popup_width(popup), pill_h);
 
-        let title_color = rgb(C_INK);
+        let title_color = theme::color(theme::TEXT);
         let title_style = TextStyle { kind: FontKind::Amount, px: POPUP_TITLE_PX, color: title_color };
         let title_baseline = pill_y + POPUP_PAD + POPUP_TITLE_PX * 0.8;
         self.draw_text(pm, pill_x + POPUP_PAD, title_baseline, &popup.title, &title_style);
@@ -1437,4 +1811,20 @@ impl Renderer {
 
 fn load_icon(bytes: &[u8]) -> anyhow::Result<RgbaImage> {
     Ok(image::load_from_memory(bytes)?.to_rgba8())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn price_cells_split_at_their_unit_word() {
+        assert_eq!(split_price_unit("12 div"), Some(("12", Denom::Divine, "")));
+        assert_eq!(split_price_unit("3 ex"), Some(("3", Denom::Exalted, "")));
+        assert_eq!(split_price_unit("7 chaos"), Some(("7", Denom::Chaos, "")));
+        assert_eq!(split_price_unit("2 div x3"), Some(("2", Denom::Divine, " x3")));
+        assert_eq!(split_price_unit("no price"), None);
+        assert_eq!(split_price_unit("1 alch"), None);
+        assert_eq!(split_price_unit("div"), None);
+    }
 }

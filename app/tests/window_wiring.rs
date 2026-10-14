@@ -94,6 +94,7 @@ fn a_check_produces_table_ninja_ladder_closest_and_budget_from_fixtures() {
         table: &table,
         divine_threshold: 1.0,
         built: Some(&built),
+        base: None,
     });
 
     // The table: the fixture's 18 entries, one null, folded by EE2's rule.
@@ -206,6 +207,7 @@ fn closest_listings_build_from_the_fetch_fixture() {
         table: &table(),
         divine_threshold: 1.0,
         built: Some(&built),
+        base: None,
     };
     let blocks = appraise::blocks(&fetched);
     let closest = blocks.closest.expect("the comparison runs for the built rare");

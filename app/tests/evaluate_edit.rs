@@ -24,7 +24,7 @@ fn stat_row(i: usize, min: Option<f64>) -> StatRow {
 
 fn panel(rows: Vec<StatRow>) -> Panel {
     Panel {
-        header: ItemHeader { name: "Horror Bane".into(), rarity: "Rare".into(), item_level: None, requires_level: None, base: None },
+        header: ItemHeader { name: "Horror Bane".into(), rarity: "Rare".into(), item_level: None, requires_level: None, base: None, base_type: None },
         rows,
         ..Panel::default()
     }

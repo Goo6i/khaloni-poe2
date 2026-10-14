@@ -266,8 +266,12 @@ impl MarketUi {
     }
 }
 
-const UP: egui::Color32 = egui::Color32::from_rgb(0x7F, 0xB8, 0x6A);
-const DOWN: egui::Color32 = egui::Color32::from_rgb(0xD9, 0x7A, 0x5F);
+fn up() -> egui::Color32 {
+    crate::settings_style::color32(crate::theme::PRICE_RISE)
+}
+fn down() -> egui::Color32 {
+    crate::settings_style::color32(crate::theme::PRICE_FALL)
+}
 
 /// A week of points as a chart: a line through the days that have a
 /// figure, broken where one is missing, a dot for a lone day.
@@ -317,8 +321,8 @@ fn header(ui: &mut egui::Ui, sort: &mut (Column, bool), label: &str, column: Col
 fn signed(ui: &mut egui::Ui, pct: Option<f64>, muted: bool) {
     match pct {
         Some(p) if muted => ui.weak(percent_text(p)),
-        Some(p) if p > 0.0 => ui.colored_label(UP, percent_text(p)),
-        Some(p) if p < 0.0 => ui.colored_label(DOWN, percent_text(p)),
+        Some(p) if p > 0.0 => ui.colored_label(up(), percent_text(p)),
+        Some(p) if p < 0.0 => ui.colored_label(down(), percent_text(p)),
         Some(p) => ui.label(percent_text(p)),
         None => ui.label(""),
     };
@@ -375,8 +379,8 @@ fn item_table(
             };
             let color = match r.change {
                 _ if muted => egui::Color32::GRAY,
-                Some(c) if c > 0.0 => UP,
-                Some(c) if c < 0.0 => DOWN,
+                Some(c) if c > 0.0 => up(),
+                Some(c) if c < 0.0 => down(),
                 _ => egui::Color32::LIGHT_GRAY,
             };
             chart(ui, egui::vec2(90.0, 20.0), &r.points, color);
@@ -431,12 +435,11 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
             }
         }
     }
-    let reload = ui.button("Reload the game log and the stash history").clicked();
+    use crate::settings_style as st;
+    let reload = st::button(ui, "Reload the game log and the stash history").clicked();
     match &state.loaded {
         None => {}
-        Some(Err(e)) => {
-            ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), e);
-        }
+        Some(Err(e)) => st::warning(ui, e),
         Some(Ok(loaded)) => {
             let view = crate::myruns::View::build(&loaded.summary);
             if !view.has_runs() {
@@ -455,7 +458,7 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
                 }
             });
             if let Some(note) = &view.totals_note {
-                ui.small(note);
+                st::note(ui, note);
             }
             ui.add_space(6.0);
             ui.strong("Income");
@@ -483,7 +486,7 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
                         ui.end_row();
                     }
                 });
-                ui.small(crate::myruns::SEEN_NOTE);
+                st::note(ui, crate::myruns::SEEN_NOTE);
             }
             if !loaded.summary.blocks.is_empty() {
                 ui.add_space(6.0);
@@ -507,9 +510,9 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
                                 Some(f) => {
                                     let text = income::signed_div_text(f.income_div);
                                     if f.income_div > 0.0 {
-                                        ui.colored_label(UP, text);
+                                        ui.colored_label(up(), text);
                                     } else if f.income_div < 0.0 {
-                                        ui.colored_label(DOWN, text);
+                                        ui.colored_label(down(), text);
                                     } else {
                                         ui.weak(text);
                                     }
@@ -528,10 +531,10 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
                 });
             }
             if let Some(footer) = &view.footer {
-                ui.small(footer);
+                st::note(ui, footer);
             }
             ui.add_space(6.0);
-            if ui.button("Export runs and blocks as CSV").clicked() {
+            if st::button(ui, "Export runs and blocks as CSV").clicked() {
                 let now = crate::prices::unix_now();
                 let stamp = income::stamp_text(now).replace([':', '-'], "").replace(' ', "-");
                 state.exported = Some(
@@ -541,12 +544,8 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
                 );
             }
             match &state.exported {
-                Some(Ok(text)) => {
-                    ui.small(text);
-                }
-                Some(Err(e)) => {
-                    ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), e);
-                }
+                Some(Ok(text)) => st::note(ui, text),
+                Some(Err(e)) => st::warning(ui, e),
                 None => {}
             }
         }
@@ -557,33 +556,44 @@ fn section_my_runs(ui: &mut egui::Ui, cfg: &Config, state: &mut RunsUi) {
 }
 
 pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi) {
-    ui.heading("Market");
-    ui.add_space(4.0);
+    use crate::settings_style as st;
     // The player's own results, apart from the market's figures and above
     // them, so they show whatever state the price cache is in.
-    egui::CollapsingHeader::new("My runs").id_salt("market-my-runs").show(ui, |ui| {
-        section_my_runs(ui, cfg, &mut state.runs);
-    });
-    ui.add_space(8.0);
+    // Folded until asked for: unfolding is what reads the run log.
+    if st::fold(ui, "market-my-runs", "My runs", false) {
+        st::card(ui, "market-my-runs", |ui| {
+            ui.add_space(8.0);
+            section_my_runs(ui, cfg, &mut state.runs);
+            ui.add_space(8.0);
+        });
+    }
     state.ensure(cfg);
 
     // Floors first: they decide what every table below may say.
-    ui.label("Liquidity floors");
-    ui.horizontal(|ui| {
-        ui.label("an exchange item ranks from");
-        ui.add(egui::DragValue::new(&mut cfg.market_volume_floor_div).speed(0.5).range(0.0..=100_000.0).suffix(" div"));
-        ui.label("traded volume");
-    });
-    ui.horizontal(|ui| {
-        ui.label("a listed item ranks from");
-        ui.add(egui::DragValue::new(&mut cfg.market_listings_rank).range(1..=10_000).suffix(" listings"));
-        ui.label("and is not trusted under");
-        ui.add(egui::DragValue::new(&mut cfg.market_listings_min).range(1..=10_000).suffix(" listings"));
+    st::group_heading(ui, "Liquidity floors");
+    st::card(ui, "market-floors", |ui| {
+        st::row(ui, "an exchange item ranks from", None, |ui| {
+            ui.label("traded volume");
+            st::stepper(ui, &mut cfg.market_volume_floor_div, 0.5, 0.0..=100_000.0, " div");
+        });
+        st::row(ui, "a listed item ranks from", None, |ui| {
+            let mut v = f64::from(cfg.market_listings_rank);
+            if st::stepper(ui, &mut v, 1.0, 1.0..=10_000.0, " listings") {
+                cfg.market_listings_rank = v as u32;
+            }
+        });
+        st::row_last(ui, "and is not trusted under", None, |ui| {
+            let mut v = f64::from(cfg.market_listings_min);
+            if st::stepper(ui, &mut v, 1.0, 1.0..=10_000.0, " listings") {
+                cfg.market_listings_min = v as u32;
+            }
+        });
     });
     if let Some(problem) = cfg.market_floors().problem() {
-        ui.colored_label(egui::Color32::RED, format!("{problem}: the defaults are used until this is fixed"));
+        st::warning(ui, &format!("{problem}: the defaults are used until this is fixed"));
     }
-    ui.small(
+    st::note(
+        ui,
         "Traded volume is poe.ninja's volumePrimaryValue, in divines. poe.ninja does not publish the period it \
          covers, so no period is named here and the figure is used only to rank, to weigh and against this floor.",
     );
@@ -594,7 +604,7 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
     ui.horizontal(|ui| {
         if tables.model.items.is_empty() {
             ui.label(crate::league::loading_text(&cfg.league));
-            ui.weak("(nothing cached yet: the running overlay fetches the prices)");
+            st::note(ui, "(nothing cached yet: the running overlay fetches the prices)");
         } else {
             let part = |what: &str, at: Option<i64>| match at {
                 Some(t) => format!("{what} {} old", age_text(now - t)),
@@ -608,11 +618,11 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
             ));
             let oldest = [tables.fetched_at, tables.uniques_fetched_at].into_iter().flatten().min();
             if oldest.is_some_and(|t| now - t > market::GREY_AFTER_SECS) {
-                ui.colored_label(egui::Color32::from_rgb(0xE0, 0x60, 0x50), "older than 3 hours");
+                st::warning(ui, "older than 3 hours");
             }
         }
     });
-    let reload = ui.button("Reload from cache").clicked();
+    let reload = st::button(ui, "Reload from cache").clicked();
     if tables.model.items.is_empty() {
         if reload {
             state.market = None;
@@ -620,7 +630,7 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
         return;
     }
     let d = tables.model.dropped;
-    ui.small(format!(
+    st::note(ui, &format!(
         "{} items. Left out at parse time: {} lines without a usable price, {} volumes and {} history points that \
          were not usable numbers. {} listed uniques sit at the 1 ex floor of their own overview and are untrusted: \
          their move in divines is the exalted orb's.",
@@ -630,7 +640,7 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
         d.points,
         tables.model.floor_pinned
     ));
-    ui.small(match tables.first_record {
+    st::note(ui, &match tables.first_record {
         Some(first) => format!(
             "History log: {} records since {} ago. The 24 h and 3 d columns fill in once the log spans them.",
             tables.records,
@@ -640,20 +650,23 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
             .to_string(),
     });
     if tables.model.young {
-        ui.colored_label(egui::Color32::from_rgb(0xE0, 0xB0, 0x50), TOO_YOUNG);
+        st::warning(ui, TOO_YOUNG);
     }
     ui.add_space(8.0);
 
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut state.shown, Shown::Groups, "Mechanics & markets");
-        ui.selectable_value(&mut state.shown, Shown::Movers, "Movers");
-    });
+    st::segmented(
+        ui,
+        "market-shown",
+        &[(Shown::Groups, "Mechanics & markets"), (Shown::Movers, "Movers")],
+        &mut state.shown,
+    );
     ui.add_space(4.0);
 
     let MarketUi { shown, group, sort, show_untrusted, selected, tables, .. } = state;
     let Some(tables) = tables.as_ref() else { return };
     match shown {
         Shown::Groups => {
+            st::card(ui, "market-groups-card", |ui| {
             egui::Grid::new("market-groups").num_columns(7).striped(true).spacing([14.0, 4.0]).show(ui, |ui| {
                 for h in ["group", "traded volume", "share", "price index", "7 days", "rests on", "breadth"] {
                     ui.label(egui::RichText::new(h).strong());
@@ -685,36 +698,43 @@ pub fn section_market(ui: &mut egui::Ui, cfg: &mut Config, state: &mut MarketUi)
                             ui.label("");
                         }
                     }
-                    let color = if g.index_pct.unwrap_or(0.0) >= 0.0 { UP } else { DOWN };
+                    let color = if g.index_pct.unwrap_or(0.0) >= 0.0 { up() } else { down() };
                     chart(ui, egui::vec2(110.0, 22.0), &g.index_points, color);
                     ui.weak(coverage_text(g));
                     ui.weak(breadth_text(&g.breadth));
                     ui.end_row();
                 }
             });
+            });
             ui.add_space(10.0);
             if let (Some(g), Some(rows)) = (tables.model.groups.get(*group), tables.group_rows.get(*group)) {
-                ui.strong(category_label(&g.category));
-                item_table(ui, "market-items", rows, sort, "traded volume", selected);
+                st::group_heading(ui, &category_label(&g.category));
+                st::card(ui, "market-items-card", |ui| item_table(ui, "market-items", rows, sort, "traded volume", selected));
                 detail(ui, rows, selected);
             }
         }
         Shown::Movers => {
             if tables.model.young {
-                ui.label(TOO_YOUNG);
+                st::warning(ui, TOO_YOUNG);
                 return;
             }
-            ui.checkbox(
-                show_untrusted,
-                format!("show the {} untrusted listed items (no trend is given for them)", tables.untrusted.len()),
-            );
+            st::card(ui, "market-untrusted-switch", |ui| {
+                st::row_last(
+                    ui,
+                    &format!("show the {} untrusted listed items (no trend is given for them)", tables.untrusted.len()),
+                    None,
+                    |ui| {
+                        st::switch(ui, show_untrusted);
+                    },
+                );
+            });
             if *show_untrusted {
-                item_table(ui, "market-untrusted", &tables.untrusted, sort, "listed", selected);
+                st::card(ui, "market-untrusted-card", |ui| item_table(ui, "market-untrusted", &tables.untrusted, sort, "listed", selected));
                 ui.add_space(10.0);
             }
             for (title, rows, id) in [("Risers", &tables.risers, "market-risers"), ("Fallers", &tables.fallers, "market-fallers")] {
-                ui.strong(format!("{title} ({})", rows.len()));
-                item_table(ui, id, rows, sort, "traded volume / listed", selected);
+                st::group_heading(ui, &format!("{title} ({})", rows.len()));
+                st::card(ui, id, |ui| item_table(ui, id, rows, sort, "traded volume / listed", selected));
                 detail(ui, rows, selected);
                 ui.add_space(10.0);
             }
@@ -734,8 +754,8 @@ fn detail(ui: &mut egui::Ui, rows: &[Row], selected: &Option<(String, String)>) 
     ui.group(|ui| {
         ui.strong(&r.name);
         let color = match r.change {
-            Some(c) if c < 0.0 => DOWN,
-            _ => UP,
+            Some(c) if c < 0.0 => down(),
+            _ => up(),
         };
         chart(ui, egui::vec2(ui.available_width().min(520.0), 120.0), &r.points, color);
         let days: Vec<String> =
