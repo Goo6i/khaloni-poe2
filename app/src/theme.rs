@@ -6,6 +6,8 @@
 //! (https://github.com/mttzzz/poe2-oracle, `crates/poe2-oracle/src/ui/theme.rs`
 //! and `style.rs`, MIT OR Apache-2.0), ported with attribution. Colours
 //! are `0xRRGGBB`.
+//!
+//! Used under the MIT licence; the notice is in `ornament.rs`.
 
 use std::time::Duration;
 
