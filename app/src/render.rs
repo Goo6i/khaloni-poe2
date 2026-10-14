@@ -893,11 +893,15 @@ impl Renderer {
         let (dw, dh) = (((x1 - x0) as f32 * scale).ceil() as u32, ((y1 - y0) as f32 * scale).ceil() as u32);
         let Some(mut tmp) = Pixmap::new(dw.max(1), dh.max(1)) else { return };
         self.draw_evaluate_into(&mut tmp, panel, lay, (-x0, -y0), editing, edit_buf, now);
-        let rise = (1.0 - appear) * theme::APPEAR_RISE * scale;
+        // The panel's origin lands on the device pixel the direct draw
+        // puts it on, rounded the same way, so the settled frame does not
+        // jump when the animation ends.
+        let s = self.device_scale();
+        let rise = ((1.0 - appear) * theme::APPEAR_RISE * scale).round() as i32;
         let paint = tiny_skia::PixmapPaint { opacity: appear, ..Default::default() };
         pm.draw_pixmap(
-            ((anchor.0 + x0) as f32 * scale).round() as i32,
-            ((anchor.1 + y0) as f32 * scale + rise).round() as i32,
+            s.device(anchor.0 as f32) - s.device(-x0 as f32),
+            s.device(anchor.1 as f32) - s.device(-y0 as f32) + rise,
             tmp.as_ref(),
             &paint,
             Transform::identity(),

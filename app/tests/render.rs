@@ -800,6 +800,31 @@ fn an_opening_panel_is_drawn_faint_and_risen_then_settles() {
 }
 
 #[test]
+fn the_last_appearing_frame_lands_where_the_settled_frame_does() {
+    use std::time::{Duration, Instant};
+    let r = Renderer::new().unwrap();
+    // 2 * 1.25 = 2.5 device px: the overlay rounds that half toward zero.
+    r.set_scale(1.25);
+    let settled = listing_panel();
+    let lay = ev::layout(&settled, &|s| r.evaluate_label_width(s));
+    let size = ((lay.size.0 as f32 * 1.25) as u32 + 20, (lay.size.1 as f32 * 1.25) as u32 + 20);
+    let t0 = Instant::now();
+    let opening = ev::Panel { opened_at: Some(t0), ..settled.clone() };
+    let mut last = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut last, &opening, &lay, (2, 2), None, "", t0 + theme::APPEAR - Duration::from_millis(1));
+    let mut direct = tiny_skia::Pixmap::new(size.0, size.1).unwrap();
+    r.draw_evaluate(&mut direct, &settled, &lay, (2, 2), None, "", t0);
+    let edge = |pm: &tiny_skia::Pixmap| {
+        let y = size.1 / 2;
+        let x = (0..size.0).find(|x| pm.pixel(*x, y).unwrap().alpha() > 0).unwrap();
+        let mid = size.0 / 2;
+        let top = (0..size.1).find(|yy| pm.pixel(mid, *yy).unwrap().alpha() > 0).unwrap();
+        (x, top)
+    };
+    assert_eq!(edge(&last), edge(&direct));
+}
+
+#[test]
 fn hairlines_are_one_device_pixel_tall_at_fractional_scales() {
     use khaloni_poe2::ornament::Scale;
     use khaloni_poe2::theme;

@@ -3664,6 +3664,9 @@ fn overlay_mode(
     // expiry (which changes nothing else about the frame) still forces the
     // repaint that clears it.
     let mut last_frame: Option<FrameState> = None;
+    // The panel was animating on the last tick: the tick where it stops
+    // repaints once more, so the settled frame replaces the last eased one.
+    let mut was_animating = false;
     // Latest rumours from the recognizer worker (capture-physical px boxes).
     let mut latest_rumours: Vec<khaloni_poe2::rumours::RumourHit> = Vec::new();
     let dbg = std::env::var("KHALONI_DEBUG").is_ok();
@@ -5189,7 +5192,8 @@ fn overlay_mode(
             // to clear it, even though nothing else about the rows changed.
             let now = std::time::Instant::now();
             let animating = apanel.as_ref().is_some_and(|(p, _, _)| khaloni_poe2::evaluate_ui::animating(p, now));
-            if resized || animating || frame_state != last_frame {
+            let settling = std::mem::replace(&mut was_animating, animating) && !animating;
+            if resized || animating || settling || frame_state != last_frame {
                 match &frame_state {
                     Some((placed, rate, stale, popup, panel, rumours, edit_state, mkt_state, craft_state)) => {
                         renderer.draw_frame(pm, placed, rate, *stale);
