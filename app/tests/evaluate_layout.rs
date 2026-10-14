@@ -66,15 +66,52 @@ fn every_row_group_present_gets_one_heading_with_its_count() {
 }
 
 #[test]
-fn the_art_slot_is_laid_out_only_when_the_panel_has_art() {
+fn the_art_slot_is_reserved_when_art_is_expected_even_before_it_arrives() {
+    let waiting = ev::layout(&Panel { expects_art: true, ..panel(None, false) }, &measure);
+    let with = ev::layout(&panel(None, true), &measure);
+    let art = waiting.art.expect("a reserved art slot");
+    assert_eq!((art.w, art.h), (48, 48));
+    assert!(art.y >= waiting.banner.y && art.y + 48 <= waiting.banner.y + waiting.banner.h as i32, "art inside the banner");
+    assert_eq!(waiting.banner.h, with.banner.h, "the banner is already as tall as with art");
+}
+
+#[test]
+fn no_slot_is_reserved_for_a_panel_that_expects_no_art() {
     let without = ev::layout(&panel(None, false), &measure);
     assert!(without.art.is_none());
     assert!(without.base_type_pos.is_none(), "no base line without a base type");
-    let with = ev::layout(&panel(None, true), &measure);
-    let art = with.art.expect("an art slot");
-    assert_eq!((art.w, art.h), (48, 48));
-    assert!(art.y >= with.banner.y && art.y + 48 <= with.banner.y + with.banner.h as i32, "art inside the banner");
-    assert!(with.banner.h >= without.banner.h, "the banner grows to hold the art");
+}
+
+#[test]
+fn arriving_art_does_not_change_the_layout() {
+    let card = ev::Card { name: String::new(), base: String::new(), rarity: String::new(), figures: Vec::new(), lines: Vec::new() };
+    let listing = ev::ListingRow {
+        price: "4.8 div".into(),
+        raw: String::new(),
+        age: "2 h".into(),
+        seller: "Vaalstep#3311".into(),
+        state: ev::SellerState::Online,
+        mine: false,
+        times: 1,
+        stack: None,
+        ilvl: Some(81),
+        quality: None,
+        gem_level: None,
+        corrupted: false,
+        instant_buyout: true,
+        card,
+    };
+    let before = Panel { expects_art: true, listings: vec![listing], ..panel(Some("Soldier Cuirass"), false) };
+    let after = Panel { art: Some(ev::Art::new(image::RgbaImage::new(48, 48))), ..before.clone() };
+    let (a, b) = (ev::layout(&before, &measure), ev::layout(&after, &measure));
+    assert_eq!(a.size, b.size);
+    assert_eq!(a.banner, b.banner);
+    assert_eq!(a.rows.len(), b.rows.len());
+    for (ra, rb) in a.rows.iter().zip(&b.rows) {
+        assert_eq!(ra.label_pos, rb.label_pos);
+    }
+    let first = |l: &ev::Layout| l.table.as_ref().expect("a listings table").rows[0];
+    assert_eq!(first(&a), first(&b));
 }
 
 #[test]

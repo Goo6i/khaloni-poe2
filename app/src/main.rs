@@ -1131,6 +1131,9 @@ enum AppraiseDone {
         /// The item's base type when it has a name of its own, for the
         /// nameplate; None when the name is the base.
         base_type: Option<String>,
+        /// A trade search follows, whose listings carry the item's art: the
+        /// nameplate reserves the art slot now.
+        expects_art: bool,
     },
     /// Listings for the panel with this title. Boxed: a search's answer
     /// carries every block of the card and dwarfs the other variants.
@@ -1339,6 +1342,7 @@ impl TradeWorker {
                         unsearchable: Vec::new(),
                         extra: Vec::new(),
                         base_type: None,
+                        expects_art: false,
                     });
                 }
                 let _ = self.done_tx.send(AppraiseDone::Result { title, outcome: Err(why), strictness });
@@ -1523,6 +1527,7 @@ impl TradeWorker {
                     unsearchable: Vec::new(),
                     extra: Vec::new(),
                     base_type: None,
+                    expects_art: false,
                 });
                 let answer = self.exchange_price(&name);
                 let offers = answer.as_ref().ok().and_then(|a| a.as_ref()).map(|(_, view)| view.offers.len());
@@ -1611,6 +1616,7 @@ impl TradeWorker {
                         unsearchable,
                         extra: built.extra,
                         base_type,
+                        expects_art: false,
                     });
                     let _ = self.done_tx.send(AppraiseDone::Result {
                         title,
@@ -1684,6 +1690,7 @@ impl TradeWorker {
             unsearchable,
             extra,
             base_type,
+            expects_art: true,
         });
         let outcome = self.search(&query, &title).map(Box::new);
         let icon = outcome.as_ref().ok().and_then(|d| d.blocks.icon.clone());
@@ -4400,8 +4407,9 @@ fn overlay_mode(
                 // Seed: open the interactive panel where the "searching
                 // trade..." popup was anchored, with every row and no
                 // listings yet.
-                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra, base_type } => {
-                    let panel = build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), base_type);
+                AppraiseDone::Seed { title, query, labels, facts, unsearchable, extra, base_type, expects_art } => {
+                    let mut panel = build_panel(title, &query, &labels, facts, unsearchable, &extra, reference.get(), base_type);
+                    panel.expects_art = expects_art;
                     let origin = popup_at.map(|(o, _)| o).unwrap_or(cursor_pos);
                     let lay = khaloni_poe2::evaluate_ui::layout(&panel, &|s| {
                         renderer.evaluate_label_width(s)
@@ -4412,7 +4420,6 @@ fn overlay_mode(
                     // Fresh check: forget any earlier drag so the panel opens
                     // at its placed position, never where it was last dragged.
                     close_eval(&mut apanel, &mut editing, &mut edit_buf, &mut panel_drag, &mut searched);
-                    let mut panel = panel;
                     panel.screen_right = Some(overlay.output_pos().0 + overlay.size().0 as i32 - pos.0);
                     panel.opened_at = Some(std::time::Instant::now());
                     apanel = Some((panel, *query, pos));

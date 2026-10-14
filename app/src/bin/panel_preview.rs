@@ -263,6 +263,7 @@ fn main() -> anyhow::Result<()> {
         budget_text: "searches 4/30 (5 min)".into(),
         // A green square in the art slot, so the slot's place is visible.
         art: Some(ev::Art::new(image::RgbaImage::from_pixel(48, 48, image::Rgba([60, 170, 80, 255])))),
+        expects_art: true,
         ..panel("Sol Wrap", "Rare", armour_rows(), &status)
     };
 

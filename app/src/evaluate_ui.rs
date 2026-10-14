@@ -541,6 +541,10 @@ pub struct Panel {
     pub header: ItemHeader,
     /// The item's art, drawn in the nameplate when present.
     pub art: Option<Art>,
+    /// Art is on its way (the item runs a trade search, whose listings
+    /// carry the icon): the slot is reserved now, so nothing shifts when
+    /// it arrives.
+    pub expects_art: bool,
     pub rows: Vec<StatRow>,
     /// The filters of the extra rows, addressed by `Target::Extra`; a
     /// ticked one has `disabled` false. Kept here and not in the query, so
@@ -1011,7 +1015,7 @@ fn content_width(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> i32 {
         .max(LABEL_MIN_W);
     // The name draws in the large font; approximate its advance so a long
     // rare name does not overrun the close box.
-    let name_w = if panel.art.is_some() {
+    let name_w = if panel.expects_art || panel.art.is_some() {
         ART + 10 + measure(&panel.header.name) * 3 / 2 + 10 + ART
     } else {
         measure(&panel.header.name) * 3 / 2 + CLOSE + GAP
@@ -1120,7 +1124,8 @@ pub fn layout(panel: &Panel, measure: &dyn Fn(&str) -> i32) -> Layout {
         p
     });
     // The art column is as tall as the name block at least.
-    let art = f.art.as_ref().map(|_| Rect { x: PAD, y: banner_top + BANNER_PAD_TOP, w: ART as u32, h: ART as u32 });
+    let art = (f.expects_art || f.art.is_some())
+        .then_some(Rect { x: PAD, y: banner_top + BANNER_PAD_TOP, w: ART as u32, h: ART as u32 });
     if art.is_some() {
         y = y.max(banner_top + BANNER_PAD_TOP + ART);
     }
